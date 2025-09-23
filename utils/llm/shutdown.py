@@ -38,7 +38,7 @@ async def _gather_candidate_sessions() -> Set[Any]:
         if isinstance(value, aiohttp.ClientSession):  # type: ignore[attr-defined]
             sessions.add(value)
 
-    # 3. OpenAI legacy / new style aiosession accessor
+    # 3. OpenAI aiosession accessor (handles old/new patterns)
     try:  # pragma: no cover - optional dependency
         import openai  # type: ignore
 
