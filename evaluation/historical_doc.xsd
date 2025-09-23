@@ -1,0 +1,605 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://example.com/historicaldocument"
+           xmlns="http://example.com/historicaldocument"
+           elementFormDefault="qualified">
+
+    <xs:annotation>
+        <xs:documentation>
+            Schema for encoding transcriptions of historical documents, incorporating structural elements, metadata, and detailed inline features.
+        </xs:documentation>
+    </xs:annotation>
+
+    <xs:element name="HistoricalDocument">
+        <xs:annotation>
+            <xs:documentation>The root element for a single transcribed historical document.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element ref="Metadata" minOccurs="1" maxOccurs="1"/>
+                <xs:element ref="Page" minOccurs="1" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Metadata">
+        <xs:annotation>
+            <xs:documentation>Contains metadata about the historical document and the transcription.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="Language" type="xs:string" minOccurs="1" maxOccurs="unbounded">
+                     <xs:annotation>
+                        <xs:documentation>The language(s) present in the document, using ISO 639 codes (e.g., 'eng', 'lat'). List all significant languages.</xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="Script" type="xs:string" minOccurs="1" maxOccurs="unbounded">
+                     <xs:annotation>
+                        <xs:documentation>The script(s) used in the document, using ISO 15924 codes (e.g., 'Latn', 'Cyrl', 'Arab'). List all significant scripts.</xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="WritingDirection" minOccurs="0" maxOccurs="1">
+                     <xs:annotation>
+                        <xs:documentation>The primary writing direction: ltr (left-to-right), rtl (right-to-left), ttb-ltr (top-to-bottom, left-to-right columns), ttb-rtl (top-to-bottom, right-to-left columns).</xs:documentation>
+                    </xs:annotation>
+                    <xs:simpleType>
+                        <xs:restriction base="xs:string">
+                            <xs:enumeration value="ltr"/>
+                            <xs:enumeration value="rtl"/>
+                            <xs:enumeration value="ttb-ltr"/>
+                            <xs:enumeration value="ttb-rtl"/>
+                        </xs:restriction>
+                    </xs:simpleType>
+                </xs:element>
+                 <xs:element name="PhysicalDescription" type="xs:string" minOccurs="0" maxOccurs="1">
+                    <xs:annotation>
+                        <xs:documentation>Description of the physical object (material, dimensions, condition). E.g., 'Parchment, 1 folio, good condition with minor foxing'.</xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="Description" type="xs:string" minOccurs="0" maxOccurs="1">
+                    <xs:annotation>
+                        <xs:documentation>A general description of the document content. E.g., 'Letter concerning trade routes'.</xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="TranscriptionNote" type="xs:string" minOccurs="0" maxOccurs="unbounded">
+                    <xs:annotation>
+                        <xs:documentation>Notes regarding the transcription process, conventions used, or difficulties encountered.</xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Page">
+        <xs:annotation>
+            <xs:documentation>Represents a single page (or folio side) of the document.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element ref="Header" minOccurs="0" maxOccurs="1"/>
+                <xs:element ref="Body" minOccurs="1" maxOccurs="1"/>
+                <xs:element ref="Footer" minOccurs="0" maxOccurs="1"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Header">
+        <xs:annotation>
+            <xs:documentation>Content typically found in the header area of a page.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:element ref="PageNumber" minOccurs="0" maxOccurs="1"/>
+                <xs:element ref="FolioNumber" minOccurs="0" maxOccurs="1"/>
+                <xs:element ref="Heading" minOccurs="0" maxOccurs="1"/>
+            </xs:choice>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Footer">
+        <xs:annotation>
+            <xs:documentation>Content typically found in the footer area of a page.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:element ref="PageNumber" minOccurs="0" maxOccurs="1"/>
+                <xs:element ref="FolioNumber" minOccurs="0" maxOccurs="1"/>
+                <xs:element ref="CatchWord"/>
+                <xs:element ref="SignatureMark"/>
+                <xs:element ref="Heading" minOccurs="0" maxOccurs="1"/>
+            </xs:choice>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="PageNumber" type="xs:string">
+        <xs:annotation>
+            <xs:documentation>A page number marker.</xs:documentation>
+        </xs:annotation>
+    </xs:element>
+    <xs:element name="FolioNumber" type="xs:string">
+        <xs:annotation>
+            <xs:documentation>A folio number marker (numbering leaves instead of pages).</xs:documentation>
+        </xs:annotation>
+    </xs:element>
+    <xs:element name="CatchWord" type="xs:string">
+        <xs:annotation>
+            <xs:documentation>The first word(s) of the next page, printed at the bottom of the current page.</xs:documentation>
+        </xs:annotation>
+    </xs:element>
+    <xs:element name="SignatureMark" type="xs:string">
+        <xs:annotation>
+            <xs:documentation>A mark (letter or number) indicating the gathering in early printed books.</xs:documentation>
+        </xs:annotation>
+    </xs:element>
+
+    <xs:element name="Body">
+        <xs:annotation>
+            <xs:documentation>The main content area of the page.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:choice minOccurs="1" maxOccurs="unbounded">
+                <xs:element ref="Paragraph"/>
+                <xs:element ref="MarginalNote"/>
+                <xs:element ref="Table"/>
+                <xs:element ref="Heading"/>
+                <xs:element ref="DateLine"/>
+                <xs:element ref="DatedEntry"/>
+                <xs:element ref="RecordEntry"/>
+                <xs:element ref="BlockQuotation"/>
+                <xs:element ref="List"/>
+                <xs:element ref="Figure"/>
+                <xs:element ref="Seal"/>
+                <xs:element ref="Stamp"/>
+                <xs:element ref="Watermark"/>
+                <xs:element ref="Formula"/>
+                <xs:element ref="MusicalNotation"/>
+                <xs:element ref="Gap"/>
+                <xs:element ref="InterlinearNote"/>
+            </xs:choice>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Paragraph">
+        <xs:annotation>
+            <xs:documentation>A paragraph of text.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element ref="Line" minOccurs="1" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="MarginalNote">
+        <xs:annotation>
+            <xs:documentation>A note, typically commentary or reference, written in the margin of the page. Contrast with Addition, which represents text added by the original scribe as part of the composition.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element ref="Line" minOccurs="1" maxOccurs="unbounded"/>
+            </xs:sequence>
+            <xs:attribute name="placement" use="required">
+                 <xs:annotation>
+                    <xs:documentation>Specifies the margin where the note appears (left_margin, right_margin, top_margin, bottom_margin).</xs:documentation>
+                </xs:annotation>
+                <xs:simpleType>
+                    <xs:restriction base="xs:string">
+                        <xs:enumeration value="left_margin"/>
+                        <xs:enumeration value="right_margin"/>
+                        <xs:enumeration value="top_margin"/>
+                        <xs:enumeration value="bottom_margin"/>
+                    </xs:restriction>
+                </xs:simpleType>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+     <xs:element name="InterlinearNote">
+        <xs:annotation>
+            <xs:documentation>An inline note, typically commentary or reference, written between the lines. Contrast with Addition. Note that in top-to-bottom languages, interlinear notes appear differently.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType mixed="true">
+             <xs:choice minOccurs="0" maxOccurs="unbounded">
+                 <xs:element ref="Emphasis"/>
+             </xs:choice>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Table">
+        <xs:annotation>
+            <xs:documentation>Represents tabular data.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element ref="TableRow" minOccurs="1" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="TableRow">
+        <xs:annotation>
+            <xs:documentation>A row within a table.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element ref="TableCell" minOccurs="1" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="TableCell">
+        <xs:annotation>
+            <xs:documentation>A cell within a table row.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element ref="Line" minOccurs="1" maxOccurs="unbounded"/>
+            </xs:sequence>
+            <xs:attribute name="role" default="data" use="optional">
+                 <xs:annotation>
+                    <xs:documentation>Specifies whether the cell acts as a header or data cell.</xs:documentation>
+                </xs:annotation>
+                <xs:simpleType>
+                    <xs:restriction base="xs:string">
+                        <xs:enumeration value="header"/>
+                        <xs:enumeration value="data"/>
+                    </xs:restriction>
+                </xs:simpleType>
+            </xs:attribute>
+            <xs:attribute name="colspan" type="xs:positiveInteger" default="1" use="optional">
+                <xs:annotation>
+                    <xs:documentation>Number of columns spanned by the cell.</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+            <xs:attribute name="rowspan" type="xs:positiveInteger" default="1" use="optional">
+                 <xs:annotation>
+                    <xs:documentation>Number of rows spanned by the cell.</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Heading">
+         <xs:annotation>
+            <xs:documentation>A heading for a document section, chapter, entry, etc.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element ref="Line" minOccurs="1" maxOccurs="unbounded"/>
+            </xs:sequence>
+            <xs:attribute name="type" use="optional">
+                <xs:annotation>
+                    <xs:documentation>Specifies the type or level of the heading (e.g., main heading, subheading, running title, heading of a figure, other). </xs:documentation>
+                </xs:annotation>
+                <xs:simpleType>
+                    <xs:restriction base="xs:string">
+                        <xs:enumeration value="main"/>
+                        <xs:enumeration value="sub"/>
+                        <xs:enumeration value="running_title"/>
+                        <xs:enumeration value="figure"/>
+                        <xs:enumeration value="other"/>
+                    </xs:restriction>
+                </xs:simpleType>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="DateLine">
+         <xs:annotation>
+            <xs:documentation>A line containing a date, often at the start of a letter or entry.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence> <xs:element ref="Line" minOccurs="1" maxOccurs="unbounded"/> </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="DatedEntry">
+         <xs:annotation>
+            <xs:documentation>An entry associated with a specific date, like a diary entry.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element ref="DateLine" minOccurs="0" maxOccurs="1"/>
+                <xs:choice minOccurs="0" maxOccurs="unbounded">
+                    <xs:element ref="Paragraph"/>
+                    <xs:element ref="List"/>
+                </xs:choice>
+            </xs:sequence>
+            <xs:attribute name="date" type="xs:date" use="optional">
+                 <xs:annotation>
+                    <xs:documentation>The normalized date of the entry (YYYY-MM-DD).</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+    <xs:element name="RecordEntry">
+        <xs:annotation>
+            <xs:documentation>An entry in a record book or log.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element ref="DateLine" minOccurs="0" maxOccurs="1"/>
+                <xs:choice minOccurs="0" maxOccurs="unbounded">
+                    <xs:element ref="Paragraph"/>
+                    <xs:element ref="List"/>
+                    <xs:element ref="Heading"/>
+                </xs:choice>
+            </xs:sequence>
+            <xs:attribute name="date" type="xs:date" use="optional">
+                 <xs:annotation>
+                    <xs:documentation>The normalized date of the record (YYYY-MM-DD).</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="BlockQuotation">
+        <xs:annotation>
+            <xs:documentation>A section of quoted text, often indented.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence> <xs:element ref="Line" minOccurs="1" maxOccurs="unbounded"/> </xs:sequence>
+            <xs:attribute name="type" type="xs:string" use="optional">
+                 <xs:annotation>
+                    <xs:documentation>Type of quotation (e.g., 'prose', 'verse').</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="List">
+        <xs:annotation>
+            <xs:documentation>A list of items.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element ref="Item" minOccurs="1" maxOccurs="unbounded"/>
+            </xs:sequence>
+            <xs:attribute name="type" type="xs:string" use="optional">
+                 <xs:annotation>
+                    <xs:documentation>Type of list (e.g., ordered, unordered, glossary).</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Item">
+        <xs:annotation>
+            <xs:documentation>An item within a list.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence> <xs:element ref="Line" minOccurs="1" maxOccurs="unbounded"/> </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Figure">
+        <xs:annotation>
+            <xs:documentation>Represents a figure, illustration, diagram, chart, or other graphical element.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element ref="Caption" minOccurs="0" maxOccurs="1"/>
+                 <xs:element name="Description" type="xs:string" minOccurs="0" maxOccurs="1">
+                     <xs:annotation>
+                         <xs:documentation>A general textual description or representation of the figure/illustration's content. For content explicitly transcribed from the document, use Caption instead.</xs:documentation>
+                     </xs:annotation>
+                 </xs:element>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Caption">
+        <xs:annotation>
+            <xs:documentation>A caption associated with an illustration or figure.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence> <xs:element ref="Line" minOccurs="1" maxOccurs="unbounded"/> </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Seal">
+        <xs:annotation>
+            <xs:documentation>Represents a seal (e.g., wax seal) on the document.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="description" type="xs:string" use="optional">
+                <xs:annotation>
+                    <xs:documentation>Description of the seal.</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Stamp">
+        <xs:annotation>
+            <xs:documentation>Represents a stamp on the document.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="description" type="xs:string" use="optional">
+                <xs:annotation>
+                    <xs:documentation>Description or text of the stamp.</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Watermark">
+        <xs:annotation>
+            <xs:documentation>Describes a watermark present in the paper.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="description" type="xs:string" use="optional">
+                <xs:annotation>
+                    <xs:documentation>Description of the watermark.</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Formula">
+        <xs:annotation>
+            <xs:documentation>Represents a mathematical or chemical formula, assumed to be in LaTeX notation.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType mixed="true">
+             <xs:attribute name="notation" type="xs:string" fixed="latex">
+                <xs:annotation>
+                    <xs:documentation>Specifies the notation system used. Fixed to 'latex'.</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="MusicalNotation">
+        <xs:annotation>
+            <xs:documentation>Represents musical notation.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+             <xs:attribute name="description" type="xs:string" use="optional">
+                <xs:annotation>
+                    <xs:documentation>A description of the musical notation if not fully encoded.</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+             </xs:complexType>
+    </xs:element>
+
+     <xs:element name="Gap">
+        <xs:annotation>
+            <xs:documentation>Represents a gap in the text (missing, illegible, or omitted). Can occur as a block or inline.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="reason" use="optional">
+                <xs:annotation>
+                    <xs:documentation>The reason for the gap (illegible, missing, omitted, damaged, unknown).</xs:documentation>
+                </xs:annotation>
+                 <xs:simpleType>
+                    <xs:restriction base="xs:string">
+                        <xs:enumeration value="illegible"/>
+                        <xs:enumeration value="missing"/>
+                        <xs:enumeration value="omitted"/>
+                        <xs:enumeration value="damaged"/>
+                        <xs:enumeration value="unknown"/>
+                    </xs:restriction>
+                </xs:simpleType>
+            </xs:attribute>
+            <xs:attribute name="extent" type="xs:string" use="optional">
+                <xs:annotation>
+                    <xs:documentation>Estimated extent of the gap (e.g., 'ca. 5 letters', '1 line').</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Line">
+        <xs:annotation>
+            <xs:documentation>Represents a single physical line of text from the source document. Contains text and inline elements.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType mixed="true">
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:element ref="Above"/>
+                <xs:element ref="Initial"/>
+                <xs:element ref="Emphasis"/>
+                <xs:element ref="Illegible"/>
+                <xs:element ref="Deletion"/>
+                <xs:element ref="Addition"/>
+                <xs:element ref="InterlinearNote"/>
+                <xs:element ref="Gap"/>
+            </xs:choice>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Above">
+        <xs:annotation>
+            <xs:documentation>Text written above the main line.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType mixed="true">
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:element ref="Emphasis"/>
+                <xs:element ref="Illegible"/>
+                </xs:choice>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Initial"> <xs:annotation>
+            <xs:documentation>An initial letter, potentially decorated and/or a drop capital.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType mixed="true">
+             <xs:attribute name="type" use="optional" default="simple">
+                 <xs:annotation>
+                    <xs:documentation>Specifies the type of initial letter (simple, decorated, drop, decorated-drop).</xs:documentation>
+                </xs:annotation>
+                 <xs:simpleType>
+                    <xs:restriction base="xs:string">
+                        <xs:enumeration value="simple"/>
+                        <xs:enumeration value="decorated"/>
+                        <xs:enumeration value="drop"/>
+                        <xs:enumeration value="decorated-drop"/>
+                    </xs:restriction>
+                </xs:simpleType>
+             </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Emphasis">
+        <xs:annotation>
+            <xs:documentation>Text that is emphasized in some way (italic, bold, underline, colored, etc.).</xs:documentation>
+        </xs:annotation>
+        <xs:complexType mixed="true">
+             <xs:attribute name="type" use="required">
+                 <xs:annotation>
+                    <xs:documentation>The type of emphasis used (italic, bold, underline, colored, other).</xs:documentation>
+                </xs:annotation>
+                <xs:simpleType>
+                    <xs:restriction base="xs:string">
+                        <xs:enumeration value="italic"/>
+                        <xs:enumeration value="bold"/>
+                        <xs:enumeration value="underline"/>
+                        <xs:enumeration value="colored"/>
+                        <xs:enumeration value="other"/>
+                    </xs:restriction>
+                </xs:simpleType>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Illegible">
+        <xs:annotation>
+            <xs:documentation>Marks a span of text that cannot be reliably transcribed. Use Deletion/Addition for overwritten text.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="reason" use="required">
+                 <xs:annotation>
+                    <xs:documentation>The reason why the text is illegible (faded, damaged, blot, scribbled, binding).</xs:documentation>
+                </xs:annotation>
+                 <xs:simpleType>
+                    <xs:restriction base="xs:string">
+                        <xs:enumeration value="faded"/>
+                        <xs:enumeration value="damaged"/>
+                        <xs:enumeration value="blot"/>
+                        <xs:enumeration value="scribbled"/>
+                        <xs:enumeration value="binding"/>
+                        </xs:restriction>
+                </xs:simpleType>
+            </xs:attribute>
+            <xs:attribute name="extent" type="xs:string" use="optional">
+                <xs:annotation>
+                    <xs:documentation>Estimated extent of the illegible text (e.g., 'ca. 3 words', '1 character').</xs:documentation>
+                </xs:annotation>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="Deletion">
+        <xs:annotation>
+            <xs:documentation>Text marked as deleted or struck out in the original. This represents content considered part of the text but marked as non-applicable.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType mixed="true"/>
+    </xs:element>
+
+    <xs:element name="Addition">
+        <xs:annotation>
+            <xs:documentation>Text added to the original by the scribe, often interlinearly or marginally, as part of the composition or revision process. Contrast with MarginalNote and InterlinearNote which are typically commentary.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType mixed="true"/>
+    </xs:element>
+
+</xs:schema>

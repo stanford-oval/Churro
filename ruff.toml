@@ -1,0 +1,52 @@
+##############################################
+# Ruff configuration
+#
+# Purpose: Enable automatic import sorting and basic linting.
+# This project targets Python 3.12.
+#
+# To apply import sorting fixes automatically, run:
+#   ruff check --select I --fix .
+# or simply:
+#   ruff check --fix .
+# (since we extend-select the I family below.)
+##############################################
+
+target-version = "py312"
+line-length = 100
+
+[lint]
+# Keep Ruff defaults (E,F) and add:
+# - I: import sorting (isort)
+# - D: docstring style checks (pydocstyle)
+# - ARG: detect unused function/method arguments (helps surface unused parameters in methods)
+# - RUF100: detect unused noqa directives (keeps dead suppressions from hiding issues)
+extend-select = ["I", "D", "ARG", "RUF100"]
+
+# Ignore some "missing docstring" rules to focus on style/quality first:
+# D100: Missing module docstring
+# D101: Missing class docstring
+# D102: Missing function docstring
+# D103: Missing public method docstring
+# D104: Missing package docstring
+# D105: Missing magic method docstring (often self-evident)
+# D107: Missing __init__ docstring (can be noisy when simple)
+extend-ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D107"]
+
+[lint.isort]
+# Treat these as first-party modules so they stay grouped together.
+known-first-party = [
+	"ocr",
+	"page",
+	"utils",
+	"evaluation",
+	"data_scripts",
+	"azure_ml",
+	"web_app",
+]
+combine-as-imports = true
+force-sort-within-sections = true
+lines-after-imports = 2
+
+[lint.pydocstyle]
+# Enforce Google-style docstrings per project guideline.
+convention = "google"
