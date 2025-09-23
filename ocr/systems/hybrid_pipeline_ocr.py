@@ -22,10 +22,10 @@ from .detect_layout import detect_layout
 
 
 class HybridPipelineOCR(BaseOCR):
-    """OCR that calls Azure Document Intelligence via detect_layout.
+    """OCR that calls Azure Document Intelligence via `detect_layout`.
 
-    This implementation bypasses the legacy Pipeline and directly leverages the
-    detect_layout module's Azure-backed analyzer to obtain OCR text.
+    Leverages the Azure-backed analyzer in `detect_layout` to obtain OCR text
+    and then refines each detected region with an LLM pass.
     """
 
     def __init__(

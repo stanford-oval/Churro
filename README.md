@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-	<sub><i>Handwritten and printed text recognition across 22 centuries and 46 language clusters (including historical and dead scripts).</i></sub>
+	<sub><i>Handwritten and printed text recognition across 22 centuries and 46 language clusters, including historical and dead languages.</i></sub>
 </p>
 
 <p align="center">

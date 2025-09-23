@@ -1,20 +1,18 @@
 """Helpers for conditionally starting local vLLM servers for OCR pipelines.
 
-This module centralizes logic that was previously embedded in
-`ocr/end_to_end.py` related to:
-  * Inspecting the `MODEL_MAP` for vLLM-backed engine entries.
-  * Resolving the appropriate Hugging Face repository for a hosted variant.
-  * Conditionally launching a local vLLM Docker container when an OCR run
-    requires a locally served model (e.g., when using an engine whose
-    provider model is of the form ``vllm/<something>``).
+Central responsibilities:
+    * Inspect the `MODEL_MAP` for vLLM-backed engine entries.
+    * Resolve the appropriate Hugging Face repository for a hosted variant.
+    * Conditionally launch a local vLLM Docker container when an OCR run
+        requires a locally served model (provider model name starts with ``vllm/``).
 
 Public entrypoints:
     - has_at_least_one_vllm(engine_key)
     - get_hf_repo_for_hosted(engine_key)
-    - maybe_start_vllm_server_for_engine(args)  # encapsulates container startup
+    - maybe_start_vllm_server_for_engine(args)
 
-The functions intentionally accept lightweight, explicit parameters (or an
-`argparse.Namespace`-like `args`) to avoid importing OCR-specific code here.
+Functions accept lightweight, explicit parameters (or an `argparse.Namespace`-like
+object) to avoid importing OCR-specific code here.
 """
 
 from __future__ import annotations

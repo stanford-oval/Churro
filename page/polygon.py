@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import rtree
-from shapely.affinity import scale
+from shapely.affinity import translate
 from shapely.geometry import Polygon as ShapelyPolygon
 
 from utils.log_utils import logger
@@ -204,13 +204,13 @@ class Polygon:
         """Shift polygon so its top-left corner becomes (x, y)."""
         shift_x = x - self.left
         shift_y = y - self.top
-        shifted = scale(self._shapely_polygon, xoff=shift_x, yoff=shift_y)  # type: ignore
+        shifted = translate(self._shapely_polygon, xoff=shift_x, yoff=shift_y)
         coords = [coord for point in shifted.exterior.coords for coord in point]
         return Polygon(coordinates=coords)
 
     def shift_by_amount(self, x_shift: float, y_shift: float) -> "Polygon":
         """Shift polygon by ``x_shift`` horizontally and ``y_shift`` vertically."""
-        shifted = scale(self._shapely_polygon, xoff=x_shift, yoff=y_shift)  # type: ignore
+        shifted = translate(self._shapely_polygon, xoff=x_shift, yoff=y_shift)
         coords = [coord for point in shifted.exterior.coords for coord in point]
         return Polygon(coordinates=coords)
 
