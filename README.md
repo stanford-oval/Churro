@@ -4,7 +4,7 @@
 	<p align="center">
 		<a href="https://huggingface.co/stanford-oval/churro-3B" target="_blank"><img src="https://img.shields.io/badge/Model-CHURRO%203B-8A4FFF" alt="Model" /></a>
         <a href="https://huggingface.co/datasets/stanford-oval/churro-dataset" target="_blank"><img src="https://img.shields.io/badge/Dataset-CHURRO--DS-0A7BBB" alt="Dataset" /></a>
-		<a href="https://arxiv.org/abs/0000.00000" target="_blank"><img src="https://img.shields.io/badge/Paper-arXiv%20(preprint%20pending)-B31B1B" alt="Paper" /></a>
+		<a href="https://arxiv.org/abs/2509.19768" target="_blank"><img src="https://img.shields.io/badge/Paper-arXiv%20(preprint%20pending)-B31B1B" alt="Paper" /></a>
 		<a href="https://github.com/stanford-oval/churro/stargazers" target="_blank"><img src="https://img.shields.io/github/stars/stanford-oval/churro?style=social" alt="GitHub Stars" /></a>
 	</p>
 </p>
