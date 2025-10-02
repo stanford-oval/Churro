@@ -3,46 +3,67 @@
 #############################################
 
 [workspace]
+# Use conda-forge as primary channel; Linux x64 only
 channels = ["conda-forge", "main", "r", "msys2"]
 platforms = ["linux-64"]
 
 [tasks]
+# Custom task definitions (currently empty; add build/run tasks as needed)
 
 [dependencies]
+# Base conda packages
 python = "3.12.*"
 pip = "*"
 
 [pypi-dependencies]
-ruff = ">=0.11.13,<0.12"
-pre-commit = "*"
-rtree = "*"
-tqdm = "*"
-shapely = "*"
-tenacity = "*"
-diskcache = "*"
-pytest = "*"
-pytest-asyncio = "*"
-azure-ai-documentintelligence = "==1.0.2"
-pymupdf = "*"
-Pillow = "*"
-rich = "*"
-loguru = "*"
-google-api-python-client = ">=2.161.0, <3"
-evaluate = "*"
-nltk = ">=3.9.1, <4"
-rouge-score = "*"
-datasets = "*"
-rapidfuzz = ">=3.12.1, <4"
-google-cloud-aiplatform = ">=1.85.0, <2"
-anthropic = ">=0.49.0, <0.50"
-pyarabic = ">=0.6.15, <0.7"
-mistralai = ">=1.6.0, <2"
-xmlschema = ">=4.0.1, <5"
-lxml = "*"
-scikit-image = ">=0.25.2, <0.26"
-python-dotenv = ">=1.1.0, <2"
-litellm = "==1.76.1" # stable version
-docker = "*"
+# Development tools
+ruff = ">=0.11.13,<0.12"           # Linting and formatting (see ruff.toml)
+pre-commit = "*"                    # Git hooks for code quality
+pytest = "*"                        # Testing framework
+pytest-asyncio = "*"                # Async test support
+
+# Utilities
+tqdm = "*"                          # Progress bars
+tenacity = "*"                      # Retry logic for API calls
+diskcache = "*"                     # Local caching for API responses
+rich = "*"                          # Beautiful terminal outputs
+loguru = "*"                        # Logging (used in utils.log_utils)
+python-dotenv = ">=1.1.0, <2"      # Environment variable loading
+
+# Geometric/spatial operations
+rtree = "*"                         # Spatial indexing for bounding boxes
+shapely = "*"                       # Polygon operations for page elements
+
+# PDF and image processing
+pymupdf = "*"                       # PDF rasterization (utils/pdf/runner.py)
+Pillow = "*"                        # Image manipulation
+scikit-image = ">=0.25.2, <0.26"   # Advanced image processing
+
+# OCR provider SDKs
+azure-ai-documentintelligence = "==1.0.2"  # Azure Document Intelligence OCR
+mistralai = ">=1.6.0, <2"                   # Mistral OCR system
+google-api-python-client = ">=2.161.0, <3" # Google Cloud APIs
+google-cloud-aiplatform = ">=1.85.0, <2"   # Vertex AI (Gemini models)
+anthropic = ">=0.49.0, <0.50"               # Claude models
+litellm = "==1.76.1"                        # Unified LLM API (pinned for stability)
+aiofiles = ">=24.1.0, <25"               # Async file operations
+
+# Evaluation and metrics
+evaluate = "*"                      # HuggingFace evaluate library
+nltk = ">=3.9.1, <4"               # NLP preprocessing for metrics
+rouge-score = "*"                   # ROUGE metric computation
+rapidfuzz = ">=3.12.1, <4"         # Fast string processing for Levenshtein similarity metric
+
+# Data loading and language support
+datasets = "*"                      # HuggingFace datasets (Churro dataset)
+pyarabic = ">=0.6.15, <0.7"        # Arabic text normalization
+
+# XML validation and parsing
+xmlschema = ">=4.0.1, <5"          # Schema validation (historical_doc.xsd)
+lxml = "*"                          # Fast XML processing
+
+# Container management, for vLLM orchestration
+docker = "*"                        # Docker SDK for vLLM container orchestration
 
 [feature.data.pypi-dependencies]
 plotly = { version = ">=6.0.1, <7", extras = ["kaleido"] }
@@ -53,16 +74,19 @@ pandas = ">=2.2.3,<3"
 nodejs = ">=22.12.0"
 
 [feature.web.pypi-dependencies]
+fastapi = "*"
+uvicorn = ">=0.34.0,<0.35"
 opencv-python = "*"
 orjsonl = "*"
 huggingface_hub = "*"
 google-cloud-discoveryengine = ">=0.13.9, <0.14"
-uvicorn = ">=0.34.0,<0.35"
-fastapi = "*"
-psycopg = ">=3.2.9, <4"
-aiofiles = ">=24.1.0, <25"
+google-cloud-firestore = ">=2.21.0, <3"
 qdrant-client = ">=1.14.2, <2"
 async-lru = ">=2.0.5, <3"
+azure-identity = ">=1.25.0, <2"
+azure-storage-blob = ">=12.26.0, <13"
+langchain = "==1.0.0a4"
+
 
 [environments]
 default = []

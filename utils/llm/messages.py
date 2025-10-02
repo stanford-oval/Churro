@@ -44,7 +44,7 @@ def encode_image(image: Image.Image, format: str = "JPEG") -> str:
         if existing is image:
             cached = cache_bucket.get(fmt)
             if cached is not None:
-                logger.debug("Image served from encode cache (%s)", fmt)
+                logger.debug(f"Image served from encode cache ({fmt})")
                 return cached
         else:
             # Stale entry (id reused or image collected); discard
@@ -102,7 +102,7 @@ def prepare_messages(
 
             # Detect image format, default to PNG if unknown
             image_format = umi.format or "PNG"
-            if image_format not in ["PNG", "JPEG"]:
+            if image_format not in ["PNG", "JPEG", "WEBP"]:
                 logger.warning(f"Unsupported image format: {image_format}, defaulting to PNG")
                 image_format = "PNG"
 

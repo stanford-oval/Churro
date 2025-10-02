@@ -49,8 +49,6 @@ def _extract_system_config(args) -> Dict[str, Any]:
         config["engine"] = args.engine
     if hasattr(args, "max_tokens"):
         config["max_tokens"] = args.max_tokens
-    if hasattr(args, "max_concurrency"):
-        config["max_concurrency"] = args.max_concurrency
 
     # LLM-specific parameters
     if hasattr(args, "resize"):

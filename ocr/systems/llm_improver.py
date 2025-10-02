@@ -17,7 +17,6 @@ class LLMImprover:
     def __init__(
         self,
         engine: str,
-        max_concurrency: int,
         resize: int | None = None,
         image_fidelity: Literal["high", "low"] = "high",
         backup_engine: str | None = None,
@@ -26,7 +25,6 @@ class LLMImprover:
         super().__init__(**kwargs)
         self.engine = engine
         self.resize = resize
-        self.max_concurrency = max_concurrency
         self.image_fidelity = image_fidelity
 
         if not backup_engine:
@@ -60,13 +58,15 @@ class LLMImprover:
         [Your corrected and improved text here]
         </improved_text>"""
 
-    async def process_batch_inputs(self, image_paths: list[str], texts: list[str]) -> list[str]:
+    async def process_batch_inputs(
+        self, image_paths: list[str], texts: list[str], max_concurrency: int
+    ) -> list[str]:
         """Process a batch of image-text pairs using LLM OCR improvement."""
         return await run_async_in_parallel(
             partial(self._process_single_input),
             image_paths,
             texts,
-            max_concurrency=self.max_concurrency,
+            max_concurrency=max_concurrency,
             desc="LLM OCR Improvement",
         )
 

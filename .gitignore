@@ -167,6 +167,7 @@ cython_debug/
 
 data/
 workdir/
+workdir
 prompt_logs.jsonl
 .litellm_cache/
 .diskcache/
