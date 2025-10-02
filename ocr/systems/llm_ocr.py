@@ -1,13 +1,12 @@
 """LLM-based OCR implementation."""
 
-from functools import partial
 from typing import Literal, override
 
 from PIL import Image
 
 from utils.llm import extract_tag_from_llm_output, run_llm_async
 from utils.log_utils import logger
-from utils.utils import resize_image_to_fit, run_async_in_parallel
+from utils.utils import resize_image_to_fit
 
 from .base_ocr import BaseOCR
 
@@ -20,7 +19,6 @@ class ZeroShotLLMOCR(BaseOCR):
     def __init__(
         self,
         engine: str,
-        max_concurrency: int,
         reasoning_effort: Literal["low", "medium", "high"] | None = None,
         resize: int | None = None,
         output_markdown: bool = False,
@@ -31,7 +29,6 @@ class ZeroShotLLMOCR(BaseOCR):
         self.engine = engine
         self.resize = resize
         self.reasoning_effort = reasoning_effort
-        self.max_concurrency = max_concurrency
         self.backup_engine = backup_engine
 
         if output_markdown:
@@ -68,16 +65,7 @@ class ZeroShotLLMOCR(BaseOCR):
         Remember, your goal is to accurately transcribe the text from the scanned page as much as possible. Process the entire page, even if it contains a large amount of text, and provide clear, well-formatted output. Pay attention to the appropriate reading order and layout of the text."""
 
     @override
-    async def process(self, dataset: list[dict]) -> list[str]:
-        """Process examples using LLM OCR."""
-        return await run_async_in_parallel(
-            partial(self._process_single_image),
-            [e["image"] for e in dataset],
-            max_concurrency=self.max_concurrency,
-            desc="LLM OCR Batch",
-        )
-
-    async def _process_single_image(self, image: Image.Image) -> str:
+    async def process_image(self, image: Image.Image) -> str:
         """Process a single image using LLM OCR."""
         if self.resize:
             image = resize_image_to_fit(image, self.resize, self.resize)

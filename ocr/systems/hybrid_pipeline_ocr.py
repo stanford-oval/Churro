@@ -4,7 +4,7 @@ import asyncio
 from functools import partial
 from typing import override
 
-from PIL.Image import Image
+from PIL import Image
 
 from page.bounding_box_element import PageObject
 from page.image_utils import adjust_image
@@ -39,7 +39,7 @@ class HybridPipelineOCR(BaseOCR):
     async def llm_ocr(
         self,
         page_object: PageObject,
-        object_image: Image,
+        object_image: Image.Image,
         include_original_text: bool,
     ) -> str:
         """Run LLM OCR on the given image and return the output in Markdown format."""
@@ -86,7 +86,7 @@ class HybridPipelineOCR(BaseOCR):
 
     async def llm_ocr_batch(
         self,
-        original_image: Image,
+        original_image: Image.Image,
         page_objects: list[PageObject],
         include_original_text: bool,
     ):
@@ -109,12 +109,7 @@ class HybridPipelineOCR(BaseOCR):
             page_object.text = ocr_output
 
     @override
-    async def process(self, dataset: list[dict]) -> list[str]:
-        """Process examples and return OCR text for each image."""
-        tasks = [self.process_single_example(e) for e in dataset]
-        return await asyncio.gather(*tasks)
-
-    async def process_single_example(self, example: dict) -> str:
+    async def process_image(self, image: Image.Image) -> str:
         """Detect layout, run LLM OCR per box, and merge text.
 
         Steps:
@@ -125,7 +120,6 @@ class HybridPipelineOCR(BaseOCR):
         """
         merged_text = ""
 
-        image = example["image"]
         image = adjust_image(image)  # converts to grayscale
 
         try:
