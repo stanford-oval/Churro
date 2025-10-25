@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "churro"
+version = "0.1.0"
+description = "Historical OCR tooling"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.setuptools]
+packages = ["churro"]
+package-dir = { "churro" = "." }
+include-package-data = true

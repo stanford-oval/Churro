@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 import contextlib
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any
 
 from .errors import DockerError
 from .sdk import container_is_running
@@ -39,11 +40,11 @@ class DockerContainer:
             with contextlib.suppress(Exception):
                 self._container.remove(force=True)
 
-    def logs(self, tail: Optional[int] = None, since: Optional[str] = None) -> str:
+    def logs(self, tail: int | None = None, since: str | None = None) -> str:
         """Return combined stdout/stderr logs as text snapshot."""
         try:
             logs = self._container.logs(tail=tail, since=since, stdout=True, stderr=True)
-            if isinstance(logs, (bytes, bytearray)):
+            if isinstance(logs, bytes | bytearray):
                 return logs.decode("utf-8", errors="replace")
             return str(logs)
         except Exception as e:  # pragma: no cover
@@ -53,9 +54,9 @@ class DockerContainer:
         self,
         command: Sequence[str] | str,
         *,
-        user: Optional[str] = None,
-        workdir: Optional[str] = None,
-        environment: Optional[Mapping[str, str]] = None,
+        user: str | None = None,
+        workdir: str | None = None,
+        environment: Mapping[str, str] | None = None,
         demux: bool = False,
     ) -> tuple[int, str]:
         """Execute a command inside the container and return (exit_code, output)."""
@@ -84,7 +85,7 @@ class DockerContainer:
             combined = out_b + err_b
             text = combined.decode("utf-8", errors="replace")
         else:
-            if isinstance(output, (bytes, bytearray)):
+            if isinstance(output, bytes | bytearray):
                 text = output.decode("utf-8", errors="replace")
             else:
                 text = str(output)

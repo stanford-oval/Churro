@@ -3,13 +3,13 @@
 import base64
 from io import BytesIO
 import textwrap
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 import weakref
 
 from PIL import Image
 
-from utils.log_utils import logger
-from utils.utils import resize_image_to_fit
+from churro.utils.image.transform import resize_image_to_fit
+from churro.utils.log_utils import logger
 
 from .types import ImageDetail, MessageContent, Messages
 
@@ -21,7 +21,7 @@ _MAX_IMAGE_DIM: int = 2500
 # Value is a tuple of (weakref to image, per-format map). We verify the weakref
 # still points to the same object before trusting the cached encodings. If the
 # object is gone or the id has been reused for a new image, we rebuild.
-_ENCODE_CACHE: dict[int, Tuple["weakref.ReferenceType[Image.Image]", Dict[str, str]]] = {}
+_ENCODE_CACHE: dict[int, tuple["weakref.ReferenceType[Image.Image]", dict[str, str]]] = {}
 
 
 def encode_image(image: Image.Image, format: str = "JPEG") -> str:
@@ -37,7 +37,7 @@ def encode_image(image: Image.Image, format: str = "JPEG") -> str:
 
     key = id(image)
     cache_entry = _ENCODE_CACHE.get(key)
-    cache_bucket: Dict[str, str]
+    cache_bucket: dict[str, str]
     if cache_entry is not None:
         img_ref, cache_bucket = cache_entry
         existing = img_ref()
@@ -59,12 +59,7 @@ def encode_image(image: Image.Image, format: str = "JPEG") -> str:
         orig_w, orig_h = img.width, img.height
         img = resize_image_to_fit(img, _MAX_IMAGE_DIM, _MAX_IMAGE_DIM)
         logger.debug(
-            "Downscaled image %sx%s -> %sx%s for format %s",
-            orig_w,
-            orig_h,
-            img.width,
-            img.height,
-            fmt,
+            f"Downscaled image {orig_w}x{orig_h} -> {img.width}x{img.height} for format {fmt}",
         )
 
     if fmt == "JPEG" and img.mode not in ("RGB", "L"):
@@ -83,10 +78,10 @@ def encode_image(image: Image.Image, format: str = "JPEG") -> str:
 
 
 def prepare_messages(
-    system_prompt_text: Optional[str],
-    user_message_text: Optional[str],
-    user_message_image: Optional[Image.Image] | list[Image.Image],
-    image_detail: Optional[ImageDetail] = None,
+    system_prompt_text: str | None,
+    user_message_text: str | None,
+    user_message_image: Image.Image | None | list[Image.Image],
+    image_detail: ImageDetail | None = None,
 ) -> Messages:
     """Prepare messages for LLM inference with optional images."""
     user_message_content: list[MessageContent] = []

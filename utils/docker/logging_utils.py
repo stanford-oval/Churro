@@ -6,9 +6,9 @@ Separated to keep concerns modular. Not part of the public API.
 from __future__ import annotations
 
 import re
-from typing import Optional, Pattern
+from re import Pattern
 
-from utils.log_utils import logger
+from churro.utils.log_utils import logger
 
 
 try:  # Rich may already be installed (used by log_utils)
@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover - fallback if Rich missing in some envs
 ANSI_ESCAPE_RE: Pattern[str] = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
-def format_prefix(prefix: Optional[str]) -> str:
+def format_prefix(prefix: str | None) -> str:
     """Return a logging prefix safe for Rich markup.
 
     Args:
@@ -42,7 +42,7 @@ def strip_ansi(text: str) -> str:
     return ANSI_ESCAPE_RE.sub("", text)
 
 
-def log_multiline(text: str, log_prefix: Optional[str], level: str = "info") -> None:
+def log_multiline(text: str, log_prefix: str | None, level: str = "info") -> None:
     """Log multiline output line-by-line with optional prefix."""
     if not text:
         return

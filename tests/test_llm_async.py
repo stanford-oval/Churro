@@ -2,8 +2,7 @@
 
 import pytest
 
-from utils.llm import run_llm_async
-from utils.log_utils import logger
+from churro.utils.llm import run_llm_async
 
 
 # Sonnet 3.7 is a hybrid model
@@ -49,8 +48,6 @@ async def test_openai_models_return_non_empty(model_key: str) -> None:
         pydantic_class=None,
         timeout=60,
     )
-
-    logger.info(f"\nModel '{model_key}' output: {result}")
 
     assert isinstance(result, str), "LLM result should be a string"
     assert result.strip() != "", f"LLM result should not be empty for {model_key}"

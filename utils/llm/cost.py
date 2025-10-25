@@ -1,6 +1,6 @@
 """LLM cost tracking utilities."""
 
-from utils.log_utils import logger
+from churro.utils.log_utils import logger
 
 
 class LLMCostTracker:

@@ -163,11 +163,10 @@ cython_debug/
 .vscode
 
 # pixi environments
-.pixi
+.pixi/
 
-data/
+# Runtime artifacts
 workdir/
-workdir
 prompt_logs.jsonl
 .litellm_cache/
 .diskcache/
