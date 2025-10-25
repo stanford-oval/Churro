@@ -5,16 +5,17 @@ import evaluate
 from rapidfuzz import distance as rf_distance
 from tqdm import tqdm
 
-from evaluation.normalization import normalize_text_for_evaluation
-from evaluation.repetition import has_long_repetition
-from evaluation.xml_utils import extract_actual_text_from_xml
-from utils.log_utils import logger
+from churro.utils.log_utils import logger
+
+from .normalization import normalize_text_for_evaluation
+from .repetition import has_long_repetition
+from .xml_utils import extract_actual_text_from_xml
 
 
-bleu_metric = None
+bleu_metric: Any | None = None
 
 
-def initialize_metrics():
+def initialize_metrics() -> None:
     """Lazily load BLEU metric and required NLTK resources."""
     global bleu_metric
     if not bleu_metric:
@@ -162,7 +163,9 @@ def calculate_metrics(_input: tuple) -> dict[str, Any]:
     return metrics
 
 
-def aggregate_results(results):
+def aggregate_results(
+    results: list[dict[str, Any]],
+) -> tuple[dict[str, float], list[dict[str, Any]]]:
     """Average numeric metrics across page-level results (bools treated as 0/1)."""
     if not results:
         return {}, []
@@ -170,13 +173,13 @@ def aggregate_results(results):
     # Initialize all numeric keys to 0.0
     aggregated_metrics: dict[str, float] = {}
     for k, v in results[0].items():
-        if isinstance(v, (int, float, bool)):
+        if isinstance(v, int | float | bool):
             aggregated_metrics[k] = 0.0
 
     # Sum numeric values (treat bool as int -> 0/1)
     for m in results:
         for k, v in m.items():
-            if isinstance(v, (int, float, bool)) and k in aggregated_metrics:
+            if isinstance(v, int | float | bool) and k in aggregated_metrics:
                 aggregated_metrics[k] += float(v)
 
     # Average
@@ -185,7 +188,7 @@ def aggregate_results(results):
 
 
 def batch_evaluate(
-    dataset: list[dict],
+    dataset: list[dict[str, Any]],
     predicted_texts: list[str],
 ) -> tuple[dict[str, float], list[dict[str, Any]]]:
     """Evaluate pages in parallel and return (aggregated_metrics, per_page)."""
@@ -194,7 +197,7 @@ def batch_evaluate(
     with multiprocessing.Pool(processes=8) as pool:
         results = list(
             tqdm(
-                pool.imap(evaluate_page, zip(dataset, predicted_texts)),
+                pool.imap(evaluate_page, zip(dataset, predicted_texts, strict=False)),
                 total=len(dataset),
                 mininterval=0.5,  # Update at most twice a second
             )

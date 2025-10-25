@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 from queue import Queue
 import threading
-from typing import Any, Optional
+from typing import TYPE_CHECKING
 
 from .errors import DockerError
 
@@ -19,7 +19,15 @@ else:
     _IMPORT_ERROR = None
 
 
-def ensure_docker_sdk() -> Any:
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from docker import DockerClient as _DockerClient
+    from docker.models.containers import Container as _DockerContainer
+else:  # pragma: no cover - runtime fallback when typing info unavailable
+    _DockerClient = object
+    _DockerContainer = object
+
+
+def ensure_docker_sdk() -> _DockerClient:
     """Return connected Docker client or raise DockerError with guidance."""
     if _IMPORT_ERROR is not None or docker is None:
         raise DockerError(
@@ -44,7 +52,7 @@ def ensure_docker_sdk() -> Any:
         ) from e
 
 
-def make_device_requests(gpus: Optional[str]):  # return type depends on docker SDK
+def make_device_requests(gpus: str | None) -> object | None:
     """Translate a CLI-style GPU selection string to SDK device requests.
 
     Supported formats (case-insensitive):
@@ -71,7 +79,7 @@ def make_device_requests(gpus: Optional[str]):  # return type depends on docker 
     return [DeviceRequest(count=-1, capabilities=[["gpu"]])]
 
 
-def container_is_running(container: Any) -> bool:
+def container_is_running(container: _DockerContainer) -> bool:
     """Return True if docker container object status is 'running'."""
     with contextlib.suppress(Exception):
         container.reload()
@@ -79,7 +87,9 @@ def container_is_running(container: Any) -> bool:
     return False
 
 
-def stream_logs(container: Any, line_queue: Queue[str], stop_event: threading.Event) -> None:
+def stream_logs(
+    container: _DockerContainer, line_queue: Queue[str], stop_event: threading.Event
+) -> None:
     """Follow container logs and enqueue decoded lines until stopped."""
     try:
         for chunk in container.logs(stream=True, follow=True):

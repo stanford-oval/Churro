@@ -2,16 +2,17 @@ from collections import defaultdict
 import json
 from typing import Any
 
-from evaluation.evaluate_page import batch_evaluate
-from ocr.systems.detect_layout import get_total_azure_cost
-from utils.llm.cost import get_llm_total_cost
-from utils.log_utils import logger
+from churro.systems.detect_layout import get_total_azure_cost
+from churro.utils.llm.cost import get_llm_total_cost
+from churro.utils.log_utils import logger
+
+from .evaluate_page import batch_evaluate
 
 
 def to_rounded_percentage(metrics: dict[str, Any]) -> dict[str, Any]:
     """Round numeric metric values to one decimal percentage points."""
     return {
-        key: round(value * 100) if isinstance(value, (int, float)) else value
+        key: round(value * 100) if isinstance(value, int | float) else value
         for key, value in metrics.items()
     }
 
@@ -72,7 +73,7 @@ def compute_metrics(
 
     # Create outputs with evaluation results
     outputs = []
-    for evaluation_output, example in zip(per_example_evaluation_outputs, dataset):
+    for evaluation_output, example in zip(per_example_evaluation_outputs, dataset, strict=False):
         outputs.append(
             {
                 "file_name": example["file_name"],

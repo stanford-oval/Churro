@@ -1,14 +1,16 @@
+from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 
 from lxml import etree  # type: ignore
 import xmlschema
 
-from utils.log_utils import logger
+from churro.utils.log_utils import logger
 
 
 historical_doc_schema = None
 allowed_xml_pattern = None
+SCHEMA_PATH = Path(__file__).resolve().parent / "historical_doc.xsd"
 
 
 def _escape_chunk(text: str) -> str:
@@ -51,7 +53,7 @@ def _get_list_of_valid_xml_tags() -> list[str]:
     """Return valid XML tags for the historical document schema."""
     global historical_doc_schema
     if historical_doc_schema is None:
-        historical_doc_schema = xmlschema.XMLSchema("evaluation/historical_doc.xsd")
+        historical_doc_schema = xmlschema.XMLSchema(str(SCHEMA_PATH))
     return list(historical_doc_schema.elements.keys()) + [
         "PhysicalDescription",
         "Language",

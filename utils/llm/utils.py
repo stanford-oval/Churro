@@ -1,10 +1,10 @@
 """Lightweight helpers for parsing and conversions used with LLM outputs."""
 
-from utils.log_utils import logger
+from churro.utils.log_utils import logger
 
 
 def extract_tag_from_llm_output(llm_output: str, tags: str | list[str]) -> str | list[str]:
-    """Extract tagged content from utils.llm output."""
+    """Extract tagged content from churro.utils.llm output."""
     is_list = isinstance(tags, list)
     if not is_list:
         assert isinstance(tags, str)

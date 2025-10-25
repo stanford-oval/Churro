@@ -1,7 +1,7 @@
 """Tests for `run_pdf_pipeline` in `utils/pdf/`.
 
 This test focuses on verifying that image files are produced for a PDF input.
-We rely on the sample PDF `tests/minimal-document.pdf`.
+We rely on the sample PDF `minimal-document.pdf` housed next to this test.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import fitz
 from PIL import Image
 import pytest
 
-from utils.pdf import run_pdf_pipeline
+from churro.utils.pdf import run_pdf_pipeline
 
 
 @pytest.mark.asyncio
@@ -26,7 +26,7 @@ async def test_process_one_pdf_file(tmp_path: Path) -> None:
       * Saved images can be opened by Pillow
     """
     # Arrange
-    sample_pdf = Path("tests/minimal-document.pdf")
+    sample_pdf = Path(__file__).with_name("minimal-document.pdf")
     assert sample_pdf.exists(), "Sample PDF missing. Ensure it was downloaded before running tests."
 
     # Determine real page count so our stub aligns with batching logic
@@ -67,3 +67,27 @@ async def test_process_one_pdf_file(tmp_path: Path) -> None:
     for f in created_files:
         os.remove(f)
     assert not any(output_dir.glob("*.png")), "Output PNG files not cleaned up"
+
+
+@pytest.mark.asyncio
+async def test_process_image_directory(tmp_path: Path) -> None:
+    image_dir = Path(__file__).parent
+
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    await run_pdf_pipeline(
+        pdf_paths=[],
+        output_dir=output_dir.as_posix(),
+        engine="gpt-4.1",
+        trim=False,
+        image_dir=image_dir.as_posix(),
+    )
+
+    created_files = sorted(output_dir.glob("*.png"))
+    assert len(created_files) == 3, (
+        f"Expected 3 output images, found {len(created_files)}"
+    )  # The directory contains a one-page image and a two-page image
+    for file_path in created_files:
+        with Image.open(file_path) as img:
+            img.verify()  # Ensures file is a valid image

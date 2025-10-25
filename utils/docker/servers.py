@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 import contextlib
-from typing import Optional, Pattern, Sequence
+from re import Pattern
 
-from utils.log_utils import logger
+from churro.utils.log_utils import logger
 
 from .container import DockerContainer
 from .logging_utils import format_prefix, log_multiline
@@ -23,7 +24,7 @@ def _pip_install(
     container: DockerContainer,
     packages: Sequence[str],
     *,
-    log_prefix: Optional[str],
+    log_prefix: str | None,
 ) -> int:
     """Install pip packages inside the container."""
     if packages:
@@ -53,14 +54,14 @@ def _get_package_version(
     container: DockerContainer,
     package: str,
     *,
-    log_prefix: Optional[str],
+    log_prefix: str | None,
 ) -> str:
     """Return package version inside container or 'not installed'."""
     py_code: str = (
         "import importlib,importlib.metadata as m,sys;"
         f"print(m.version('{package}') if importlib.util.find_spec('{package}') else 'not installed')"
     )
-    version_line: Optional[str] = None
+    version_line: str | None = None
     for interp in (["python3", "-c", py_code], ["python", "-c", py_code]):
         code, out = container.exec(interp)
         if code == 0 and out:
@@ -81,7 +82,7 @@ def _get_package_version(
 def start_vllm_server(
     *,
     model: str,
-    served_model_name: Optional[str] = None,
+    served_model_name: str | None = None,
     host_port: int = 9000,
     container_port: int = 8000,
     gpus: str = "all",
@@ -90,11 +91,11 @@ def start_vllm_server(
     gpu_memory_utilization: float = 0.9,
     max_model_len: int | None = None,
     huggingface_cache: str = "~/.cache/huggingface",
-    image: str = "vllm/vllm-openai:v0.10.2",
-    model_args: Optional[Sequence[str]] = None,
+    image: str = "vllm/vllm-openai:v0.11.0",
+    model_args: Sequence[str] | None = None,
     ready_timeout: float = 180.0,
     ready_pattern: (str | Pattern[str]) = r"Application startup complete|Uvicorn running on http",
-    log_prefix: Optional[str] = "[vLLM] ",
+    log_prefix: str | None = "[vLLM] ",
     force_replace: bool = False,
     install_flash_attn: bool = False,
 ) -> DockerContainer:

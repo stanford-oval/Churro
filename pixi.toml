@@ -16,80 +16,60 @@ python = "3.12.*"
 pip = "*"
 
 [pypi-dependencies]
+# Local package for iterative development
+churro = { path = ".", editable = true }
+
 # Development tools
-ruff = ">=0.11.13,<0.12"           # Linting and formatting (see ruff.toml)
-pre-commit = "*"                    # Git hooks for code quality
-pytest = "*"                        # Testing framework
-pytest-asyncio = "*"                # Async test support
+ruff = ">=0.11.13,<0.12"                    # Linting and formatting (see ruff.toml)
+pre-commit = "*"                            # Git hooks for code quality
+pytest = "*"                                # Testing framework
+pytest-asyncio = "*"                        # Async test support
+coverage = ">=7.11.0, <8"                   # Code coverage measurement
+pytest-cov = ">=7.0.0, <8"                  # Coverage plugin for pytest
 
 # Utilities
-tqdm = "*"                          # Progress bars
-tenacity = "*"                      # Retry logic for API calls
-diskcache = "*"                     # Local caching for API responses
-rich = "*"                          # Beautiful terminal outputs
-loguru = "*"                        # Logging (used in utils.log_utils)
-python-dotenv = ">=1.1.0, <2"      # Environment variable loading
+tqdm = "*"                                  # Progress bars
+tenacity = "*"                              # Retry logic for API calls
+diskcache = "*"                             # Local caching for API responses
+rich = "*"                                  # Beautiful terminal outputs
+loguru = "*"                                # Logging (used in utils.log_utils)
+python-dotenv = ">=1.1.0, <2"               # Environment variable loading
 
 # Geometric/spatial operations
-rtree = "*"                         # Spatial indexing for bounding boxes
-shapely = "*"                       # Polygon operations for page elements
+rtree = "*"                                 # Spatial indexing for bounding boxes
+shapely = "*"                               # Polygon operations for page elements
 
 # PDF and image processing
-pymupdf = "*"                       # PDF rasterization (utils/pdf/runner.py)
-Pillow = "*"                        # Image manipulation
-scikit-image = ">=0.25.2, <0.26"   # Advanced image processing
+pymupdf = "*"                               # PDF rasterization (utils/pdf/runner.py)
+Pillow = "*"                                # Image manipulation
+scikit-image = ">=0.25.2, <0.26"            # Advanced image processing
 
 # OCR provider SDKs
-azure-ai-documentintelligence = "==1.0.2"  # Azure Document Intelligence OCR
+azure-ai-documentintelligence = "==1.0.2"   # Azure Document Intelligence OCR
+google-cloud-documentai = "==3.6.0"         # Google Document AI OCR
 mistralai = ">=1.6.0, <2"                   # Mistral OCR system
-google-api-python-client = ">=2.161.0, <3" # Google Cloud APIs
-google-cloud-aiplatform = ">=1.85.0, <2"   # Vertex AI (Gemini models)
+google-api-python-client = ">=2.161.0, <3"  # Google Cloud APIs
+google-cloud-aiplatform = ">=1.85.0, <2"    # Vertex AI (Gemini models)
 anthropic = ">=0.49.0, <0.50"               # Claude models
-litellm = "==1.76.1"                        # Unified LLM API (pinned for stability)
-aiofiles = ">=24.1.0, <25"               # Async file operations
+litellm = "==1.78.0"                        # Unified LLM API (pinned for stability)
+aiofiles = ">=24.1.0, <25"                  # Async file operations
 
 # Evaluation and metrics
-evaluate = "*"                      # HuggingFace evaluate library
-nltk = ">=3.9.1, <4"               # NLP preprocessing for metrics
-rouge-score = "*"                   # ROUGE metric computation
-rapidfuzz = ">=3.12.1, <4"         # Fast string processing for Levenshtein similarity metric
+evaluate = "*"                              # HuggingFace evaluate library
+nltk = ">=3.9.1, <4"                        # NLP preprocessing for metrics
+rouge-score = "*"                           # ROUGE metric computation
+rapidfuzz = ">=3.12.1, <4"                  # Fast string processing for Levenshtein similarity metric
+pyarabic = ">=0.6.15, <0.7"                 # Arabic text normalization
 
-# Data loading and language support
-datasets = "*"                      # HuggingFace datasets (Churro dataset)
-pyarabic = ">=0.6.15, <0.7"        # Arabic text normalization
+# Data loading
+datasets = "*"                              # HuggingFace datasets (Churro dataset)
 
 # XML validation and parsing
-xmlschema = ">=4.0.1, <5"          # Schema validation (historical_doc.xsd)
-lxml = "*"                          # Fast XML processing
+xmlschema = ">=4.0.1, <5"                   # Schema validation (historical_doc.xsd)
+lxml = "*"                                  # Fast XML processing
 
 # Container management, for vLLM orchestration
-docker = "*"                        # Docker SDK for vLLM container orchestration
+docker = "*"                                # Docker SDK for vLLM container orchestration
 
-[feature.data.pypi-dependencies]
-plotly = { version = ">=6.0.1, <7", extras = ["kaleido"] }
-langcodes = ">=3.5.0, <4"
-pandas = ">=2.2.3,<3"
-
-[feature.web.dependencies]
-nodejs = ">=22.12.0"
-
-[feature.web.pypi-dependencies]
-fastapi = "*"
-uvicorn = ">=0.34.0,<0.35"
-opencv-python = "*"
-orjsonl = "*"
-huggingface_hub = "*"
-google-cloud-discoveryengine = ">=0.13.9, <0.14"
-google-cloud-firestore = ">=2.21.0, <3"
-qdrant-client = ">=1.14.2, <2"
-async-lru = ">=2.0.5, <3"
-azure-identity = ">=1.25.0, <2"
-azure-storage-blob = ">=12.26.0, <13"
-langchain = "==1.0.0a4"
-
-
-[environments]
-default = []
-data = ["data"]
-web = ["web"]
-all = ["data", "web"]
+# CLI utilities
+typer = ">=0.19.2, <0.20"                   # CLI utilities (used in churro/cli.py)

@@ -17,10 +17,10 @@ object) to avoid importing OCR-specific code here.
 
 from __future__ import annotations
 
-from utils.llm.config import get_settings
-from utils.llm.models import MODEL_MAP
-from utils.llm.types import ModelInfo
-from utils.log_utils import logger
+from churro.config import ChurroSettings, get_settings as get_churro_settings
+from churro.utils.llm.models import MODEL_MAP
+from churro.utils.llm.types import ModelInfo
+from churro.utils.log_utils import logger
 
 from . import DockerContainer, start_vllm_server
 
@@ -77,32 +77,37 @@ def maybe_start_vllm_server_for_engine(
     data_parallel_size: int = 1,
     log_prefix: str | None = None,
     install_flash_attn: bool = False,
+    settings: ChurroSettings | None = None,
 ) -> DockerContainer | None:
     """Conditionally start a vLLM server for the provided engine.
 
     Side effects (container launch) only occur when all of the following are true:
-      * system in {"llm", "hybrid", "finetuned"}
+      * system in {"llm", "finetuned"}
       * engine provided and corresponds to at least one vLLM provider variant
 
     Args:
         engine: Logical engine key (MODEL_MAP) to potentially serve.
-        system: OCR system type (e.g., 'llm', 'hybrid', 'finetuned').
+        system: OCR system type (e.g., 'llm', 'finetuned').
         tensor_parallel_size: Tensor parallel degree for vLLM container.
         data_parallel_size: Data parallel degree for vLLM container.
         log_prefix: Optional log prefix string.
         install_flash_attn: Whether to attempt to install flash attention
             support inside the container.
+        settings: Optional pre-loaded configuration snapshot. Supplying this allows
+            callers (including tests) to inject custom ports or tokens without
+            mutating global environment variables.
 
     Returns:
         DockerContainer | None: Container object if launched else None.
     """
-    if not (system in {"llm", "hybrid", "finetuned"} and engine):
+    if not (system in {"llm", "finetuned"} and engine):
         return None
 
     if not has_at_least_one_vllm(engine):
         return None
 
-    host_port = get_settings().local_vllm_port
+    config = settings or get_churro_settings()
+    host_port = config.local.vllm_port
     if host_port is None:
         raise ValueError("LOCAL_VLLM_PORT must be set in environment to start local vLLM server.")
     if not (0 < host_port < 65536):

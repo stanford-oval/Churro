@@ -5,16 +5,14 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from ocr.systems.detect_layout import detect_layout
-from page.polygon import Polygon
-from page.visualization import crop_image_and_page_to_content, extract_polygon_region
-from utils.log_utils import logger
+from churro.page.page_object import PageObject
+from churro.page.visualization import extract_polygon_region
+from churro.utils.log_utils import logger
 
 
 __all__ = [
     "find_brightest_line",
     "split_double_page",
-    "trim_image",
 ]
 
 
@@ -81,7 +79,8 @@ def split_double_page(image: Image.Image) -> list[Image.Image]:
     # Add margin of error to polygon coordinates
     margin = 10  # pixels
 
-    left_polygon = Polygon(
+    left_polygon = PageObject(
+        object_id="split-left",
         coordinates=[
             0,
             0,
@@ -91,11 +90,12 @@ def split_double_page(image: Image.Image) -> list[Image.Image]:
             image.height,
             0,
             image.height,
-        ]
+        ],
     )
-    left_image = extract_polygon_region(image=image, polygon=left_polygon)
+    left_image = extract_polygon_region(image=image, page_object=left_polygon)
 
-    right_polygon = Polygon(
+    right_polygon = PageObject(
+        object_id="split-right",
         coordinates=[
             best_x0 - margin,
             0,
@@ -105,25 +105,8 @@ def split_double_page(image: Image.Image) -> list[Image.Image]:
             image.height,
             image.width,
             0,
-        ]
+        ],
     )
-    right_image = extract_polygon_region(image=image, polygon=right_polygon)
+    right_image = extract_polygon_region(image=image, page_object=right_polygon)
 
     return [left_image, right_image]
-
-
-async def trim_image(image: Image.Image) -> Image.Image:
-    """Trim extraneous margins from an image using layout detection.
-
-    Delegates to ``detect_layout`` and ``crop_image_and_page_to_content``; keeps
-    identical parameters and margin (30px) as before.
-    """
-    (_, _, page_with_original_coordinates) = await detect_layout(
-        image,
-    )
-    trimmed_image, _, _ = crop_image_and_page_to_content(
-        image,
-        page_with_original_coordinates,
-        margin=30,  # pixels
-    )
-    return trimmed_image

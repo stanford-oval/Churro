@@ -1,14 +1,15 @@
+"""Core page abstractions and helpers for OCR layout post-processing."""
+
 from collections import defaultdict
-from typing import Optional
+import math
 
 from azure.ai.documentintelligence.models import AnalyzeResult
 from pydantic import BaseModel, ConfigDict, Field
+import rtree
 
-from page.bounding_box_element import (
-    PageObject,
-)
-from page.polygon import Polygon
-from utils.log_utils import logger
+from churro.utils.log_utils import logger
+
+from .page_object import PageObject
 
 
 class Page(BaseModel):
@@ -21,72 +22,6 @@ class Page(BaseModel):
     """
 
     page_objects: list[PageObject] = Field(..., description="List of objects on the page")
-
-    image_path: Optional[str] = Field(
-        None,
-        description="Path to the image file of the page.",
-    )
-    metadata: dict = Field(
-        default_factory=dict,
-        description="Metadata associated with the page. E.g. languages",
-    )
-
-    def get_directory(self) -> str:
-        """Get the directory of the image path.
-
-        Returns an empty string if the image path is unset.
-        """
-        if not self.image_path:
-            return ""
-        return "/".join(self.image_path.split("/")[:-1])
-
-    def get_json_path(self) -> str:
-        """Return the JSON side-car path for this page's image."""
-        if not self.image_path:
-            raise ValueError("Image path is not set, cannot determine JSON path.")
-        return self.image_path.replace(".jpeg", ".json")
-
-    @property
-    def languages(self) -> list[str]:
-        """Return list of language tags associated with this page (may be empty)."""
-        return self.metadata.get("languages", [])
-
-    @languages.setter
-    def languages(self, value: list[str]) -> None:
-        self.metadata["languages"] = value
-
-    @property
-    def main_language(self) -> Optional[str]:
-        """Return the first language or None if no languages are set."""
-        if not self.languages:
-            return None
-        return self.languages[0]
-
-    @property
-    def document_type(self) -> Optional[str]:
-        """Return document type stored in metadata if present."""
-        return self.metadata.get("document_type", None)
-
-    @document_type.setter
-    def document_type(self, value: str) -> None:
-        """Set the document type in the metadata."""
-        self.metadata["document_type"] = value
-
-    @property
-    def scripts(self) -> Optional[list[str]]:
-        """Return list of script tags for the page if present."""
-        return self.metadata.get("scripts", None)
-
-    @scripts.setter
-    def scripts(self, value: list[str]) -> None:
-        self.metadata["scripts"] = value
-
-    @property
-    def main_script(self) -> Optional[str]:
-        """Return the first script or None if no scripts are set."""
-        if not self.scripts:
-            return None
-        return self.scripts[0]
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -110,7 +45,7 @@ class Page(BaseModel):
                 page_objects.append(
                     PageObject(
                         object_id=str(object_id),
-                        bounding_region=Polygon(coordinates=polygon_coords),
+                        coordinates=polygon_coords,
                     )
                 )
                 object_id += 1
@@ -124,7 +59,7 @@ class Page(BaseModel):
                 page_objects.append(
                     PageObject(
                         object_id=str(object_id),
-                        bounding_region=Polygon(coordinates=fig_coords),
+                        coordinates=fig_coords,
                     )
                 )
                 object_id += 1
@@ -148,14 +83,14 @@ class Page(BaseModel):
                         page_objects.append(
                             PageObject(
                                 object_id=str(object_id),
-                                bounding_region=Polygon(coordinates=line.polygon),
+                                coordinates=line.polygon,
                             )
                         )
                         object_id += 1
 
         # page objects with weird angles are often mistakes. We remove them here so that they can be added as their individual lines below
         old_size = len(page_objects)
-        page_objects = [po for po in page_objects if po.bounding_region.get_top_edge_angle() <= 10]
+        page_objects = [po for po in page_objects if po.get_top_edge_angle() <= 10]
         if old_size - len(page_objects) > 0:
             logger.info(f"Removed {old_size - len(page_objects)} page objects with weird angles")
 
@@ -164,31 +99,32 @@ class Page(BaseModel):
 
         page = Page(
             page_objects=page_objects,
-            image_path=None,
         )
         return page
 
-    def remove_subsumed_page_objects(self, coverage_ratio: float = 0.8) -> None:
+    def remove_subsumed_page_objects(self, coverage_ratio: float = 0.7) -> None:
         """Remove page_objects that are subsumed by other page_objects using an R-tree for efficient spatial queries.
 
         When coverage_ratio is 100.0 (default), an object is removed if it is fully subsumed (using the default
-        Polygon.remove_subsumed_polygons logic). If a lower ratio is provided, an object is removed if at least
+        PageObject.remove_subsumed_objects logic). If a lower ratio is provided, an object is removed if at least
         that ratio of its area is covered by any other page object.
 
         Args:
-            coverage_ratio (float): The coverage ratio for determining if a page object is subsumed by another. A value of 0.8 means
-                that a page object is considered subsumed if 80% of its area is covered by another page object.
+            coverage_ratio (float): The coverage ratio for determining if a page object is subsumed by another. A value of 0.7 means
+                that a page object is considered subsumed if 70% of its area is covered by another page object.
         """
         if not self.page_objects:
             return
         assert 0 <= coverage_ratio <= 1, "coverage_ratio must be between 0 and 1"
 
-        # Record (index, bounding_region) pairs.
-        enumerated_polygons = [(i, obj.bounding_region) for i, obj in enumerate(self.page_objects)]
-        polygons = [p for _, p in enumerated_polygons]
+        # Record (index, page object) pairs.
+        enumerated_polygons = [(i, obj) for i, obj in enumerate(self.page_objects)]
+        page_objects = [p for _, p in enumerated_polygons]
 
         # Remove subsumed polygons; returns a list of polygon objects in the original order.
-        polygons_to_keep = Polygon.remove_subsumed_polygons(polygons, tolerance=1 - coverage_ratio)
+        polygons_to_keep = PageObject.remove_subsumed_objects(
+            page_objects, tolerance=1 - coverage_ratio
+        )
 
         # Map each polygon object back to its original indices.
         polygon_to_indices = defaultdict(list)
@@ -201,3 +137,110 @@ class Page(BaseModel):
             kept_indices.append(polygon_to_indices[poly].pop(0))
         kept_indices.sort()
         self.page_objects = [self.page_objects[i] for i in kept_indices]
+
+    def remove_small_page_objects_in_margins(self) -> None:
+        """Drop tiny page objects hugging the margins to reduce noise."""
+        sample_count = len(self.page_objects)
+        if sample_count < 2:
+            return
+
+        index = rtree.index.Index()
+        # Spatial index accelerates intersection checks against margin bands.
+        bounds: list[tuple[float, float, float, float]] = []
+        widths: list[float] = []
+        heights: list[float] = []
+        for idx, obj in enumerate(self.page_objects):
+            left, top, right, bottom = obj.bounds
+            bounds.append((left, top, right, bottom))
+            widths.append(obj.width)
+            heights.append(obj.height)
+            index.insert(idx, (left, top, right, bottom))
+
+        smallest_count = max(1, math.ceil(sample_count * 0.1))
+        smallest_width_indices = set(
+            sorted(range(sample_count), key=lambda i: widths[i])[:smallest_count]
+        )
+        smallest_height_indices = set(
+            sorted(range(sample_count), key=lambda i: heights[i])[:smallest_count]
+        )
+
+        global_left = min(b[0] for b in bounds)
+        global_top = min(b[1] for b in bounds)
+        global_right = max(b[2] for b in bounds)
+        global_bottom = max(b[3] for b in bounds)
+
+        page_width = max(global_right - global_left, 1.0)
+        page_height = max(global_bottom - global_top, 1.0)
+        x_tolerance = max(5.0, page_width * 0.02)
+        y_tolerance = max(5.0, page_height * 0.02)
+
+        def margin_rectangles() -> list[tuple[float, float, float, float]]:
+            return [
+                (
+                    max(global_left, global_right - x_tolerance),
+                    global_top,
+                    global_right,
+                    global_bottom,
+                ),
+                (
+                    global_left,
+                    global_top,
+                    min(global_right, global_left + x_tolerance),
+                    global_bottom,
+                ),
+                (
+                    global_left,
+                    global_top,
+                    global_right,
+                    min(global_bottom, global_top + y_tolerance),
+                ),
+                (
+                    global_left,
+                    max(global_top, global_bottom - y_tolerance),
+                    global_right,
+                    global_bottom,
+                ),
+            ]
+
+        def is_on_margin(obj_bounds: tuple[float, float, float, float]) -> bool:
+            left, top, right, bottom = obj_bounds
+            return (
+                (left - global_left) <= x_tolerance
+                or (global_right - right) <= x_tolerance
+                or (top - global_top) <= y_tolerance
+                or (global_bottom - bottom) <= y_tolerance
+            )
+
+        candidate_indices: set[int] = set()
+        for rect in margin_rectangles():
+            if rect[0] > rect[2] or rect[1] > rect[3]:
+                continue
+            candidate_indices.update(index.intersection(rect))
+
+        indices_to_remove = {
+            idx
+            for idx in candidate_indices
+            if idx in smallest_width_indices
+            and idx in smallest_height_indices
+            and is_on_margin(bounds[idx])
+        }
+        # Keep only elements that are both tiny and sit within a margin band.
+
+        if not indices_to_remove:
+            return
+
+        if len(indices_to_remove) == sample_count:
+            candidate_to_keep = max(
+                indices_to_remove,
+                key=lambda idx_: widths[idx_] * heights[idx_],
+            )
+            indices_to_remove.remove(candidate_to_keep)
+            if not indices_to_remove:
+                return
+
+        removed_count = len(indices_to_remove)
+        self.page_objects = [
+            obj for idx, obj in enumerate(self.page_objects) if idx not in indices_to_remove
+        ]
+
+        logger.info(f"Removed {removed_count} small margin page objects out of {sample_count}")

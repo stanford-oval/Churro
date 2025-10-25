@@ -20,20 +20,14 @@ Environment variables (all optional unless a specific provider is used):
 
 from dataclasses import dataclass
 from functools import lru_cache
-import os
-from typing import Optional
 
-from dotenv import load_dotenv
 import litellm
 from litellm.caching.caching import enable_cache
 
-from utils.log_utils import logger
+from churro.config.settings import get_settings as get_churro_settings
+from churro.utils.log_utils import logger
 
 
-# Load environment variables from .env file (safe if called multiple times)
-load_dotenv()
-
-# Constants
 DEFAULT_TIMEOUT: int = 60 * 10  # 10 minutes
 
 _initialized: bool = False
@@ -43,14 +37,14 @@ _initialized: bool = False
 class LLMSettings:
     """Snapshot of environment-driven runtime settings."""
 
-    azure_api_base: Optional[str]
-    azure_api_version: Optional[str]
-    azure_openai_api_key: Optional[str]
-    local_vllm_port: Optional[int]
+    azure_api_base: str | None
+    azure_api_version: str | None
+    azure_openai_api_key: str | None
+    local_vllm_port: int | None
     vertex_ai_location: str
 
     @property
-    def local_base_url(self) -> Optional[str]:
+    def local_base_url(self) -> str | None:
         """Return the base URL for local vLLM server, or None if not configured."""
         if self.local_vllm_port:
             return f"http://localhost:{self.local_vllm_port}/v1"
@@ -74,18 +68,21 @@ def ensure_initialized() -> None:
 @lru_cache(maxsize=1)
 def get_settings() -> LLMSettings:
     """Return cached settings snapshot derived from environment variables."""
-    azure_api_version = os.getenv("AZURE_API_VERSION")
+    base_settings = get_churro_settings()
+    azure = base_settings.azure_openai
+
+    azure_api_version = azure.api_version
     if not azure_api_version:
         # Do not force-set; just warn for visibility.
         logger.warning(
             "AZURE_API_VERSION not set; Azure model calls may fail if provider requires explicit version."
         )
     settings = LLMSettings(
-        azure_api_base=os.getenv("AZURE_API_BASE"),
+        azure_api_base=azure.api_base,
         azure_api_version=azure_api_version,
-        azure_openai_api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-        local_vllm_port=int(os.getenv("LOCAL_VLLM_PORT", 9000)),
-        vertex_ai_location=os.getenv("VERTEX_AI_LOCATION", "us-east5"),
+        azure_openai_api_key=azure.api_key,
+        local_vllm_port=base_settings.local.vllm_port,
+        vertex_ai_location=base_settings.vertex_ai.location,
     )
 
     if settings.azure_api_base is None:

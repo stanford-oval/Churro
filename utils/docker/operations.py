@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Mapping, Sequence
 import contextlib
 import os
 from queue import Empty, Queue
 import re
+from re import Pattern
 import threading
 import time
-from typing import Any, Mapping, Optional, Pattern, Sequence
 
-from utils.log_utils import logger
+from churro.utils.log_utils import logger
 
 from .container import DockerContainer
 from .errors import DockerError
@@ -33,17 +34,17 @@ __all__ = [
 def start_container(
     *,
     image: str,
-    name: Optional[str] = None,
-    gpus: Optional[str] = None,
-    volumes: Optional[Mapping[str, str]] = None,
-    ports: Optional[Mapping[int, int]] = None,
-    env: Optional[Mapping[str, str]] = None,
-    ipc: Optional[str] = None,
-    shm_size: Optional[str] = None,
-    network: Optional[str] = None,
-    user: Optional[str] = None,
+    name: str | None = None,
+    gpus: str | None = None,
+    volumes: Mapping[str, str] | None = None,
+    ports: Mapping[int, int] | None = None,
+    env: Mapping[str, str] | None = None,
+    ipc: str | None = None,
+    shm_size: str | None = None,
+    network: str | None = None,
+    user: str | None = None,
     auto_remove: bool = True,
-    cmd: Optional[Sequence[str]] = None,
+    cmd: Sequence[str] | None = None,
     force_replace: bool = False,
     pull: bool = True,
 ) -> DockerContainer:
@@ -128,7 +129,7 @@ def start_container(
 
     device_requests = make_device_requests(gpus)
 
-    def _run_container() -> Any:
+    def _run_container() -> object:
         return client.containers.run(
             image=image,
             name=name,
@@ -186,7 +187,7 @@ def wait_for_readiness(
     ready_timeout: float = 120.0,
     check_interval: float = 0.5,
     capture_tail_lines: int = 4000,
-    log_prefix: Optional[str] = None,
+    log_prefix: str | None = None,
 ) -> None:
     """Block until container logs match regex or fail.
 
@@ -244,7 +245,7 @@ def wait_for_readiness(
                     t.join(timeout=1.0)
                     with contextlib.suppress(Exception):
                         container._container.remove(force=True)
-                    raise DockerError("Container exited before readiness was detected.")
+                    raise DockerError("Container exited before readiness was detected.") from None
                 # No new line; check inactivity timeout
                 if time.time() - last_log_time > ready_timeout:
                     stop_event.set()
@@ -253,7 +254,7 @@ def wait_for_readiness(
                         container._container.remove(force=True)
                     raise TimeoutError(
                         "No new container logs received within inactivity timeout before readiness pattern matched."
-                    )
+                    ) from None
     finally:
         pass
 
@@ -261,23 +262,23 @@ def wait_for_readiness(
 def start_and_wait_ready(
     *,
     image: str,
-    name: Optional[str] = None,
-    gpus: Optional[str] = None,
-    volumes: Optional[Mapping[str, str]] = None,
-    ports: Optional[Mapping[int, int]] = None,
-    env: Optional[Mapping[str, str]] = None,
-    ipc: Optional[str] = None,
-    shm_size: Optional[str] = None,
-    network: Optional[str] = None,
-    user: Optional[str] = None,
+    name: str | None = None,
+    gpus: str | None = None,
+    volumes: Mapping[str, str] | None = None,
+    ports: Mapping[int, int] | None = None,
+    env: Mapping[str, str] | None = None,
+    ipc: str | None = None,
+    shm_size: str | None = None,
+    network: str | None = None,
+    user: str | None = None,
     auto_remove: bool = True,
-    cmd: Optional[Sequence[str]] = None,
+    cmd: Sequence[str] | None = None,
     ready_pattern: (
         str | Pattern[str]
     ) = r"Ready|started|listening|Uvicorn running|Application startup complete",
     ready_timeout: float = 180.0,
     check_interval: float = 0.5,
-    log_prefix: Optional[str] = None,
+    log_prefix: str | None = None,
     pull: bool = True,
 ) -> DockerContainer:
     """Convenience helper to start a container then wait for readiness.

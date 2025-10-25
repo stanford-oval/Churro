@@ -12,23 +12,23 @@ silently ignored.
 from __future__ import annotations
 
 import gc
-from typing import Any, Set
+from typing import Any
 
 import litellm
 
-from utils.log_utils import logger
+from churro.utils.log_utils import logger
 
 
-async def _gather_candidate_sessions() -> Set[Any]:
+async def _gather_candidate_sessions() -> set[Any]:
     """Return a set of aiohttp.ClientSession-like objects discovered heuristically."""
-    sessions: Set[Any] = set()
+    sessions: set[Any] = set()
     try:
         import aiohttp
     except Exception:
         return sessions
 
     # 1. Probe known litellm attributes
-    for name, value in list(litellm.__dict__.items()):
+    for _name, value in list(litellm.__dict__.items()):
         if isinstance(value, aiohttp.ClientSession):  # type: ignore[attr-defined]
             sessions.add(value)
 
@@ -89,6 +89,6 @@ async def shutdown_llm_clients() -> None:
             except Exception as e:  # pragma: no cover
                 logger.debug(f"Failed closing session {sess}: {e}")
         if closed:
-            logger.debug("Closed %d aiohttp session(s) during shutdown", closed)
+            logger.debug(f"Closed {closed} aiohttp session(s) during shutdown")
     except Exception as e:  # pragma: no cover - defensive
         logger.debug(f"LLM client shutdown encountered error: {e}")

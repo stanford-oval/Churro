@@ -1,5 +1,7 @@
 """Core chat/completion API for LLMs with provider fallback and caching."""
 
+from __future__ import annotations
+
 from typing import Any
 
 import litellm
@@ -7,13 +9,17 @@ from litellm import acompletion
 from PIL import Image
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from utils.log_utils import logger
+from churro.utils.log_utils import logger
 
 from .config import DEFAULT_TIMEOUT, ensure_initialized
 from .cost import cost_tracker
 from .messages import prepare_messages
 from .models import MODEL_MAP
 from .types import ImageDetail, Messages, ModelInfo
+
+
+class LLMInferenceError(RuntimeError):
+    """Raised when all provider candidates fail or return unusable output."""
 
 
 def _get_model_candidates(model_key: str) -> list[ModelInfo]:
@@ -49,6 +55,7 @@ async def _run_litellm(
 
     # Try each candidate in order until one yields a non-empty answer
     last_error: Exception | None = None
+    empty_response_seen = False
     for candidate in candidates:
         provider_model = candidate["provider_model"]
         # Build params per-candidate
@@ -87,6 +94,7 @@ async def _run_litellm(
             logger.error(
                 f"LLM '{model}' via '{provider_model}' returned empty answer with finish_reason '{response.choices[0].finish_reason}'"  # type: ignore
             )
+            empty_response_seen = True
         except Exception as e:  # Continue to next candidate on failure
             last_error = e
             logger.warning(
@@ -95,10 +103,16 @@ async def _run_litellm(
 
     # All candidates failed or returned empty
     if last_error:
-        logger.error(
-            f"All provider candidates failed for model key '{model}'. Returning empty string. Last error: {last_error}"
+        message = (
+            f"All provider candidates failed for model key '{model}'. Last error: {last_error}"
         )
-    return ""
+        logger.error(message)
+        raise LLMInferenceError(message) from last_error
+
+    message = f"All provider candidates returned empty output for model key '{model}'."
+    if empty_response_seen:
+        logger.error(message)
+    raise LLMInferenceError(message)
 
 
 async def run_llm_async(
