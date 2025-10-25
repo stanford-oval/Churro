@@ -213,6 +213,7 @@ Each response contains a root `<HistoricalDocument>` element with optional `<Met
 ```
 
 The complete definition lives in `churro/evaluation/historical_doc.xsd`. The inference CLI's `--strip-xml` flag and the evaluation helpers call `churro.evaluation.xml_utils.extract_actual_text_from_xml()` to remove all XML tags and flatten the content into plain text when you do not need the markup.
+
 ---
 
 ## Citation
