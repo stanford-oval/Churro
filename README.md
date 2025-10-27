@@ -32,6 +32,7 @@
 	- [Local vLLM Container Notes](#local-vllm-container-notes)
 7. [Adding a New OCR System](#adding-a-new-ocr-system)
 8. [HistoricalDocument XML](#historicaldocument-xml)
+	- [Generate HistoricalDocument XML](#generate-historicaldocument-xml)
 9. [Citation](#citation)
 10. [License](#license)
 
@@ -213,6 +214,23 @@ Each response contains a root `<HistoricalDocument>` element with optional `<Met
 ```
 
 The complete definition lives in `churro/evaluation/historical_doc.xsd`. The inference CLI's `--strip-xml` flag and the evaluation helpers call `churro.evaluation.xml_utils.extract_actual_text_from_xml()` to remove all XML tags and flatten the content into plain text when you do not need the markup.
+
+### Generate HistoricalDocument XML
+If you are adding a new dataset to Churro, you may want to convert your transcriptions to the `HistoricalDocument` XML format.
+Convert a directory full of PNG/TXT pairs into `HistoricalDocument` XML using this CLI tool. This conversion uses an LLM prompt to structure the text according to the schema.
+
+```bash
+pixi run python -m churro.cli text-to-historical-doc-xml \
+	path/to/pairs/dir \
+	--corpus-description "Basque newspaper corpus" \
+	--max-concurrency 8
+```
+
+Place your data in matched `X.png` and `X.txt` files within the input directory; each pair yields an `X.xml`. The tool:
+- Validates LLM output against `historical_doc.xsd` and prettifies XML prior to saving.
+- Skips files that already have XML unless you pass `--overwrite`.
+- Accepts any logical engine key from `MODEL_MAP` via `--engine` (defaults to `gemini-2.5-pro-medium`).
+- Adds optional corpus context to prompts through `--corpus-description`.
 
 ---
 
