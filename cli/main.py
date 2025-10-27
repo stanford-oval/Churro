@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, ParamSpec, TypeVar
 
-import typer
+import typer  # type: ignore[import]
 
 from churro.systems.detect_layout import (
     log_total_azure_cost,
@@ -17,7 +17,7 @@ from churro.systems.ocr_factory import OCRFactory
 from churro.utils.llm import log_total_llm_cost
 from churro.utils.log_utils import logger
 
-from . import benchmark, docs_to_images, infer
+from . import benchmark, docs_to_images, infer, text_to_historical_doc_xml
 
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -346,6 +346,50 @@ async def infer_command(
     if result != 0:
         raise typer.Exit(code=result)
     return result
+
+
+@app.command("text-to-historical-doc-xml")
+@_synchronous
+async def text_to_historical_doc_xml_command(
+    input_dir: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        help="Directory containing matched PNG/TXT pairs.",
+    ),
+    engine: str = typer.Option(
+        text_to_historical_doc_xml.DEFAULT_ENGINE,
+        "--engine",
+        help="Logical model key to use for XML generation.",
+        show_default=True,
+    ),
+    max_concurrency: int = typer.Option(
+        text_to_historical_doc_xml.DEFAULT_MAX_CONCURRENCY,
+        "--max-concurrency",
+        help="Maximum number of concurrent LLM calls.",
+        show_default=True,
+    ),
+    corpus_description: str = typer.Option(
+        "",
+        "--corpus-description",
+        help="Optional corpus description to include in prompts.",
+    ),
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite",
+        help="Regenerate XML even if output already exists.",
+    ),
+) -> None:
+    await text_to_historical_doc_xml.run_text_to_historical_doc_xml(
+        input_dir,
+        engine,
+        max_concurrency,
+        corpus_description,
+        overwrite,
+    )
+    log_total_llm_cost()
 
 
 @app.command("benchmark")
