@@ -22,19 +22,24 @@
 ---
 ## Table of Contents
 1. [Overview](#overview)
-3. [Prerequisites](#prerequisites)
-4. [Environment Setup](#environment-setup)
-5. [Configure Providers](#configure-providers)
-6. [CLI Workflows](#cli-workflows)
-	- [Quick Start: Inference](#quick-start-inference)
-	- [Preprocess PDFs and Images](#preprocess-pdfs-and-images)
-	- [Benchmark on CHURRO-DS](#benchmark-on-churro-ds)
-	- [Local vLLM Container Notes](#local-vllm-container-notes)
-7. [Adding a New OCR System](#adding-a-new-ocr-system)
-8. [HistoricalDocument XML](#historicaldocument-xml)
-	- [Generate HistoricalDocument XML](#generate-historicaldocument-xml)
-9. [Citation](#citation)
-10. [License](#license)
+2. [Quick Start](#quick-start)
+3. [Installing the Full Package](#installing-the-full-package)
+  - [System Packages](#system-packages)
+  - [Docker (recommended for local models)](#docker-recommended-for-local-models)
+  - [Environment Setup](#environment-setup)
+  - [Configure Providers](#configure-providers)
+4. [CLI Workflows](#cli-workflows)
+  - [Inference](#inference)
+  - [Preprocess PDFs and Images](#preprocess-pdfs-and-images)
+  - [Benchmark on CHURRO-DS](#benchmark-on-churro-ds)
+  - [LLM Improver](#llm-improver)
+  - [Backup Engines](#backup-engines)
+  - [Local vLLM Container Notes](#local-vllm-container-notes)
+5. [Adding a New OCR System](#adding-a-new-ocr-system)
+6. [HistoricalDocument XML](#historicaldocument-xml)
+  - [Generate HistoricalDocument XML](#generate-historicaldocument-xml)
+7. [Citation](#citation)
+8. [License](#license)
 
 ---
 
@@ -43,8 +48,40 @@
 
 On the CHURRO-DS test set, CHURRO delivers **15.5× lower cost than Gemini 2.5 Pro while exceeding its accuracy**.
 
-## Prerequisites
-### System Packages (Ubuntu example)
+## Quick Start
+
+Want a minimal demo? The following will install `transformers` and `torch` only:
+```bash
+git clone https://github.com/stanford-oval/churro.git
+cd churro
+curl -fsSL https://pixi.sh/install.sh | bash
+pixi shell -e minimal
+```
+
+Then run:
+```bash
+python churro_transformers_infer.py tests/churro_dataset_sample_1.jpeg --max-new-tokens 40
+```
+
+Expected output begins with:
+
+```xml
+<HistoricalDocument xmlns="http://example.com/historicaldocument">
+  <Metadata>
+    <Language>German</Language>
+    <WritingDirection>ltr</WritingDirection>
+    <PhysicalDescription
+```
+
+Increase `--max-new-tokens` to `20000` for complete pages.
+
+
+## Installing the Full Package
+
+> [!WARNING]
+> This codebase has been tested on Ubuntu 20.04+. Using other operating systems may require tinkering with and troubleshooting system dependencies.
+
+### System Packages
 ```bash
 sudo apt-get update && sudo apt-get install -y \
 	libtiff5-dev libjpeg8-dev libopenjp2-7-dev zlib1g-dev libfreetype6-dev \
@@ -57,16 +94,17 @@ sudo apt-get update && sudo apt-get install -y \
 - GPU users: add the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
 - CPU-only machines can still run local models, but expect significantly slower throughput.
 
-## Environment Setup
+### Environment Setup
 We use [Pixi](https://pixi.sh/) to manage Python environments and dependencies. If you are familiar with [Conda](https://docs.conda.io/), you can think of Pixi as a much faster alternative. The following commands set up a Pixi shell with all required packages. Make sure the environment is active before running any Python code.
 ```bash
 git clone https://github.com/stanford-oval/churro.git
 cd churro
 curl -fsSL https://pixi.sh/install.sh | bash
 pixi shell  # create and enter the managed environment
-
-## Configure Providers
 ```
+
+### Configure Providers
+
 Copy the example environment file:
 ```bash
 cp .example.env .env
@@ -85,12 +123,12 @@ All environment variables live in `.env` and are autoloaded via `python-dotenv`.
 When a workflow does not need a provider, leave the corresponding variables blank. See `.example.env` for full documentation of each field.
 For Vertex AI usage, additionally ensure that the Google Cloud SDK is installed and authenticated: https://cloud.google.com/sdk/docs/install
 
-Note that for all API LLM calls, the outputs are cached in `.litellm_cache/`. So subsequent runs with the same inputs will be much faster and free.
+Note that for all API LLM calls, the outputs are cached in `.litellm_cache/`, so subsequent runs with the same inputs will be much faster and free.
 
 ## CLI Workflows
 The unified Typer CLI lives under `churro/cli`. All examples below assume you are inside a `pixi shell` or prefix commands with `pixi run`.
 
-### Quick Start: Inference
+### Inference
 Single image (local CHURRO model hosted via vLLM):
 ```bash
 pixi run python -m churro.cli infer \

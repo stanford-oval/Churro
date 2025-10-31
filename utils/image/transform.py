@@ -1,5 +1,7 @@
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
+from skimage.filters import threshold_sauvola
+from skimage.util import img_as_ubyte
 
 from churro.page.page import Page
 from churro.utils.log_utils import logger
@@ -25,13 +27,13 @@ def adjust_image(
     """Preprocess a scanned newspaper image for OCR without OpenCV.
 
     Steps:
+        0. Normalize orientation via EXIF metadata (Pillow).
         1. Convert to grayscale (Pillow).
         2. (Optional) Apply Sauvola threshold (skimage).
         3. Convert back to original mode (e.g. RGB) for downstream consistency.
     """
-    from skimage.filters import threshold_sauvola
-    from skimage.util import img_as_ubyte
-
+    # Apply EXIF-based rotation once so saved outputs keep the expected orientation
+    image = ImageOps.exif_transpose(image)
     original_mode = image.mode
 
     # Grayscale via Pillow
