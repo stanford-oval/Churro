@@ -233,7 +233,7 @@ async def run(options: InferOptions) -> int:
             logger.error("Internal error: --use-improver enabled without --improver-engine.")
             return 1
         backup_suffix = (
-            f" and backup engine {options.improver_backup_engine}"
+            f" and backup engine '{options.improver_backup_engine}'"
             if options.improver_backup_engine
             else ""
         )

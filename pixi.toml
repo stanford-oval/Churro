@@ -11,11 +11,11 @@ platforms = ["linux-64"]
 # Custom task definitions (currently empty; add build/run tasks as needed)
 
 [dependencies]
-# Base conda packages
+# Base conda packages shared by all environments
 python = "3.12.*"
 pip = "*"
 
-[pypi-dependencies]
+[feature.full.pypi-dependencies]
 # Local package for iterative development
 churro = { path = ".", editable = true }
 
@@ -73,3 +73,13 @@ docker = "*"                                # Docker SDK for vLLM container orch
 
 # CLI utilities
 typer = ">=0.19.2, <0.20"                   # CLI utilities (used in churro/cli.py)
+
+[feature.minimal.pypi-dependencies]
+# Minimal dependencies to run inference with transformers instead of vLLM
+transformers = { version = ">=4.57.0, <5", extras = ["torch"] }
+Pillow = "*"
+torchvision = "*"
+
+[environments]
+default = ["full"]
+minimal = ["minimal"]
