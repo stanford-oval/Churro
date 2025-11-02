@@ -5,6 +5,7 @@ import contextlib
 from pathlib import Path
 from types import SimpleNamespace
 
+from PIL import Image
 import pytest
 
 from churro.cli import infer
@@ -267,3 +268,81 @@ async def test_run_processes_images_and_writes_outputs(
     assert out_dir is not None
     assert (out_dir / "img1.txt").read_text() == "first text"
     assert (out_dir / "img2.txt").read_text() == "second text"
+
+
+@pytest.mark.asyncio
+async def test_run_binarizes_inputs_before_ocr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    image_dir = tmp_path / "images"
+    image_dir.mkdir()
+    first = image_dir / "img1.png"
+    second = image_dir / "img2.png"
+    Image.new("RGB", (10, 10), color="white").save(first)
+    Image.new("RGB", (10, 10), color="white").save(second)
+
+    options = infer.InferOptions(
+        system="azure",
+        engine=None,
+        backup_engine=None,
+        tensor_parallel_size=1,
+        data_parallel_size=1,
+        image=None,
+        image_dir=image_dir,
+        pattern="*.png",
+        suffixes=[".png"],
+        recursive=False,
+        output_dir=tmp_path / "outputs",
+        skip_existing=False,
+        max_concurrency=2,
+        binarize=True,
+    )
+
+    class FakeBinarizer:
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, int]] = []
+
+        def binarize_pil_batch(
+            self, images: list[Image.Image], scale: float = 1.0, n_batch_inference: int = 16
+        ) -> list[Image.Image]:
+            del scale, n_batch_inference  # unused in fake implementation
+            self.calls.extend(image.size for image in images)
+            return [Image.new("L", image.size, color=0) for image in images]
+
+    fake_binarizer = FakeBinarizer()
+
+    class FakeOCR:
+        async def process_images(
+            self, images: list[Image.Image], *, max_concurrency: int
+        ) -> list[str]:
+            assert len(images) == 2
+            assert all(isinstance(image, Image.Image) for image in images)
+            assert all(image.mode == "L" for image in images)
+            assert max_concurrency == 2
+            return ["binarized 1", "binarized 2"]
+
+        async def process_images_from_files(
+            self, image_paths: list[str], max_concurrency: int
+        ) -> list[str]:  # pragma: no cover - defensive guard
+            raise AssertionError("process_images_from_files should not be called when binarizing")
+
+    container_calls: list[dict[str, object]] = []
+
+    @contextlib.contextmanager
+    def fake_managed_container(**kwargs: object) -> Iterator[SimpleNamespace]:
+        container_calls.append(kwargs)
+        yield SimpleNamespace()
+
+    monkeypatch.setattr(infer, "ImageBinarizer", lambda: fake_binarizer)
+    monkeypatch.setattr(infer, "managed_vllm_container", fake_managed_container)
+    monkeypatch.setattr(infer.OCRFactory, "create_ocr_system", lambda _: FakeOCR())
+
+    result = await infer.run(options)
+
+    assert result == 0
+    assert fake_binarizer.calls == [(10, 10), (10, 10)]
+
+    out_dir = options.output_dir
+    assert out_dir is not None
+    assert (out_dir / "img1.txt").read_text() == "binarized 1"
+    assert (out_dir / "img2.txt").read_text() == "binarized 2"

@@ -75,6 +75,9 @@ Expected output begins with:
 
 Increase `--max-new-tokens` to `20000` for complete pages.
 
+This minimal path is ideal for quick CPU/GPU trials of the open-weight Churro model. It has lower throughput, and for example, does
+**not** install the CLI tools, and does not support image binarization.
+
 
 ## Installing the Full Package
 
@@ -101,6 +104,11 @@ git clone https://github.com/stanford-oval/churro.git
 cd churro
 curl -fsSL https://pixi.sh/install.sh | bash
 pixi shell  # create and enter the managed environment
+```
+
+Sanity check the install with:
+```bash
+pixi run python -m churro.cli --help
 ```
 
 ### Configure Providers
@@ -138,6 +146,9 @@ pixi run python -m churro.cli infer \
 ```
 
 `finetuned` system returns HistoricalDocument XML by default; add `--strip-xml` to output plain text instead. See [HistoricalDocument XML](#historicaldocument-xml) for schema details and parsing tips.
+
+Optionally, add `--binarize` to pre-process each page with the bundled neural image binarizer before sending it to OCR. This can improve OCR accuracy on degraded documents.
+The first run downloads the `stanford-oval/eynollah_binarizer_onnx` model.
 
 Batch directory with filtered suffixes and output files:
 ```bash
@@ -197,6 +208,8 @@ Important options:
 - `--engine <key>` is required for `llm` and `finetuned` systems; see `churro/utils/llm/models.py` for the full `MODEL_MAP` of logical keys (GPT-4/5, Claude, Gemini, Qwen 2.5, MiniCPM, CHURRO, and more).
 - `--tensor-parallel-size` / `--data-parallel-size` tune vLLM scaling for local engines.
 - `--resize <pixels>` optionally resizes large images before inference.
+
+Optionally, add `--binarize` to pre-process each dataset page with a neural image binarizer before OCR.
 
 Outputs land under `workdir/results/<split>/<system>_<engine>/` (the engine suffix is omitted for `azure` and `mistral_ocr`).
 

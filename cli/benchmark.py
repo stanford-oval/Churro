@@ -8,6 +8,7 @@ from datasets import load_dataset
 from churro.args import CHURRO_DATASET_ID, create_output_prefix
 from churro.evaluation.metrics import compute_metrics
 from churro.systems.ocr_factory import OCRFactory
+from churro.utils.image.binarizer import ImageBinarizer
 from churro.utils.llm.models import MODEL_MAP
 from churro.utils.log_utils import logger
 
@@ -28,6 +29,7 @@ class BenchmarkOptions:
     input_size: int
     dataset_split: str
     offset: int
+    binarize: bool = False
 
 
 def _validate_options(options: BenchmarkOptions) -> int:
@@ -65,6 +67,14 @@ async def run(options: BenchmarkOptions) -> int:
     dataset = dataset[start_index:end_index]
 
     elapsed_time = 0.0
+    binarizer: ImageBinarizer | None = None
+    if options.binarize:
+        logger.info("Binarizing dataset images prior to benchmarking.")
+        try:
+            binarizer = ImageBinarizer()
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.error(f"Failed to initialize image binarizer: {exc}")
+            return 1
     with managed_vllm_container(
         engine=options.engine,
         backup_engine=None,
@@ -75,6 +85,12 @@ async def run(options: BenchmarkOptions) -> int:
         ocr_system = OCRFactory.create_ocr_system(options)  # type: ignore[arg-type]
         start_time = time()
         images = [example["image"] for example in dataset]
+        if binarizer is not None:
+            try:
+                images = binarizer.binarize_pil_batch(images)
+            except Exception as exc:  # pragma: no cover - defensive guard
+                logger.error(f"Binarizer batch inference failed: {exc}")
+                return 1
         predicted_texts = await ocr_system.process_images(
             images,
             max_concurrency=options.max_concurrency,
