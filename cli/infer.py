@@ -5,8 +5,11 @@ import json
 from pathlib import Path
 import re
 
+from PIL import Image
+
 from churro.systems.llm_improver import LLMImprover
 from churro.systems.ocr_factory import OCRFactory
+from churro.utils.image.binarizer import ImageBinarizer
 from churro.utils.llm.models import MODEL_MAP
 from churro.utils.log_utils import logger
 
@@ -43,6 +46,7 @@ class InferOptions:
     improver_backup_engine: str | None = None
     improver_resize: int | None = None
     output_markdown: bool = False
+    binarize: bool = False
 
 
 def _validate_options(options: InferOptions) -> int:
@@ -200,65 +204,117 @@ async def run(options: InferOptions) -> int:
         logger.error("No images found to process.")
         return 1
 
-    multi_mode = len(images) > 1
-    if options.output_dir:
-        options.output_dir.mkdir(parents=True, exist_ok=True)
+    original_image_paths = [str(path) for path in images]
+    binarized_images: list[Image.Image] | None = None
+    opened_originals: list[Image.Image] = []
+    try:
+        if options.binarize:
+            logger.info(f"Binarizing {len(images)} input image(s) prior to OCR.")
+            try:
+                binarizer = ImageBinarizer()
+            except Exception as exc:  # pragma: no cover - defensive guard
+                logger.error(f"Failed to initialize image binarizer: {exc}")
+                return 1
+            for img_path in images:
+                try:
+                    opened_image = Image.open(img_path)
+                except Exception as exc:  # pragma: no cover - defensive guard
+                    logger.error(f"Failed to open {img_path} for binarization: {exc}")
+                    for image in opened_originals:
+                        image.close()
+                    return 1
+                opened_originals.append(opened_image)
 
-    max_concurrency = options.max_concurrency if options.max_concurrency > 0 else 1
-    if max_concurrency != options.max_concurrency:
-        logger.warning("--max-concurrency < 1 ignored; defaulting to 1")
+            try:
+                binarized_images = binarizer.binarize_pil_batch(opened_originals)
+            except Exception as exc:  # pragma: no cover - defensive guard
+                logger.error(f"Binarizer batch inference failed: {exc}")
+                return 1
 
-    with managed_vllm_container(
-        engine=options.engine,
-        backup_engine=options.backup_engine,
-        system=options.system,
-        tensor_parallel_size=options.tensor_parallel_size,
-        data_parallel_size=options.data_parallel_size,
-    ):
-        ocr_system = OCRFactory.create_ocr_system(options)  # type: ignore[arg-type]
-        image_paths = [str(path) for path in images]
-        try:
-            processed_outputs = await ocr_system.process_images_from_files(
-                image_paths,
-                max_concurrency,
+            if len(binarized_images) != len(images):  # pragma: no cover - defensive guard
+                logger.error(
+                    f"Binarizer returned {len(binarized_images)} outputs for {len(images)} inputs."
+                )
+                for image in binarized_images:
+                    image.close()
+                return 1
+
+        multi_mode = len(images) > 1
+        if options.output_dir:
+            options.output_dir.mkdir(parents=True, exist_ok=True)
+
+        max_concurrency = options.max_concurrency if options.max_concurrency > 0 else 1
+        if max_concurrency != options.max_concurrency:
+            logger.warning("--max-concurrency < 1 ignored; defaulting to 1")
+
+        with managed_vllm_container(
+            engine=options.engine,
+            backup_engine=options.backup_engine,
+            system=options.system,
+            tensor_parallel_size=options.tensor_parallel_size,
+            data_parallel_size=options.data_parallel_size,
+        ):
+            ocr_system = OCRFactory.create_ocr_system(options)  # type: ignore[arg-type]
+            try:
+                if binarized_images is not None:
+                    processed_outputs = await ocr_system.process_images(
+                        binarized_images,
+                        max_concurrency=max_concurrency,
+                    )
+                else:
+                    processed_outputs = await ocr_system.process_images_from_files(
+                        original_image_paths,
+                        max_concurrency,
+                    )
+            except RuntimeError as exc:
+                logger.error(f"OCR processing failed: {exc}")
+                return 1
+            outputs: list[str] = processed_outputs
+
+        if options.use_improver:
+            improver_engine = options.improver_engine
+            if not improver_engine:
+                logger.error("Internal error: --use-improver enabled without --improver-engine.")
+                return 1
+            backup_suffix = (
+                f" and backup engine '{options.improver_backup_engine}'"
+                if options.improver_backup_engine
+                else ""
             )
-        except RuntimeError as exc:
-            logger.error(f"OCR processing failed: {exc}")
-            return 1
-        outputs: list[str] = processed_outputs
+            logger.info(f"Running LLMImprover with engine '{improver_engine}'{backup_suffix}.")
+            improver = LLMImprover(
+                engine=improver_engine,
+                backup_engine=options.improver_backup_engine,
+                resize=options.improver_resize,
+                image_fidelity="high",
+            )
+            outputs = await improver.process_batch_inputs(
+                image_paths=original_image_paths,
+                texts=outputs,
+                max_concurrency=max_concurrency,
+            )
 
-    if options.use_improver:
-        improver_engine = options.improver_engine
-        if not improver_engine:
-            logger.error("Internal error: --use-improver enabled without --improver-engine.")
-            return 1
-        backup_suffix = (
-            f" and backup engine '{options.improver_backup_engine}'"
-            if options.improver_backup_engine
-            else ""
-        )
-        logger.info(f"Running LLMImprover with engine '{improver_engine}'{backup_suffix}.")
-        improver = LLMImprover(
-            engine=improver_engine,
-            backup_engine=options.improver_backup_engine,
-            resize=options.improver_resize,
-            image_fidelity="high",
-        )
-        outputs = await improver.process_batch_inputs(
-            image_paths=image_paths,
-            texts=outputs,
-            max_concurrency=max_concurrency,
-        )
+        for img_path, text in zip(images, outputs, strict=False):
+            _write_or_print_output(
+                img_path=img_path,
+                text=text,
+                output_dir=options.output_dir,
+                skip_existing=options.skip_existing,
+                multi_mode=multi_mode,
+            )
 
-    for img_path, text in zip(images, outputs, strict=False):
-        _write_or_print_output(
-            img_path=img_path,
-            text=text,
-            output_dir=options.output_dir,
-            skip_existing=options.skip_existing,
-            multi_mode=multi_mode,
-        )
-
-    if multi_mode:
-        logger.info(f"Processed {len(images)} image(s).")
-    return 0
+        if multi_mode:
+            logger.info(f"Processed {len(images)} image(s).")
+        return 0
+    finally:
+        if binarized_images is not None:
+            for image in binarized_images:
+                try:
+                    image.close()
+                except Exception:  # pragma: no cover - best effort cleanup
+                    pass
+        for image in opened_originals:
+            try:
+                image.close()
+            except Exception:  # pragma: no cover - best effort cleanup
+                pass

@@ -265,6 +265,11 @@ async def infer_command(
         help="Max concurrent image requests to vLLM server.",
         show_default=True,
     ),
+    binarize: bool = typer.Option(
+        False,
+        "--binarize",
+        help="Binarize input images with a neural model before OCR.",
+    ),
     strip_xml: bool = typer.Option(
         False,
         "--strip-xml",
@@ -338,6 +343,7 @@ async def infer_command(
         improver_engine=improver_engine if use_improver else None,
         improver_backup_engine=improver_backup_engine if use_improver else None,
         improver_resize=improver_resize,
+        binarize=binarize,
     )
     result = await infer.run(options)
     log_total_llm_cost()
@@ -422,6 +428,11 @@ async def benchmark_command(
         "--resize",
         help="If set, resize large images to fit inside a square of this size (in pixels).",
     ),
+    binarize: bool = typer.Option(
+        False,
+        "--binarize",
+        help="Binarize dataset images with the ONNX model before benchmarking.",
+    ),
     max_concurrency: int = typer.Option(
         50,
         "--max-concurrency",
@@ -459,6 +470,7 @@ async def benchmark_command(
         input_size=input_size,
         dataset_split=dataset_split_value,
         offset=offset,
+        binarize=binarize,
     )
     result = await benchmark.run(options)
     log_total_llm_cost()
