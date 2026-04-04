@@ -103,8 +103,10 @@ Repository = "https://github.com/stanford-oval/Churro"
 Issues = "https://github.com/stanford-oval/Churro/issues"
 
 [tool.setuptools]
-package-dir = { "" = "src" }
 include-package-data = true
+
+[tool.setuptools.package-dir]
+"" = "src"
 
 [tool.setuptools.packages.find]
 where = ["src"]
