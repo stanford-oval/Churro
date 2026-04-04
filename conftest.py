@@ -1,4 +1,4 @@
-"""Pytest configuration for the src-based churro-ocr package."""
+"""Pytest configuration for the churro-ocr package."""
 
 from __future__ import annotations
 

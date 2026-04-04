@@ -950,7 +950,7 @@ packages:
 - pypi: ./
   name: churro-ocr
   version: 0.1.0
-  sha256: 90067fe575bdae72a583bf1f226e0a32d5e6351edd996e74a642d2adcbce7cec
+  sha256: 8ac842f835aac177f967c8674689b0e31b5c3708a2387cfce9518746fb12378f
   requires_dist:
   - loguru>=0.7.2,<1
   - pillow>=10.4.0,<12

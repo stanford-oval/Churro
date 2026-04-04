@@ -13,7 +13,7 @@ repos:
         pass_filenames: false
         stages:
           - pre-commit
-        files: ^(src/|tests/|pyproject\.toml|pixi\.lock)
+        files: ^(src/|tests/|pyproject\.toml|pixi\.lock|pytest\.ini|ruff\.toml|ty\.toml)
 
       - id: lint
         name: pixi lint
@@ -22,7 +22,7 @@ repos:
         pass_filenames: false
         stages:
           - pre-commit
-        files: ^(src/|tests/|pyproject\.toml|pixi\.lock)
+        files: ^(src/|tests/|pyproject\.toml|pixi\.lock|pytest\.ini|ruff\.toml|ty\.toml)
 
       - id: typecheck
         name: pixi typecheck
@@ -31,7 +31,7 @@ repos:
         pass_filenames: false
         stages:
           - pre-commit
-        files: ^(src/|tests/|pyproject\.toml|pixi\.lock)
+        files: ^(src/|tests/|pyproject\.toml|pixi\.lock|pytest\.ini|ruff\.toml|ty\.toml)
 
       - id: test
         name: pixi test
@@ -40,7 +40,7 @@ repos:
         pass_filenames: false
         stages:
           - pre-push
-        files: ^(src/|tests/|pyproject\.toml|pixi\.lock)
+        files: ^(src/|tests/|pyproject\.toml|pixi\.lock|pytest\.ini|ruff\.toml|ty\.toml)
 
       - id: docs-build
         name: pixi docs-build
