@@ -11,7 +11,6 @@ from churro_ocr.providers import LiteLLMTransportConfig, LLMPageDetector
 
 _LIVE_FLAG = "CHURRO_RUN_LIVE_VERTEX_TESTS"
 _MODEL = "vertex_ai/gemini-3.1-pro-preview"
-_ARTIFACT_DIRNAME = "test-artifacts"
 
 
 def _load_dotenv_if_present(path: Path) -> None:
@@ -40,13 +39,6 @@ def _load_local_vertex_env() -> None:
     repo_root = churro_root.parent
     _load_dotenv_if_present(repo_root / ".env")
     _load_dotenv_if_present(churro_root / ".env")
-
-
-def _artifact_dir() -> Path:
-    churro_root = Path(__file__).resolve().parents[1]
-    artifact_dir = churro_root / "workdir" / _ARTIFACT_DIRNAME
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    return artifact_dir
 
 
 def _write_synthetic_page_image(path: Path) -> tuple[int, int]:
@@ -100,7 +92,7 @@ def _save_detection_overlay(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_llm_page_detector_live_vertex_gemini_31_pro() -> None:
+async def test_llm_page_detector_live_vertex_gemini_31_pro(test_artifact_dir_path) -> None:
     if os.getenv(_LIVE_FLAG) != "1":
         pytest.skip(f"Set {_LIVE_FLAG}=1 to run live Vertex page-detection integration tests.")
 
@@ -109,7 +101,8 @@ async def test_llm_page_detector_live_vertex_gemini_31_pro() -> None:
     if missing:
         pytest.skip(f"Missing required Vertex env vars: {', '.join(missing)}")
 
-    image_path = _artifact_dir() / "vertex-page-detection.png"
+    test_artifact_dir_path.mkdir(parents=True, exist_ok=True)
+    image_path = test_artifact_dir_path / "vertex-page-detection.png"
     width, height = _write_synthetic_page_image(image_path)
 
     detector = DocumentPageDetector(
@@ -127,7 +120,7 @@ async def test_llm_page_detector_live_vertex_gemini_31_pro() -> None:
     )
 
     result = await detector.detect_image(PageDetectionRequest(image_path=image_path, trim_margin=0))
-    overlay_path = _artifact_dir() / "vertex-page-detection-overlay.png"
+    overlay_path = test_artifact_dir_path / "vertex-page-detection-overlay.png"
     _save_detection_overlay(
         source_path=image_path,
         overlay_path=overlay_path,

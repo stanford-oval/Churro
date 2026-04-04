@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import builtins
 import importlib
 from types import SimpleNamespace
 from typing import cast
@@ -16,23 +15,6 @@ from tooling.evaluation.repetition import has_long_repetition
 from tooling.evaluation.types import BenchmarkDatasetExample, MetricInputExample, PageEvaluationResult
 
 evaluate_page_module = importlib.import_module("tooling.evaluation.evaluate_page")
-
-
-def _patch_import_to_fail(monkeypatch: pytest.MonkeyPatch, *, failing_name: str) -> None:
-    real_import = builtins.__import__
-
-    def _fake_import(
-        name: str,
-        globals: dict[str, object] | None = None,
-        locals: dict[str, object] | None = None,
-        fromlist: tuple[str, ...] = (),
-        level: int = 0,
-    ) -> object:
-        if name == failing_name:
-            raise ModuleNotFoundError(f"missing {failing_name}")
-        return real_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", _fake_import)
 
 
 def test_extract_actual_text_from_xml_handles_plain_text_namespaces_and_parse_errors(

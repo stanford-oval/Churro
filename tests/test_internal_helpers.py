@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import builtins
 import sys
 from base64 import b64encode
 from threading import Lock
@@ -35,23 +34,6 @@ def _make_fake_litellm_module(*, acompletion: object, completion_cost: object | 
     module.cache = None
     module.input_callback = []
     return module
-
-
-def _patch_import_to_fail(monkeypatch: pytest.MonkeyPatch, *, failing_name: str) -> None:
-    real_import = builtins.__import__
-
-    def _fake_import(
-        name: str,
-        globals: dict[str, object] | None = None,
-        locals: dict[str, object] | None = None,
-        fromlist: tuple[str, ...] = (),
-        level: int = 0,
-    ) -> object:
-        if name == failing_name:
-            raise ImportError(f"missing {failing_name}")
-        return real_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", _fake_import)
 
 
 def test_load_image_rejects_missing_path(tmp_path) -> None:
@@ -378,11 +360,11 @@ def test_log_prompt_payload_once_sanitizes_nested_payloads(monkeypatch: pytest.M
     ],
 )
 def test_optional_dependency_loaders_raise_configuration_error(
-    monkeypatch: pytest.MonkeyPatch,
     loader: Any,
     dependency_name: str,
+    patch_import_failure,
 ) -> None:
-    _patch_import_to_fail(monkeypatch, failing_name=dependency_name)
+    patch_import_failure(failing_name=dependency_name)
 
     with pytest.raises(ConfigurationError):
         loader()

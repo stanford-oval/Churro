@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from PIL import Image
 
@@ -44,21 +42,16 @@ def test_page_detector_returns_page_list() -> None:
     assert pages[1].page_index == 1
 
 
-def test_document_page_detector_detect_pdf_sync_uses_real_pdf() -> None:
-    project_root = Path(__file__).resolve().parents[1]
-    pdf_path = project_root / "tests" / "assets" / "minimal-document.pdf"
-
-    result = DocumentPageDetector().detect_pdf_sync(pdf_path, dpi=150, trim_margin=0)
+def test_document_page_detector_detect_pdf_sync_uses_real_pdf(minimal_pdf_path) -> None:
+    result = DocumentPageDetector().detect_pdf_sync(minimal_pdf_path, dpi=150, trim_margin=0)
 
     assert result.source_type == "pdf"
     assert len(result.pages) >= 1
     assert result.pages[0].image.width > 0
 
 
-def test_page_detection_request_requires_exactly_one_image_input(tmp_path: Path) -> None:
-    image_path = tmp_path / "sample.png"
-    Image.new("RGB", (12, 12), color="white").save(image_path)
-
+def test_page_detection_request_requires_exactly_one_image_input(write_image_file) -> None:
+    image_path = write_image_file(size=(12, 12))
     with pytest.raises(ConfigurationError, match="exactly one"):
         PageDetectionRequest().require_image()
 

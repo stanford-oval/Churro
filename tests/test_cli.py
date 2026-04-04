@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from typer.testing import CliRunner
 
 import churro_ocr.cli as cli_module
 from churro_ocr.cli import app
@@ -16,13 +15,15 @@ from churro_ocr.page_detection import DocumentPage, PageDetectionResult
 from churro_ocr.prompts import DEFAULT_OCR_OUTPUT_TAG
 from churro_ocr.templates import DEFAULT_OCR_TEMPLATE, DOTS_OCR_1_5_OCR_TEMPLATE
 
-runner = CliRunner()
 
-
-def test_transcribe_cli_writes_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    image_path = tmp_path / "sample.png"
+def test_transcribe_cli_writes_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    cli_runner,
+    write_image_file,
+) -> None:
+    image_path = write_image_file(size=(10, 10))
     output_path = tmp_path / "out.txt"
-    Image.new("RGB", (10, 10), color="white").save(image_path)
 
     class _FakeBackend:
         async def ocr(self, page):  # noqa: ANN001
@@ -35,7 +36,7 @@ def test_transcribe_cli_writes_output(monkeypatch: pytest.MonkeyPatch, tmp_path:
 
     monkeypatch.setattr("churro_ocr.cli._build_ocr_backend", lambda **_: _FakeBackend())
 
-    result = runner.invoke(
+    result = cli_runner.invoke(
         app,
         [
             "transcribe",
@@ -50,10 +51,14 @@ def test_transcribe_cli_writes_output(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert output_path.read_text() == "ocr:10x10"
 
 
-def test_extract_pages_cli_writes_page_images(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    image_path = tmp_path / "sample.png"
+def test_extract_pages_cli_writes_page_images(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    cli_runner,
+    write_image_file,
+) -> None:
+    image_path = write_image_file(size=(10, 10))
     output_dir = tmp_path / "pages"
-    Image.new("RGB", (10, 10), color="white").save(image_path)
 
     class _FakePageDetector:
         def __init__(self, **_: object) -> None:
@@ -74,7 +79,7 @@ def test_extract_pages_cli_writes_page_images(monkeypatch: pytest.MonkeyPatch, t
 
     monkeypatch.setattr("churro_ocr.cli.DocumentPageDetector", _FakePageDetector)
 
-    result = runner.invoke(
+    result = cli_runner.invoke(
         app,
         [
             "extract-pages",

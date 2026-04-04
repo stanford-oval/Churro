@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from PIL import Image
 
@@ -21,20 +19,16 @@ class _FakeOCRBackend(OCRBackend):
         )
 
 
-def test_document_page_loads_image_from_path(tmp_path: Path) -> None:
-    image_path = tmp_path / "sample.png"
-    Image.new("RGB", (12, 34), color="white").save(image_path)
-
+def test_document_page_loads_image_from_path(write_image_file) -> None:
+    image_path = write_image_file(size=(12, 34))
     page = DocumentPage.from_image_path(image_path)
     image = page.image
 
     assert image.size == (12, 34)
 
 
-def test_ocr_client_sync(tmp_path: Path) -> None:
-    image_path = tmp_path / "sample.png"
-    Image.new("RGB", (20, 10), color="white").save(image_path)
-
+def test_ocr_client_sync(write_image_file) -> None:
+    image_path = write_image_file(size=(20, 10))
     result = OCRClient(_FakeOCRBackend()).ocr(DocumentPage.from_image_path(image_path))
 
     assert result.text == "20x10"
@@ -70,9 +64,8 @@ def test_prepare_ocr_page_resizes_and_normalizes_image() -> None:
     assert prepared_page.image.mode == "RGB"
 
 
-def test_ocr_client_image_helpers_require_exactly_one_input(tmp_path: Path) -> None:
-    image_path = tmp_path / "sample.png"
-    Image.new("RGB", (20, 10), color="white").save(image_path)
+def test_ocr_client_image_helpers_require_exactly_one_input(write_image_file) -> None:
+    image_path = write_image_file(size=(20, 10))
     client = OCRClient(_FakeOCRBackend())
 
     with pytest.raises(ConfigurationError, match="exactly one"):

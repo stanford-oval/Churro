@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import pytest
 
@@ -15,19 +14,8 @@ _DEVICE_MAP_ENV = "CHURRO_HF_DEVICE_MAP"
 _DEFAULT_MODEL_ID = "stanford-oval/churro-3B"
 
 
-def _artifact_dir() -> Path:
-    churro_root = Path(__file__).resolve().parents[1]
-    artifact_dir = churro_root / "workdir" / "test-artifacts"
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    return artifact_dir
-
-
-def _pdf_asset_path() -> Path:
-    return Path(__file__).resolve().parents[1] / "tests" / "assets" / "minimal-document.pdf"
-
-
 @pytest.mark.integration
-def test_churro_3b_live_hf_ocr_on_minimal_pdf() -> None:
+def test_churro_3b_live_hf_ocr_on_minimal_pdf(minimal_pdf_path, test_artifact_dir_path) -> None:
     if os.getenv(_LIVE_FLAG) != "1":
         pytest.skip(f"Set {_LIVE_FLAG}=1 to run live Hugging Face OCR integration tests.")
 
@@ -38,7 +26,6 @@ def test_churro_3b_live_hf_ocr_on_minimal_pdf() -> None:
             "to allow the HF OCR integration test on CPU."
         )
 
-    pdf_path = _pdf_asset_path()
     model_id = os.getenv(_MODEL_ENV, _DEFAULT_MODEL_ID)
     device_map = os.getenv(_DEVICE_MAP_ENV, "auto")
 
@@ -54,10 +41,10 @@ def test_churro_3b_live_hf_ocr_on_minimal_pdf() -> None:
     )
     pipeline = DocumentOCRPipeline(backend)
 
-    result = pipeline.process_pdf_sync(pdf_path, dpi=150, trim_margin=0)
+    result = pipeline.process_pdf_sync(minimal_pdf_path, dpi=150, trim_margin=0)
 
-    artifact_dir = _artifact_dir()
-    output_path = artifact_dir / "hf-churro3b-minimal-document.xml"
+    test_artifact_dir_path.mkdir(parents=True, exist_ok=True)
+    output_path = test_artifact_dir_path / "hf-churro3b-minimal-document.xml"
     output_path.write_text("\n\n".join(result.texts()))
 
     assert result.source_type == "pdf"

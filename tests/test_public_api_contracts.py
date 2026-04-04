@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from PIL import Image
 
@@ -163,10 +161,8 @@ def test_ocr_client_ocr_image_propagates_metadata_and_indexes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ocr_client_aocr_image_from_path_propagates_metadata_and_indexes(tmp_path: Path) -> None:
-    image_path = tmp_path / "sample.png"
-    Image.new("RGB", (9, 7), color="white").save(image_path)
-
+async def test_ocr_client_aocr_image_from_path_propagates_metadata_and_indexes(write_image_file) -> None:
+    image_path = write_image_file(size=(9, 7))
     page = await OCRClient(_MetadataEchoOCRBackend()).aocr_image(
         image_path=image_path,
         page_index=6,

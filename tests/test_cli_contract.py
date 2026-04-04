@@ -5,25 +5,16 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from typer.testing import CliRunner
 
 import churro_ocr.cli as cli_module
 from churro_ocr.cli import app
 from churro_ocr.ocr import OCRResult
 from churro_ocr.page_detection import DocumentPage, PageDetectionResult
 
-runner = CliRunner()
-
 
 @pytest.fixture
-def sample_image_path(tmp_path: Path) -> Path:
-    image_path = tmp_path / "sample.png"
-    Image.new("RGB", (12, 12), color="white").save(image_path)
-    return image_path
-
-
-def _sample_pdf_path() -> Path:
-    return Path(__file__).resolve().parent / "assets" / "minimal-document.pdf"
+def sample_image_path(write_image_file) -> Path:
+    return write_image_file(size=(12, 12))
 
 
 @pytest.mark.parametrize(
@@ -44,8 +35,9 @@ def test_transcribe_cli_validates_backend_requirements(
     sample_image_path: Path,
     args: list[str],
     expected_parts: tuple[str, ...],
+    cli_runner,
 ) -> None:
-    result = runner.invoke(
+    result = cli_runner.invoke(
         app,
         ["transcribe", "--image", str(sample_image_path), *args],
     )
@@ -56,8 +48,8 @@ def test_transcribe_cli_validates_backend_requirements(
         assert expected_part in output
 
 
-def test_transcribe_cli_rejects_unsupported_backend(sample_image_path: Path) -> None:
-    result = runner.invoke(
+def test_transcribe_cli_rejects_unsupported_backend(sample_image_path: Path, cli_runner) -> None:
+    result = cli_runner.invoke(
         app,
         [
             "transcribe",
@@ -77,6 +69,7 @@ def test_transcribe_cli_rejects_unsupported_backend(sample_image_path: Path) -> 
 def test_transcribe_cli_echoes_text_without_output(
     monkeypatch: pytest.MonkeyPatch,
     sample_image_path: Path,
+    cli_runner,
 ) -> None:
     class _FakeBackend:
         async def ocr(self, page: DocumentPage) -> OCRResult:
@@ -88,7 +81,7 @@ def test_transcribe_cli_echoes_text_without_output(
 
     monkeypatch.setattr("churro_ocr.cli._build_ocr_backend", lambda **_: _FakeBackend())
 
-    result = runner.invoke(
+    result = cli_runner.invoke(
         app,
         [
             "transcribe",
@@ -120,16 +113,21 @@ def test_extract_pages_cli_requires_exactly_one_image_or_pdf(
     sample_image_path: Path,
     tmp_path: Path,
     command_args: list[str],
+    minimal_pdf_path: Path,
+    cli_runner,
 ) -> None:
     output_dir = tmp_path / "pages"
-    pdf_path = _sample_pdf_path()
     args = [
-        str(sample_image_path) if token == "scan.png" else str(pdf_path) if token == "document.pdf" else token
+        str(sample_image_path)
+        if token == "scan.png"
+        else str(minimal_pdf_path)
+        if token == "document.pdf"
+        else token
         for token in command_args
     ]
     args = [str(output_dir) if token == "unused" else token for token in args]
 
-    result = runner.invoke(app, args)
+    result = cli_runner.invoke(app, args)
 
     assert result.exit_code != 0
     assert "Provide exactly one of --image or --pdf." in result.output
@@ -153,9 +151,10 @@ def test_extract_pages_cli_validates_page_detector_requirements(
     tmp_path: Path,
     args: list[str],
     expected_parts: tuple[str, ...],
+    cli_runner,
 ) -> None:
     output_dir = tmp_path / "pages"
-    result = runner.invoke(
+    result = cli_runner.invoke(
         app,
         [
             "extract-pages",
@@ -176,6 +175,8 @@ def test_extract_pages_cli_validates_page_detector_requirements(
 def test_extract_pages_cli_writes_pdf_page_images(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    minimal_pdf_path: Path,
+    cli_runner,
 ) -> None:
     calls: dict[str, object] = {}
 
@@ -204,13 +205,12 @@ def test_extract_pages_cli_writes_pdf_page_images(
     monkeypatch.setattr("churro_ocr.cli.DocumentPageDetector", _FakePageDetector)
 
     output_dir = tmp_path / "pages"
-    pdf_path = _sample_pdf_path()
-    result = runner.invoke(
+    result = cli_runner.invoke(
         app,
         [
             "extract-pages",
             "--pdf",
-            str(pdf_path),
+            str(minimal_pdf_path),
             "--output-dir",
             str(output_dir),
             "--dpi",
@@ -226,7 +226,7 @@ def test_extract_pages_cli_writes_pdf_page_images(
     assert str(output_path) in result.output
     assert calls == {
         "backend": None,
-        "path": pdf_path,
+        "path": minimal_pdf_path,
         "dpi": 150,
         "trim_margin": 0,
     }

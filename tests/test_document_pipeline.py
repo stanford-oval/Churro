@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -44,12 +43,9 @@ def test_document_ocr_pipeline_process_image_sync() -> None:
     assert result.pages[0].metadata["kind"] == "tight"
 
 
-def test_document_ocr_pipeline_process_pdf_sync() -> None:
-    project_root = Path(__file__).resolve().parents[1]
-    pdf_path = project_root / "tests" / "assets" / "minimal-document.pdf"
-
+def test_document_ocr_pipeline_process_pdf_sync(minimal_pdf_path) -> None:
     result = DocumentOCRPipeline(_EchoOCRBackend()).process_pdf_sync(
-        pdf_path,
+        minimal_pdf_path,
         dpi=150,
         trim_margin=0,
     )
