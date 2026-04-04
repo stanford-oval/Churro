@@ -14,6 +14,9 @@ from email.message import Message
 from importlib import metadata
 from pathlib import Path
 
+from packaging.requirements import InvalidRequirement
+from packaging.requirements import Requirement
+
 ROOT = Path(__file__).resolve().parents[1]
 DIST_DIR = ROOT / "dist"
 BUILD_DIR = ROOT / "build"
@@ -185,6 +188,36 @@ def _requirement_name(requirement: str) -> str | None:
     return match.group(0).replace("_", "-").lower()
 
 
+def _audited_requirement(requirement: str) -> tuple[str, bool] | None:
+    try:
+        parsed = Requirement(requirement)
+    except InvalidRequirement:
+        name = _requirement_name(requirement)
+        if name is None:
+            return None
+        return name, True
+
+    marker = parsed.marker
+    marker_text = str(marker) if marker is not None else ""
+    if marker is not None and "extra" not in marker_text and not marker.evaluate():
+        return None
+
+    is_optional_extra = marker is not None and "extra" in marker_text
+    return parsed.name.replace("_", "-").lower(), not is_optional_extra
+
+
+def _direct_dependencies_to_audit(metadata_message: Message) -> dict[str, bool]:
+    direct_dependencies: dict[str, bool] = {}
+    for requirement in metadata_message.get_all("Requires-Dist", []):
+        parsed = _audited_requirement(requirement)
+        if parsed is None:
+            continue
+
+        name, is_required = parsed
+        direct_dependencies[name] = direct_dependencies.get(name, False) or is_required
+    return direct_dependencies
+
+
 def _read_distribution_license_text(distribution: metadata.Distribution) -> str:
     metadata_message = distribution.metadata
     parts: list[str] = []
@@ -216,18 +249,16 @@ def _read_distribution_license_text(distribution: metadata.Distribution) -> str:
 
 
 def _audit_dependency_licenses(metadata_message: Message) -> None:
-    direct_dependencies = {
-        name
-        for requirement in metadata_message.get_all("Requires-Dist", [])
-        for name in [_requirement_name(requirement)]
-        if name is not None
-    }
+    direct_dependencies = _direct_dependencies_to_audit(metadata_message)
     incompatible: list[str] = []
     unknown: list[str] = []
     for dependency_name in sorted(direct_dependencies):
+        is_required = direct_dependencies[dependency_name]
         try:
             distribution = metadata.distribution(dependency_name)
         except metadata.PackageNotFoundError:
+            if not is_required:
+                continue
             unknown.append(f"{dependency_name} (not installed in the Pixi audit environment)")
             continue
 
