@@ -1,0 +1,235 @@
+"""Minimal public CLI for OCR and page detection."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import typer
+
+from churro_ocr.ocr import OCRClient
+from churro_ocr.page_detection import DocumentPage, DocumentPageDetector, PageDetectionRequest
+from churro_ocr.providers import (
+    AzureDocumentIntelligenceOptions,
+    AzurePageDetector,
+    HuggingFaceOptions,
+    LiteLLMTransportConfig,
+    LLMPageDetector,
+    MistralOptions,
+    OCRBackendSpec,
+    OpenAICompatibleOptions,
+    VLLMOptions,
+    build_ocr_backend,
+)
+
+app = typer.Typer(help="churro-ocr library-first CLI")
+
+
+def _build_ocr_backend(
+    *,
+    backend: str,
+    model: str | None,
+    endpoint: str | None,
+    api_key: str | None,
+    base_url: str | None,
+    api_version: str | None,
+):
+    if backend == "litellm":
+        if not model:
+            raise typer.BadParameter("--model is required for backend=litellm")
+        return build_ocr_backend(
+            OCRBackendSpec(
+                provider="litellm",
+                model=model,
+                transport=LiteLLMTransportConfig(
+                    api_base=base_url,
+                    api_key=api_key,
+                    api_version=api_version,
+                ),
+            )
+        )
+    if backend == "openai-compatible":
+        if not model or not base_url or not api_key:
+            raise typer.BadParameter(
+                "--model, --base-url, and --api-key are required for backend=openai-compatible"
+            )
+        return build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=model,
+                transport=LiteLLMTransportConfig(
+                    api_base=base_url,
+                    api_key=api_key,
+                    api_version=api_version,
+                ),
+                options=OpenAICompatibleOptions(),
+            )
+        )
+    if backend == "azure":
+        if not endpoint or not api_key:
+            raise typer.BadParameter("--endpoint and --api-key are required for backend=azure")
+        return build_ocr_backend(
+            OCRBackendSpec(
+                provider="azure",
+                model=model,
+                options=AzureDocumentIntelligenceOptions(
+                    endpoint=endpoint,
+                    api_key=api_key,
+                ),
+            )
+        )
+    if backend == "mistral":
+        if not api_key:
+            raise typer.BadParameter("--api-key is required for backend=mistral")
+        return build_ocr_backend(
+            OCRBackendSpec(
+                provider="mistral",
+                model=model or "mistral-ocr-latest",
+                options=MistralOptions(api_key=api_key),
+            )
+        )
+    if backend == "hf":
+        if not model:
+            raise typer.BadParameter("--model is required for backend=hf")
+        return build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=model,
+                options=HuggingFaceOptions(model_kwargs={"device_map": "auto", "torch_dtype": "auto"}),
+            )
+        )
+    if backend == "vllm":
+        if not model:
+            raise typer.BadParameter("--model is required for backend=vllm")
+        return build_ocr_backend(
+            OCRBackendSpec(
+                provider="vllm",
+                model=model,
+                options=VLLMOptions(),
+            )
+        )
+    raise typer.BadParameter(f"Unsupported backend: {backend}")
+
+
+def _build_page_detector(
+    *,
+    page_detector: str,
+    model: str | None,
+    endpoint: str | None,
+    api_key: str | None,
+    base_url: str | None,
+    api_version: str | None,
+):
+    transport = None
+    if base_url or api_key or api_version:
+        transport = LiteLLMTransportConfig(
+            api_base=base_url,
+            api_key=api_key,
+            api_version=api_version,
+        )
+    detector_backend = None
+    if page_detector == "llm":
+        if not model:
+            raise typer.BadParameter("--model is required when --page-detector=llm")
+        detector_backend = LLMPageDetector(
+            model=model,
+            transport=transport,
+        )
+    elif page_detector == "azure":
+        if not endpoint or not api_key:
+            raise typer.BadParameter("--endpoint and --api-key are required when --page-detector=azure")
+        detector_backend = AzurePageDetector(endpoint=endpoint, api_key=api_key)
+    return detector_backend
+
+
+@app.command("transcribe")
+def transcribe_command(
+    image: Path = typer.Option(..., exists=True, dir_okay=False, readable=True),
+    backend: str = typer.Option("litellm"),
+    model: str | None = typer.Option(None),
+    endpoint: str | None = typer.Option(None),
+    api_key: str | None = typer.Option(None),
+    base_url: str | None = typer.Option(None),
+    api_version: str | None = typer.Option(None),
+    output: Path | None = typer.Option(None),
+) -> None:
+    """Transcribe text from a single image."""
+    ocr_backend = _build_ocr_backend(
+        backend=backend,
+        model=model,
+        endpoint=endpoint,
+        api_key=api_key,
+        base_url=base_url,
+        api_version=api_version,
+    )
+    result = OCRClient(ocr_backend).ocr(DocumentPage.from_image_path(image))
+    if output:
+        output.write_text(result.text or "")
+        typer.echo(str(output))
+        return
+    typer.echo(result.text or "")
+
+
+@app.command("extract-pages")
+def extract_pages_command(
+    image: Path | None = typer.Option(
+        None,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Input image to split into page crops.",
+    ),
+    pdf: Path | None = typer.Option(
+        None,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Input PDF to rasterize and split into page crops.",
+    ),
+    output_dir: Path = typer.Option(
+        ...,
+        file_okay=False,
+        writable=True,
+        help=(
+            "Directory where extracted pages are written as sequential PNG files such as "
+            "`page_0000.png`, `page_0001.png`, and so on."
+        ),
+    ),
+    page_detector: str = typer.Option("none"),
+    model: str | None = typer.Option(None),
+    endpoint: str | None = typer.Option(None),
+    api_key: str | None = typer.Option(None),
+    base_url: str | None = typer.Option(None),
+    api_version: str | None = typer.Option(None),
+    dpi: int = typer.Option(300),
+    trim_margin: int = typer.Option(30),
+) -> None:
+    """Extract page crops as PNG files and print each written path."""
+    if (image is None) == (pdf is None):
+        raise typer.BadParameter("Provide exactly one of --image or --pdf.")
+    detector_backend = _build_page_detector(
+        page_detector=page_detector,
+        model=model,
+        endpoint=endpoint,
+        api_key=api_key,
+        base_url=base_url,
+        api_version=api_version,
+    )
+    page_detector_client = DocumentPageDetector(backend=detector_backend)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if image is not None:
+        result = page_detector_client.detect_image_sync(
+            PageDetectionRequest(image_path=image, trim_margin=trim_margin)
+        )
+    else:
+        assert pdf is not None
+        result = page_detector_client.detect_pdf_sync(pdf, dpi=dpi, trim_margin=trim_margin)
+
+    for page in result.pages:
+        output_path = output_dir / f"page_{page.page_index:04d}.png"
+        page.image.save(output_path)
+        typer.echo(str(output_path))
+
+
+def main() -> None:
+    """Console-script entrypoint."""
+    app()

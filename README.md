@@ -1,305 +1,708 @@
-<p align="center">
-	<img src="static/churro.png" width="70px" alt="CHURRO Logo" style="display:block;margin:0 auto;" />
-	<p align="center">CHURRO: Making History Readable with an Open-Weight Large Vision-Language Model for High-Accuracy, Low-Cost Historical Text Recognition</p>
-	<p align="center">
-		<a href="https://huggingface.co/stanford-oval/churro-3B" target="_blank"><img src="https://img.shields.io/badge/Model-CHURRO%203B-8A4FFF" alt="Model" /></a>
-		<a href="https://huggingface.co/datasets/stanford-oval/churro-dataset" target="_blank"><img src="https://img.shields.io/badge/Dataset-CHURRO--DS-0A7BBB" alt="Dataset" /></a>
-		<a href="https://arxiv.org/abs/2509.19768" target="_blank"><img src="https://img.shields.io/badge/Paper-arXiv-B31B1B" alt="Paper" /></a>
-		<a href="https://github.com/stanford-oval/churro/stargazers" target="_blank"><img src="https://img.shields.io/github/stars/stanford-oval/churro?style=social" alt="GitHub Stars" /></a>
-	</p>
-</p>
+# churro-ocr
 
-<p align="center">
-	<sub><i>Handwritten and printed text recognition across 22 centuries and 46 language clusters, including historical and dead languages.</i></sub>
-</p>
+`churro-ocr` is a Python toolkit for OCR and page detection on historical documents.
 
-<p align="center">
-		<img src="static/performance_cost.png" alt="Cost vs Performance comparison showing CHURRO's accuracy advantage at significantly lower cost" width="75%" />
-		<br/>
-		<sub><i>Cost vs. accuracy: CHURRO (3B) achieves higher accuracy than much larger commercial and open-weight VLMs while being substantially cheaper.</i></sub>
-</p>
+It gives you one consistent interface whether you are using:
+- hosted multimodal models through LiteLLM
+- a local OpenAI-compatible server
+- local Hugging Face or vLLM models
+- Azure Document Intelligence
+- Mistral OCR
 
----
-## Table of Contents
-1. [Overview](#overview)
-2. [Quick Start](#quick-start)
-3. [Installing the Full Package](#installing-the-full-package)
-  - [System Packages](#system-packages)
-  - [Docker (recommended for local models)](#docker-recommended-for-local-models)
-  - [Environment Setup](#environment-setup)
-  - [Configure Providers](#configure-providers)
-4. [CLI Workflows](#cli-workflows)
-  - [Inference](#inference)
-  - [Preprocess PDFs and Images](#preprocess-pdfs-and-images)
-  - [Benchmark on CHURRO-DS](#benchmark-on-churro-ds)
-  - [LLM Improver](#llm-improver)
-  - [Backup Engines](#backup-engines)
-  - [Local vLLM Container Notes](#local-vllm-container-notes)
-5. [Adding a New OCR System](#adding-a-new-ocr-system)
-6. [HistoricalDocument XML](#historicaldocument-xml)
-  - [Generate HistoricalDocument XML](#generate-historicaldocument-xml)
-7. [Citation](#citation)
-8. [License](#license)
+If you are new to the library, the shortest path is:
+1. Install the extra for the backend you want.
+2. Create an `OCRBackendSpec`.
+3. Build it with `build_ocr_backend(...)`.
+4. Use `OCRClient` for one page or `DocumentOCRPipeline` for a full document.
 
----
+The PyPI package name is `churro-ocr`. The Python import package is `churro_ocr`.
 
-## Overview
-**CHURRO** is a 3B-parameter open-weight vision-language model (VLM) for historical document transcription. It is trained on **CHURRO-DS**, a curated dataset of ~100K pages from 155 historical collections spanning 22 centuries and 46 language clusters.
+## Setup
 
-On the CHURRO-DS test set, CHURRO delivers **15.5× lower cost than Gemini 2.5 Pro while exceeding its accuracy**.
-
-## Quick Start
-
-Want a minimal demo? The following will install `transformers` and `torch` only:
-```bash
-git clone https://github.com/stanford-oval/churro.git
-cd churro
-curl -fsSL https://pixi.sh/install.sh | bash
-pixi shell -e minimal
-```
-
-Then run:
-```bash
-python churro_transformers_infer.py tests/churro_dataset_sample_1.jpeg --max-new-tokens 40
-```
-
-Expected output begins with:
-
-```xml
-<HistoricalDocument xmlns="http://example.com/historicaldocument">
-  <Metadata>
-    <Language>German</Language>
-    <WritingDirection>ltr</WritingDirection>
-    <PhysicalDescription
-```
-
-Increase `--max-new-tokens` to `20000` for complete pages.
-
-This minimal path is ideal for quick CPU/GPU trials of the open-weight Churro model. It has lower throughput, and for example, does
-**not** install the CLI tools, and does not support image binarization.
-
-
-## Installing the Full Package
-
-> [!WARNING]
-> This codebase has been tested on Ubuntu 20.04+. Using other operating systems may require tinkering with and troubleshooting system dependencies.
-
-### System Packages
-```bash
-sudo apt-get update && sudo apt-get install -y \
-	libtiff5-dev libjpeg8-dev libopenjp2-7-dev zlib1g-dev libfreetype6-dev \
-	liblcms2-dev libwebp-dev tcl8.6-dev tk8.6-dev python3-tk libharfbuzz-dev \
-	libfribidi-dev libxcb1-dev
-```
-
-### Docker (recommended for local models)
-- Install Docker: https://docs.docker.com/engine/install/
-- GPU users: add the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
-- CPU-only machines can still run local models, but expect significantly slower throughput.
-
-### Environment Setup
-We use [Pixi](https://pixi.sh/) to manage Python environments and dependencies. If you are familiar with [Conda](https://docs.conda.io/), you can think of Pixi as a much faster alternative. The following commands set up a Pixi shell with all required packages. Make sure the environment is active before running any Python code.
-```bash
-git clone https://github.com/stanford-oval/churro.git
-cd churro
-curl -fsSL https://pixi.sh/install.sh | bash
-pixi shell  # create and enter the managed environment
-```
-
-Sanity check the install with:
-```bash
-pixi run python -m churro.cli --help
-```
-
-### Configure Providers
-
-Copy the example environment file:
-```bash
-cp .example.env .env
-```
-Populate only the variables you need in `.env`.
-All environment variables live in `.env` and are autoloaded via `python-dotenv`. Use the table below as a quick reference to decide which credentials you must supply.
-
-| Workflow | Required providers | Key variables |
-|----------|-------------------|---------------|
-| Azure Document Intelligence OCR (`--system azure`) or if using `docs-to-images` command without `--no-trim` | Azure Document Intelligence | `AZURE_DI_ENDPOINT`, `AZURE_DOC_KEY` |
-| LLM-based OCR against Vertex AI deployments | Google Vertex AI | `VERTEX_AI_LOCATION` |
-| LLM-based OCR against Azure/OpenAI deployments | Azure OpenAI or OpenAI | `AZURE_API_BASE`, `AZURE_OPENAI_API_KEY` (or `OPENAI_API_KEY`), `AZURE_API_VERSION` |
-| Mistral OCR (`--system mistral_ocr`) | Mistral | `MISTRAL_API_KEY` |
-| Local vLLM models (`--system finetuned` or `llm` with engines backed by `vllm/`) | Docker + Hugging Face | `LOCAL_VLLM_PORT`, `HF_TOKEN` (only if using private models) |
-
-When a workflow does not need a provider, leave the corresponding variables blank. See `.example.env` for full documentation of each field.
-For Vertex AI usage, additionally ensure that the Google Cloud SDK is installed and authenticated: https://cloud.google.com/sdk/docs/install
-
-Note that for all API LLM calls, the outputs are cached in `.litellm_cache/`, so subsequent runs with the same inputs will be much faster and free.
-
-## CLI Workflows
-The unified Typer CLI lives under `churro/cli`. All examples below assume you are inside a `pixi shell` or prefix commands with `pixi run`.
-
-### Inference
-Single image (local CHURRO model hosted via vLLM):
-```bash
-pixi run python -m churro.cli infer \
-	--system finetuned \
-	--engine churro \
-	--image tests/churro_dataset_sample_1.jpeg
-```
-
-`finetuned` system returns HistoricalDocument XML by default; add `--strip-xml` to output plain text instead. See [HistoricalDocument XML](#historicaldocument-xml) for schema details and parsing tips.
-
-Optionally, add `--binarize` to pre-process each page with the bundled neural image binarizer before sending it to OCR. This can improve OCR accuracy on degraded documents.
-The first run downloads the `stanford-oval/eynollah_binarizer_onnx` model.
-
-Batch directory with filtered suffixes and output files:
-```bash
-pixi run python -m churro.cli infer \
-	--system finetuned \
-	--engine churro \
-	--image-dir path/to/images \
-	--suffix png --suffix jpeg \
-	--recursive \
-	--output-dir workdir/texts/ \
-	--skip-existing \
-	--max-concurrency 8
-```
-
-Use `pixi run python -m churro.cli infer --help` to see every option, including how to use other LLMs via `--system llm --engine <engine>` arguments.
-
-### Preprocess PDFs and Images
-If you have raw PDF scans or image directories, first use the `docs-to-images` command to convert them into page-aligned PNGs ready for OCR.
-`docs-to-images` normalizes PDF scans and image directories into page-aligned PNGs. The default engine `gemini-2.5-pro-low` calls a Vertex AI model to detect double-page spreads, then calls Azure Document Intelligence to detect page boundaries and trim margins.
-
-Single PDF:
-```bash
-pixi run python -m churro.cli docs-to-images \
-	--input-file path/to/file.pdf \
-	--output-dir workdir/images/
-```
-
-Mixed directory with custom suffix filters and dry run:
-```bash
-pixi run python -m churro.cli docs-to-images \
-	--input-dir path/to/scans \
-	--suffix pdf --suffix tif --suffix png \
-	--recursive \
-	--output-dir workdir/images/ \
-	--dry-run
-```
-
-Here is how this pipeline works:
-- An LLM estimates whether a rasterized page contains a two-page spread. Provide `--engine <MODEL_MAP key>` to swap to a different splitter if you do not have Vertex AI access.
-- Margin trimming is enabled by default via Azure Document Intelligence. Use `--no-trim` to disable this stage.
-- `--batch-pages`, `--queue-maxsize`, `--raster-workers`, `--page-workers`, and `--llm-concurrency-limit` balance CPU-bound rasterization and LLM throughput.
-- Pages are written as `<source_base>_page_XXXX.png`, even when spreads split into multiple images.
-
-### Benchmark on CHURRO-DS
-Run end-to-end evaluation against the CHURRO dataset. The command automatically initializes any required local vLLM server before processing.
-```bash
-pixi run python -m churro.cli benchmark \
-	--system finetuned \
-	--engine churro \
-	--dataset-split test \
-	--input-size 0 \
-	--max-concurrency 32
-```
-
-Important options:
-- `--system {azure,mistral_ocr,llm,finetuned}` determines which OCR backend to use.
-- `--engine <key>` is required for `llm` and `finetuned` systems; see `churro/utils/llm/models.py` for the full `MODEL_MAP` of logical keys (GPT-4/5, Claude, Gemini, Qwen 2.5, MiniCPM, CHURRO, and more).
-- `--tensor-parallel-size` / `--data-parallel-size` tune vLLM scaling for local engines.
-- `--resize <pixels>` optionally resizes large images before inference.
-
-Optionally, add `--binarize` to pre-process each dataset page with a neural image binarizer before OCR.
-
-Outputs land under `workdir/results/<split>/<system>_<engine>/` (the engine suffix is omitted for `azure` and `mistral_ocr`).
-
-
-### LLM Improver
-The Churro CLI supports optional post-processing with the `LLMImprover`, enabled via `--use-improver`. Pair it with `--improver-engine`. Improver can help fix OCR errors, and improve the formatting of complex documents' Markdown.
-
-### Backup Engines
-You can supply a backup engine for LLM-based OCR systems using `--backup-engine`, and for LLM improvers using `--improver-backup-engine`.
-Both backup options allow the pipeline to retry with a secondary model if the first call fails. For example, when a provider's content filter incorrectly flags historical material or when a transient outage interrupts inference.
-
-
-### Local vLLM Container Notes
-When you run `infer` or `benchmark` with an `llm` or `finetuned` system whose engine has an `hf_repo` entry, the CLI will:
-- Read `LOCAL_VLLM_PORT` and `HF_TOKEN` from your environment (`churro/utils/docker/vllm.py`).
-- Pull the corresponding Hugging Face repository on first launch. Expect multi-gigabyte downloads.
-- Start a Docker container exposing an OpenAI-compatible API at `http://localhost:<LOCAL_VLLM_PORT>/v1`.
-- Stop the container automatically when the command exits or crashes.
-
-Make sure the chosen port is free and that Docker is running. GPU acceleration is optional but dramatically improves throughput.
-
-## Adding a New OCR System
-Pull requests for new VLMs and OCR backends are welcome.
-
-If adding a new LLM, simply add it to `utils/llm/models.py` (`MODEL_MAP`). Include an `hf_repo` for vLLM-served models.
-
-For entirely new OCR systems, follow all steps:
-1. Register the system in `churro/systems/ocr_factory.py` so the CLI can instantiate it.
-2. Implement `process_image` and `get_system_name` in a subclass of `BaseOCR`.
-3. Use `--system <system_name>` with the CLI or import the factory in your own scripts.
-
-## HistoricalDocument XML
-`HistoricalDocument` is the XML schema we use in the CHURRO dataset and model for rich transcriptions. It is specifically designed to capture complex layouts, scribal edits, and missing text, which are all common in historical documents, while preserving reading order.
-
-Each response contains a root `<HistoricalDocument>` element with optional `<Metadata>` details (languages, scripts, writing direction, notes) followed by one or more `<Page>` blocks. A page combines optional `<Header>` and `<Footer>` regions with a required `<Body>` that nests structural tags such as `<Paragraph>`, `<MarginalNote>`, `<Figure>`, and `<List>`. Inline markup like `<Addition>`, `<Deletion>`, `<Gap/>`, and `<InterlinearNote>` captures scribal edits or missing text while preserving reading order.
-
-```xml
-<HistoricalDocument xmlns="http://example.com/historicaldocument">
-	<Metadata>
-		<Language>lat</Language>
-		<Script>Latn</Script>
-	</Metadata>
-	<Page>
-		<Header/>
-		<Body>
-			<Paragraph>
-				<Line>In nomine domini amen.</Line>
-				<Line><Gap reason="illegible"/> nos notarii subscripsimus.</Line>
-			</Paragraph>
-		</Body>
-	</Page>
-</HistoricalDocument>
-```
-
-The complete definition lives in `churro/evaluation/historical_doc.xsd`. The inference CLI's `--strip-xml` flag and the evaluation helpers call `churro.evaluation.xml_utils.extract_actual_text_from_xml()` to remove all XML tags and flatten the content into plain text when you do not need the markup.
-
-### Generate HistoricalDocument XML
-If you are adding a new dataset to Churro, you may want to convert your transcriptions to the `HistoricalDocument` XML format.
-Convert a directory full of PNG/TXT pairs into `HistoricalDocument` XML using this CLI tool. This conversion uses an LLM prompt to structure the text according to the schema.
+Install only the pieces you need:
 
 ```bash
-pixi run python -m churro.cli text-to-historical-doc-xml \
-	path/to/pairs/dir \
-	--corpus-description "Basque newspaper corpus" \
-	--max-concurrency 8
+pip install churro-ocr
+pip install "churro-ocr[llm]"
+pip install "churro-ocr[local]"
+pip install "churro-ocr[hf]"
+pip install "churro-ocr[huggingface]"
+pip install "churro-ocr[vllm]"
+pip install "churro-ocr[azure]"
+pip install "churro-ocr[mistral]"
+pip install "churro-ocr[pdf]"
+pip install "churro-ocr[all]"
 ```
 
-Place your data in matched `X.png` and `X.txt` files within the input directory; each pair yields an `X.xml`. The tool:
-- Validates LLM output against `historical_doc.xsd` and prettifies XML prior to saving.
-- Skips files that already have XML unless you pass `--overwrite`.
-- Accepts any logical engine key from `MODEL_MAP` via `--engine` (defaults to `gemini-2.5-pro-medium`).
-- Adds optional corpus context to prompts through `--corpus-description`.
+What each extra is for:
+- `llm`: hosted multimodal OCR and LLM-based page detection through LiteLLM
+- `local`: OpenAI-compatible OCR servers
+- `hf` and `huggingface`: equivalent extras for local Hugging Face Transformers OCR
+- `vllm`: local vLLM OCR
+- `azure`: Azure Document Intelligence OCR and page detection
+- `mistral`: Mistral OCR
+- `pdf`: PDF rasterization via pypdfium2
+- `all`: everything above
 
----
+Credential setup depends on the provider you choose:
+- LiteLLM-backed models use LiteLLM's normal authentication flow.
+- OpenAI-compatible servers usually need `api_base` and `api_key`.
+- Azure Document Intelligence needs an endpoint and API key.
+- Mistral needs an API key.
 
-## Citation
-If you use CHURRO or CHURRO-DS, please cite:
+When you need to pass connection details directly, use `LiteLLMTransportConfig` or the provider-specific options dataclasses shown below.
 
-```bibtex
-@inproceedings{semnani2025churro,
-	title        = {{CHURRO}: Making History Readable with an Open-Weight Large Vision-Language Model for High-Accuracy, Low-Cost Historical Text Recognition},
-	author       = {Semnani, Sina J. and Zhang, Han and He, Xinyan and Tekg{"u}rler, Merve and Lam, Monica S.},
-	booktitle    = {Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing (EMNLP 2025)},
-	year         = {2025}
-}
+If you are working from a repo checkout instead of installing from PyPI, use Pixi from the checkout root. The public workflow is `pixi run lint`, `pixi run test`, and `pixi run package-check`, not the internal Nx file.
+
+## Core Idea
+
+`churro-ocr` has a small set of concepts:
+
+- `DocumentPage`: one page image plus optional OCR text and metadata
+- `OCRBackendSpec`: a declarative description of which OCR backend to build
+- `build_ocr_backend(...)`: the factory that turns a spec into a runnable OCR backend
+- `OCRClient`: OCR for one image or one `DocumentPage`
+- `DocumentPageDetector`: page detection only
+- `DocumentOCRPipeline`: page detection plus OCR for a complete image or PDF flow, with bounded OCR concurrency
+
+Most users do not need to think about prompts or preprocessing directly. `churro-ocr` ships built-in OCR model profiles and automatically applies the right prompt and output cleanup for:
+- generic OCR models
+- `stanford-oval/churro-3B`
+- `kristaller486/dots.ocr-1.5`
+
+## Which API Should I Use?
+
+| Goal | API |
+| --- | --- |
+| OCR one page or one image | `OCRClient` |
+| Detect page crops only | `DocumentPageDetector` |
+| Run an end-to-end image/PDF OCR workflow | `DocumentOCRPipeline` |
+| Try things from the shell | `churro-ocr` CLI |
+| Tune backend/provider options directly | `build_ocr_backend(...)` + `OCRBackendSpec` |
+
+## Which OCR Backend Should I Use?
+
+| Provider | Install extra | Good default when |
+| --- | --- | --- |
+| `litellm` | `llm` | you want to use a hosted multimodal model through LiteLLM |
+| `openai-compatible` | `local` | you have a local or self-hosted OpenAI-style server |
+| `hf` | `hf` or `huggingface` | you want local Transformers inference in-process |
+| `vllm` | `vllm` | you want higher-throughput local serving |
+| `azure` | `azure` | you want Azure Document Intelligence OCR |
+| `mistral` | `mistral` | you want Mistral's OCR API |
+
+All of these backends use the same builder:
+
+```python
+from churro_ocr.providers import OCRBackendSpec, build_ocr_backend
+
+backend = build_ocr_backend(
+    OCRBackendSpec(
+        provider="litellm",
+        model="vertex_ai/gemini-2.5-flash",
+    )
+)
 ```
 
----
+## Quick Start: OCR One Image
+
+Use `OCRClient` when your input is already one page per image.
+
+```python
+from churro_ocr.ocr import OCRClient
+from churro_ocr.providers import OCRBackendSpec, build_ocr_backend
+
+backend = build_ocr_backend(
+    OCRBackendSpec(
+        provider="litellm",
+        model="vertex_ai/gemini-2.5-flash",
+    )
+)
+
+page = OCRClient(backend).ocr_image(image_path="scan.png")
+
+print(page.text)
+print(page.provider_name)
+print(page.model_name)
+```
+
+When an API accepts both `image` and `image_path`, pass exactly one of them.
+
+## Async Entry Points
+
+Every public sync helper has an async equivalent. Use the async forms when you are already inside an event loop or want to coordinate OCR with your own concurrency controls.
+
+Async OCR for a single page or image:
+
+```python
+import asyncio
+
+from churro_ocr.ocr import OCRClient
+from churro_ocr.providers import OCRBackendSpec, build_ocr_backend
+
+
+async def main() -> None:
+    backend = build_ocr_backend(
+        OCRBackendSpec(
+            provider="litellm",
+            model="vertex_ai/gemini-2.5-flash",
+        )
+    )
+    page = await OCRClient(backend).aocr_image(
+        image_path="scan.png",
+        page_index=3,
+        source_index=7,
+        metadata={"job_id": "demo"},
+    )
+    print(page.text)
+    print(page.metadata)
+
+
+asyncio.run(main())
+```
+
+Async page detection for images or PDFs:
+
+```python
+import asyncio
+
+from churro_ocr.page_detection import DocumentPageDetector, PageDetectionRequest
+
+
+async def main() -> None:
+    detector = DocumentPageDetector()
+    image_result = await detector.detect_image(
+        PageDetectionRequest(image_path="spread.jpg", trim_margin=20)
+    )
+    pdf_result = await detector.detect_pdf("document.pdf", dpi=300, trim_margin=20)
+    print(image_result.source_type, len(image_result.pages))
+    print(pdf_result.source_type, len(pdf_result.pages))
+
+
+asyncio.run(main())
+```
+
+Async end-to-end document OCR:
+
+```python
+import asyncio
+
+from churro_ocr import DocumentOCRPipeline, PageDetectionRequest
+from churro_ocr.providers import OCRBackendSpec, build_ocr_backend
+
+
+async def main() -> None:
+    pipeline = DocumentOCRPipeline(
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="litellm",
+                model="vertex_ai/gemini-2.5-flash",
+            )
+        ),
+        max_concurrency=4,
+    )
+    image_result = await pipeline.process_image(
+        PageDetectionRequest(image_path="spread.jpg", trim_margin=20),
+        ocr_metadata={"job_id": "demo-image"},
+    )
+    pdf_result = await pipeline.process_pdf(
+        "document.pdf",
+        dpi=300,
+        trim_margin=20,
+        ocr_metadata={"job_id": "demo-pdf"},
+    )
+    print(image_result.texts())
+    print(pdf_result.as_ocr_results()[0].metadata)
+
+
+asyncio.run(main())
+```
+
+## Full Example: Detect Pages and OCR a Photographed Spread
+
+This example shows the complete flow for a single image that may contain multiple pages.
+It uses an LLM page detector to find page crops, then OCRs each crop with the same model family.
+
+```python
+from pathlib import Path
+
+from churro_ocr import DocumentOCRPipeline, PageDetectionRequest
+from churro_ocr.providers import (
+    LLMPageDetector,
+    LiteLLMTransportConfig,
+    OCRBackendSpec,
+    build_ocr_backend,
+)
+
+INPUT_IMAGE = Path("spread.jpg")
+OUTPUT_DIR = Path("output")
+MODEL = "vertex_ai/gemini-2.5-flash"
+
+transport = LiteLLMTransportConfig()
+
+ocr_backend = build_ocr_backend(
+    OCRBackendSpec(
+        provider="litellm",
+        model=MODEL,
+        transport=transport,
+    )
+)
+
+pipeline = DocumentOCRPipeline(
+    ocr_backend,
+    detection_backend=LLMPageDetector(
+        model=MODEL,
+        transport=transport,
+    ),
+    max_concurrency=4,
+)
+
+result = pipeline.process_image_sync(
+    PageDetectionRequest(
+        image_path=INPUT_IMAGE,
+        trim_margin=20,
+    )
+)
+
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+for page in result.pages:
+    image_path = OUTPUT_DIR / f"page_{page.page_index:04d}.png"
+    text_path = OUTPUT_DIR / f"page_{page.page_index:04d}.txt"
+
+    page.image.save(image_path)
+    text_path.write_text(page.text or "", encoding="utf-8")
+
+    print(
+        f"page={page.page_index} "
+        f"provider={page.provider_name} "
+        f"model={page.model_name} "
+        f"text_file={text_path}"
+    )
+```
+
+If your input is already one page per image, skip the `detection_backend` and use `OCRClient` instead.
+
+## Backend Recipes
+
+### LiteLLM
+
+Use this for hosted multimodal models routed through LiteLLM.
+
+```python
+from churro_ocr.providers import OCRBackendSpec, build_ocr_backend
+
+backend = build_ocr_backend(
+    OCRBackendSpec(
+        provider="litellm",
+        model="vertex_ai/gemini-2.5-flash",
+    )
+)
+```
+
+If you need to override connection details or completion settings:
+
+```python
+from churro_ocr.providers import LiteLLMTransportConfig, OCRBackendSpec, build_ocr_backend
+
+backend = build_ocr_backend(
+    OCRBackendSpec(
+        provider="litellm",
+        model="gpt-4.1-mini",
+        transport=LiteLLMTransportConfig(
+            api_base="https://example.invalid/v1",
+            api_key="secret",
+            api_version="2025-01-01-preview",
+            completion_kwargs={"temperature": 0},
+        ),
+    )
+)
+```
+
+### OpenAI-Compatible Servers
+
+Use this for local or self-hosted servers that expose an OpenAI-style API.
+
+```python
+from churro_ocr.providers import (
+    LiteLLMTransportConfig,
+    OCRBackendSpec,
+    build_ocr_backend,
+)
+
+backend = build_ocr_backend(
+    OCRBackendSpec(
+        provider="openai-compatible",
+        model="local-model",
+        transport=LiteLLMTransportConfig(
+            api_base="http://127.0.0.1:8000/v1",
+            api_key="dummy",
+        ),
+    )
+)
+```
+
+### Hugging Face
+
+Use this for local Transformers inference inside the current Python process.
+
+```python
+from churro_ocr.providers import HuggingFaceOptions, OCRBackendSpec, build_ocr_backend
+
+backend = build_ocr_backend(
+    OCRBackendSpec(
+        provider="hf",
+        model="stanford-oval/churro-3B",
+        options=HuggingFaceOptions(
+            model_kwargs={"device_map": "auto", "torch_dtype": "auto"},
+        ),
+    )
+)
+```
+
+### vLLM
+
+Use this for higher-throughput local inference.
+
+```python
+from churro_ocr.providers import OCRBackendSpec, VLLMOptions, build_ocr_backend
+
+backend = build_ocr_backend(
+    OCRBackendSpec(
+        provider="vllm",
+        model="stanford-oval/churro-3B",
+        options=VLLMOptions(),
+    )
+)
+```
+
+### Azure Document Intelligence
+
+Use this when you want Azure's OCR stack instead of a general multimodal model.
+
+```python
+from churro_ocr.providers import (
+    AzureDocumentIntelligenceOptions,
+    OCRBackendSpec,
+    build_ocr_backend,
+)
+
+backend = build_ocr_backend(
+    OCRBackendSpec(
+        provider="azure",
+        options=AzureDocumentIntelligenceOptions(
+            endpoint="https://<resource>.cognitiveservices.azure.com/",
+            api_key="<azure-doc-intelligence-key>",
+        ),
+    )
+)
+```
+
+### Mistral OCR
+
+```python
+from churro_ocr.providers import MistralOptions, OCRBackendSpec, build_ocr_backend
+
+backend = build_ocr_backend(
+    OCRBackendSpec(
+        provider="mistral",
+        model="mistral-ocr-latest",
+        options=MistralOptions(api_key="<mistral-api-key>"),
+    )
+)
+```
+
+## Backend Spec Reference
+
+`OCRBackendSpec` is the builder input shared across all OCR providers.
+
+| Field | Meaning |
+| --- | --- |
+| `provider` | One of `litellm`, `openai-compatible`, `azure`, `mistral`, `hf`, or `vllm`. |
+| `model` | Required for `litellm`, `openai-compatible`, `hf`, and `vllm`. Optional for `azure`. Defaults to `mistral-ocr-latest` when omitted for `mistral`. |
+| `profile` | `None`, a built-in profile name, or a custom `OCRModelProfile`. If omitted, `resolve_ocr_profile(...)` picks the built-in profile for the model id when available, otherwise the generic default profile. |
+| `transport` | Shared request transport config for LiteLLM-based providers. Use this for `litellm`, `openai-compatible`, or LLM page detection. |
+| `options` | Provider-specific dataclass. Use the options type that matches `provider`. |
+
+Provider option dataclasses:
+
+| Type | Used by | Required fields | Defaults and notes |
+| --- | --- | --- | --- |
+| `LiteLLMTransportConfig` | `litellm`, `openai-compatible`, `LLMPageDetector` | None at the dataclass level. `openai-compatible` usually needs `api_base` and `api_key`. | `completion_kwargs={}`, `cache_dir=None`, `image_detail=None`, `api_version=None`. |
+| `OpenAICompatibleOptions` | `openai-compatible` | None | `model_prefix=None`. Use it when your local server expects a provider prefix before the model id. |
+| `HuggingFaceOptions` | `hf` | None | `trust_remote_code=None`, `processor_kwargs={}`, `model_kwargs={}`, `generation_kwargs={}`, `vision_input_builder=None`, `backend_variant=None`. |
+| `VLLMOptions` | `vllm` | None | `trust_remote_code=None`, `processor_kwargs={}`, `llm_kwargs={}`, `sampling_kwargs={}`, `limit_mm_per_prompt={}`. |
+| `AzureDocumentIntelligenceOptions` | `azure` | `endpoint`, `api_key` | `model` is optional for Azure OCR in `OCRBackendSpec`. |
+| `MistralOptions` | `mistral` | `api_key` | If `OCRBackendSpec.model` is omitted, the backend defaults to `mistral-ocr-latest`. |
+
+The library also exports `DEFAULT_OCR_MAX_TOKENS` from `churro_ocr.providers` for profile and backend integrations that need a shared OCR token budget.
+
+## Page Detection Only
+
+Use `DocumentPageDetector` when you want page crops without OCR.
+
+The default detector treats the whole image as one page:
+
+```python
+from churro_ocr.page_detection import DocumentPageDetector, PageDetectionRequest
+
+result = DocumentPageDetector().detect_image_sync(
+    PageDetectionRequest(image_path="scan.png")
+)
+
+for page in result.pages:
+    print(page.page_index, page.image.size)
+```
+
+For Azure-backed page detection:
+
+```python
+from churro_ocr.page_detection import DocumentPageDetector, PageDetectionRequest
+from churro_ocr.providers import AzurePageDetector
+
+detector = DocumentPageDetector(
+    backend=AzurePageDetector(
+        endpoint="https://<resource>.cognitiveservices.azure.com/",
+        api_key="<azure-doc-intelligence-key>",
+    )
+)
+
+result = detector.detect_image_sync(
+    PageDetectionRequest(image_path="scan.png", trim_margin=30)
+)
+```
+
+For LLM-based page detection:
+
+```python
+from churro_ocr.page_detection import DocumentPageDetector, PageDetectionRequest
+from churro_ocr.providers import LLMPageDetector, LiteLLMTransportConfig
+
+detector = DocumentPageDetector(
+    backend=LLMPageDetector(
+        model="vertex_ai/gemini-2.5-flash",
+        transport=LiteLLMTransportConfig(),
+    )
+)
+
+result = detector.detect_image_sync(
+    PageDetectionRequest(image_path="spread.jpg", trim_margin=20)
+)
+```
+
+## PDF OCR
+
+If you install the `pdf` extra, `DocumentOCRPipeline` can rasterize PDFs and OCR each page.
+
+```python
+from churro_ocr import DocumentOCRPipeline
+from churro_ocr.providers import OCRBackendSpec, build_ocr_backend
+
+pipeline = DocumentOCRPipeline(
+    build_ocr_backend(
+        OCRBackendSpec(
+            provider="litellm",
+            model="vertex_ai/gemini-2.5-flash",
+        )
+    ),
+    max_concurrency=4,
+)
+
+result = pipeline.process_pdf_sync("document.pdf", dpi=300, trim_margin=30)
+
+for page in result.pages:
+    print(page.page_index, page.text)
+```
+
+## Result Objects
+
+The main result types are stable public interfaces:
+
+| Type | Returned by | Important fields |
+| --- | --- | --- |
+| `DocumentPage` | `OCRClient`, `DocumentPageDetector`, `DocumentOCRPipeline` | `image`, `text`, `provider_name`, `model_name`, `metadata`, `ocr_metadata`, `page_index`, `source_index`, `bbox`, `polygon` |
+| `OCRResult` | low-level OCR backend calls and `DocumentOCRResult.as_ocr_results()` | `text`, `provider_name`, `model_name`, `metadata` |
+| `PageDetectionResult` | `DocumentPageDetector.detect_*` | `pages`, `source_type`, `metadata` |
+| `DocumentOCRResult` | `DocumentOCRPipeline.process_*` | `pages`, `source_type`, `metadata`, `texts()`, `as_ocr_results()` |
+
+Field meanings:
+- `metadata` is caller-side or detector-side metadata attached to the page or result object.
+- `ocr_metadata` is provider-returned OCR metadata for one page. `DocumentOCRResult.as_ocr_results()` copies it into each `OCRResult.metadata`.
+- `page_index` is the page position within the current detection or OCR result.
+- `source_index` is the index in the original input source. For single-image flows it is usually `0`. For `detect_pdf(...)` and `process_pdf(...)`, it is the rasterized PDF page index the crop came from.
+- `source_type` is `"image"` or `"pdf"` on `PageDetectionResult` and `DocumentOCRResult`.
+
+## Advanced: Custom Prompt Template for a Hugging Face Model
+
+Most users should rely on the built-in model profiles. If you need to override prompt rendering for a custom model, create a custom `OCRModelProfile`.
+
+```python
+from churro_ocr import HFChatTemplate
+from churro_ocr.providers import (
+    HuggingFaceOptions,
+    OCRBackendSpec,
+    OCRModelProfile,
+    build_ocr_backend,
+)
+
+backend = build_ocr_backend(
+    OCRBackendSpec(
+        provider="hf",
+        model="your-org/your-vlm",
+        profile=OCRModelProfile(
+            profile_name="custom",
+            template=HFChatTemplate(
+                system_message="Transcribe the page exactly.",
+                user_prompt=None,
+            ),
+        ),
+        options=HuggingFaceOptions(model_kwargs={"device_map": "auto"}),
+    )
+)
+```
+
+## Prompt and Template Exports
+
+Most users should start with the built-in profiles and templates rather than building prompts from scratch.
+
+Built-in OCR profiles resolved by `resolve_ocr_profile(...)`:
+- the generic default profile for unknown models
+- `stanford-oval/churro-3B`, which uses `CHURRO_3B_XML_TEMPLATE`
+- `kristaller486/dots.ocr-1.5`, which uses `DOTS_OCR_1_5_OCR_TEMPLATE`
+
+Useful public template exports:
+
+| Export | Module | Use case |
+| --- | --- | --- |
+| `HFChatTemplate` | `churro_ocr.templates` | Build a Hugging Face chat-style multimodal prompt with optional system text, user prompt text, and image inclusion. |
+| `DEFAULT_OCR_TEMPLATE` | `churro_ocr.templates` | Generic OCR prompt template used by the default model profile. |
+| `CHURRO_3B_XML_TEMPLATE` | `churro_ocr.templates` | Built-in template for `stanford-oval/churro-3B`. |
+| `DOTS_OCR_1_5_OCR_TEMPLATE` | `churro_ocr.templates` | Built-in template for `kristaller486/dots.ocr-1.5`. |
+| `OCRPromptTemplate` | `churro_ocr.templates` | Base template protocol/type for custom profile integration. |
+
+Useful public prompt exports:
+
+| Export | Module | Use case |
+| --- | --- | --- |
+| `DEFAULT_OCR_SYSTEM_PROMPT` | `churro_ocr.prompts` | Default system instruction for generic OCR prompting. |
+| `DEFAULT_OCR_USER_PROMPT` | `churro_ocr.prompts` | Default user prompt for plain OCR output. |
+| `DEFAULT_MARKDOWN_OCR_USER_PROMPT` | `churro_ocr.prompts` | Default user prompt when markdown-style OCR output is preferred. |
+| `DEFAULT_OCR_OUTPUT_TAG` | `churro_ocr.prompts` | Shared tag name used by the default OCR postprocessor. |
+| `DEFAULT_BOUNDARY_DETECTION_PROMPT` | `churro_ocr.prompts` | Default prompt used by LLM-based page and text-block boundary detection helpers. |
+| `strip_ocr_output_tag(...)` | `churro_ocr.prompts` | Remove the default OCR wrapper tag from model output before downstream evaluation or postprocessing. |
+
+If you need prompt overrides without replacing the entire backend, pass a custom `OCRModelProfile` through `OCRBackendSpec(profile=...)` and keep the provider-specific options unchanged.
+
+## CLI
+
+Use the CLI when you want a quick sanity check before writing Python code.
+
+Use `churro-ocr --help` or `python -m churro_ocr --help` to see the top-level commands.
+
+`churro-ocr extract-pages` writes one PNG file per detected page into `--output-dir`.
+Files are named sequentially like `page_0000.png`, `page_0001.png`, and so on.
+The command also prints each written file path to stdout.
+
+OCR one image:
+
+```bash
+churro-ocr transcribe \
+  --image scan.png \
+  --backend litellm \
+  --model vertex_ai/gemini-2.5-flash
+```
+
+Extract pages from an image:
+
+```bash
+churro-ocr extract-pages \
+  --image spread.jpg \
+  --output-dir pages/
+```
+
+This creates files like:
+
+```text
+pages/page_0000.png
+pages/page_0001.png
+```
+
+Extract pages with Azure page detection:
+
+```bash
+churro-ocr extract-pages \
+  --image spread.jpg \
+  --output-dir pages/ \
+  --page-detector azure \
+  --endpoint https://<resource>.cognitiveservices.azure.com/ \
+  --api-key <azure-doc-intelligence-key>
+```
+
+OCR with a local OpenAI-compatible server:
+
+```bash
+churro-ocr transcribe \
+  --image scan.png \
+  --backend openai-compatible \
+  --model local-model \
+  --base-url http://127.0.0.1:8000/v1 \
+  --api-key dummy
+```
+
+Extract pages from a PDF:
+
+```bash
+churro-ocr extract-pages \
+  --pdf document.pdf \
+  --output-dir pages/ \
+  --dpi 300 \
+  --trim-margin 30
+```
+
+CLI contract:
+
+`transcribe` backends:
+
+| `--backend` value | Required flags | Notes |
+| --- | --- | --- |
+| `litellm` | `--model` | Uses LiteLLM credentials and routing. `--base-url`, `--api-key`, and `--api-version` are optional transport overrides. |
+| `openai-compatible` | `--model`, `--base-url`, `--api-key` | For local or self-hosted OpenAI-style servers. |
+| `azure` | `--endpoint`, `--api-key` | `--model` is optional. |
+| `mistral` | `--api-key` | `--model` defaults to `mistral-ocr-latest`. |
+| `hf` | `--model` | Local Transformers OCR. |
+| `vllm` | `--model` | Local vLLM OCR. |
+
+`extract-pages` page detectors:
+
+| `--page-detector` value | Required flags | Notes |
+| --- | --- | --- |
+| `none` | none | Default behavior. Treats the whole image or rasterized PDF page as one page crop. |
+| `llm` | `--model` | Uses `LLMPageDetector`. `--base-url`, `--api-key`, and `--api-version` are optional transport overrides. |
+| `azure` | `--endpoint`, `--api-key` | Uses Azure Document Intelligence layout detection. |
+
+Additional CLI rules:
+- `transcribe` requires exactly one `--image`.
+- `extract-pages` requires exactly one of `--image` or `--pdf`.
+- `--dpi` only affects the `--pdf` path because PDFs are rasterized before page detection.
+- `--trim-margin` expands each detected bounding box or polygon crop by that many pixels, clipped to the image bounds. With `--page-detector none`, that usually leaves the full image unchanged.
+
+## Public Modules
+
+The main public modules are:
+- `churro_ocr`
+- `churro_ocr.document`
+- `churro_ocr.ocr`
+- `churro_ocr.page_detection`
+- `churro_ocr.providers`
+- `churro_ocr.templates`
+- `churro_ocr.prompts`
+
+## Repo-only Workflows
+
+Benchmarking, contributor commands, and the pre-publish package audit live in the repository workflow guide at `REPO_WORKFLOWS.md`.
+Contributor setup lives in `CONTRIBUTING.md`.
+These commands require a repo checkout and are not part of the published `churro-ocr` package.
 
 ## License
-- Model Weights: Qwen research license (see HF model card)
-- Dataset: Due to licensing restrictions on the original datasets used in Churro, use is permitted for research purposes only.
-- Code: Apache 2.0
+
+Apache-2.0
