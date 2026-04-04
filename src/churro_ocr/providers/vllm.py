@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import threading
 from dataclasses import dataclass, field
-from typing import Any
+from importlib import import_module
+from typing import Any, cast
 
 from churro_ocr._internal.prompt_logging import log_prompt_payload_once
 from churro_ocr.errors import ConfigurationError, ProviderError
@@ -39,13 +40,14 @@ def _load_vllm_processor_cls() -> Any:
 
 def _load_vllm_runtime() -> tuple[Any, Any]:
     try:
-        from vllm import LLM, SamplingParams
+        vllm = import_module("vllm")
     except ImportError as exc:  # pragma: no cover - optional extra path
         raise ConfigurationError(
             'vLLM OCR requires the "vllm" extra. Install with `pip install "churro-ocr[vllm]"`.'
         ) from exc
 
-    return LLM, SamplingParams
+    vllm_any = cast(Any, vllm)
+    return vllm_any.LLM, vllm_any.SamplingParams
 
 
 @dataclass(slots=True)
@@ -83,6 +85,7 @@ class VLLMVisionOCRBackend(OCRBackend):
     _prompt_log_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        """Apply default sampling settings after dataclass initialization."""
         self.sampling_kwargs = {
             "max_tokens": DEFAULT_OCR_MAX_TOKENS,
             **self.sampling_kwargs,

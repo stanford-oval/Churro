@@ -32,12 +32,12 @@ def _ensure_initialized() -> None:
             'Install with `pip install "churro-ocr[llm]"`.'
         ) from exc
 
-    litellm.turn_off_message_logging = True
-    litellm.success_callback = []
-    litellm.failure_callback = []
+    litellm_any = cast(Any, litellm)
+    litellm_any.turn_off_message_logging = True
+    litellm_any.success_callback = []
+    litellm_any.failure_callback = []
     with suppress(Exception):
-        litellm._logging._logged_requests = []  # type: ignore[attr-defined]
-    litellm_any = cast("Any", litellm)
+        litellm_any._logging._logged_requests = []
     litellm_any.drop_params = True
     litellm_any.suppress_debug_info = True
     litellm_any.set_verbose = False
@@ -53,10 +53,10 @@ def _ensure_initialized() -> None:
         if global_logging_worker is not None:
             original_enqueue = global_logging_worker.ensure_initialized_and_enqueue
 
-            def _enqueue_if_enabled(async_coroutine: object) -> None:
+            def _enqueue_if_enabled(async_coroutine: Any) -> None:
                 if getattr(litellm, "turn_off_message_logging", False):
                     with suppress(Exception):
-                        async_coroutine.close()  # type: ignore[attr-defined]
+                        async_coroutine.close()
                     return
                 original_enqueue(async_coroutine)
 

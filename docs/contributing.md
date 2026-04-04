@@ -10,6 +10,30 @@ Install Pixi, then create the default environment from the repo root:
 pixi install
 ```
 
+## Git Hooks
+
+Install the repo hooks after the Pixi environment is ready:
+
+```bash
+pixi exec pre-commit install --install-hooks
+```
+
+The hook configuration delegates to the existing Pixi tasks:
+
+- `pre-commit`: `pixi run format`, `pixi run lint`, `pixi run typecheck`
+- `pre-push`: `pixi run test`
+- `manual`: `pixi run docs-build`, `pixi run package-check`
+
+You can invoke each stage manually from the repo root:
+
+```bash
+pixi exec pre-commit run --all-files
+pixi exec pre-commit run --hook-stage pre-push --all-files
+pixi exec pre-commit run --hook-stage manual --all-files
+```
+
+`pixi exec pre-commit run --all-files` now runs formatting, linting, and type checking in one pass.
+
 ## Common Commands
 
 Run these from the repo root:

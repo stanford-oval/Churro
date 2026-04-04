@@ -71,6 +71,7 @@ dev = [
     "google-auth>=2.41.1,<3",
     "myst-parser>=4.0.1,<5",
     "nltk>=3.9.2,<4",
+    "pre-commit>=4,<5",
     "pydata-sphinx-theme>=0.16.1,<1",
     "pyarabic>=0.6.15,<0.7",
     "pytest",
@@ -153,11 +154,24 @@ markers = [
 ]
 
 [tool.ruff]
-target-version = "py312"
 line-length = 110
+required-version = "==0.15.7"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "ASYNC", "SIM"]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "SIM", "D"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "src/churro_ocr/cli.py" = ["B008"]
+"tests/**/*.py" = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
+
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.ty.terminal]
+output-format = "concise"

@@ -201,6 +201,7 @@ class HuggingFaceVisionOCRBackend(OCRBackend):
     _prompt_log_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        """Apply default generation settings after dataclass initialization."""
         self.generation_kwargs = {
             "max_new_tokens": DEFAULT_OCR_MAX_TOKENS,
             **self.generation_kwargs,

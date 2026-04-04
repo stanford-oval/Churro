@@ -1,0 +1,59 @@
+minimum_pre_commit_version: 4.0.0
+default_install_hook_types:
+  - pre-commit
+  - pre-push
+
+repos:
+  - repo: local
+    hooks:
+      - id: format
+        name: pixi format
+        entry: pixi run format
+        language: system
+        pass_filenames: false
+        stages:
+          - pre-commit
+        files: ^(src/|tests/|pyproject\.toml|pixi\.lock)
+
+      - id: lint
+        name: pixi lint
+        entry: pixi run lint
+        language: system
+        pass_filenames: false
+        stages:
+          - pre-commit
+        files: ^(src/|tests/|pyproject\.toml|pixi\.lock)
+
+      - id: typecheck
+        name: pixi typecheck
+        entry: pixi run typecheck
+        language: system
+        pass_filenames: false
+        stages:
+          - pre-commit
+        files: ^(src/|tests/|pyproject\.toml|pixi\.lock)
+
+      - id: test
+        name: pixi test
+        entry: pixi run test
+        language: system
+        pass_filenames: false
+        stages:
+          - pre-push
+        files: ^(src/|tests/|pyproject\.toml|pixi\.lock)
+
+      - id: docs-build
+        name: pixi docs-build
+        entry: pixi run docs-build
+        language: system
+        pass_filenames: false
+        stages:
+          - manual
+
+      - id: package-check
+        name: pixi package-check
+        entry: pixi run package-check
+        language: system
+        pass_filenames: false
+        stages:
+          - manual

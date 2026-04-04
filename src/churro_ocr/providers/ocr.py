@@ -70,6 +70,7 @@ class LiteLLMVisionOCRBackend(OCRBackend):
     _prompt_log_lock: Lock = field(default_factory=Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        """Apply default OCR completion settings to the shared transport."""
         config = _with_default_ocr_completion_kwargs(self.transport.config)
         if config != self.transport.config:
             object.__setattr__(self.transport, "_config", config)
