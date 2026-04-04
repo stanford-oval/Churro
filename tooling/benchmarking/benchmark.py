@@ -206,12 +206,6 @@ def _build_evaluation_example(example: BenchmarkDatasetExample) -> EvaluationExa
     """Keep only the fields needed for evaluation after OCR completes."""
     return to_evaluation_example(example)
 
-
-def _matches_subset_filters(example: BenchmarkDatasetExample, options: BenchmarkOptions) -> bool:
-    """Return whether a dataset example matches the requested subset filters."""
-    return options.dataset_subset().matches(example)
-
-
 def _selected_dataset_examples(
     dataset_stream: Iterable[BenchmarkDatasetExample],
     options: BenchmarkOptions,

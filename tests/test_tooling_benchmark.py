@@ -518,7 +518,7 @@ async def test_predict_texts_updates_progress_and_preserves_order(monkeypatch) -
         def __enter__(self) -> FakeProgressBar:
             return self
 
-        def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
+        def __exit__(self, _exc_type, _exc, _tb) -> None:  # noqa: ANN001
             return None
 
         def update(self, amount: int) -> None:

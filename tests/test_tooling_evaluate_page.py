@@ -84,7 +84,7 @@ def test_calculate_metrics_strips_output_tags_before_normalization(
     monkeypatch.setattr(
         evaluate_page_module,
         "bleu_metric",
-        SimpleNamespace(compute=lambda predictions, references: {"bleu": 0.0}),
+        SimpleNamespace(compute=lambda *_args, **_kwargs: {"bleu": 0.0}),
     )
 
     example: MetricInputExample = {

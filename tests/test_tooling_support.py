@@ -195,7 +195,7 @@ def test_dataset_subset_and_selection_cover_iterable_and_materialized_paths() ->
     assert selected.num_rows == 1
     assert cast("str", selected[0]["example_id"]) == "two"
 
-    no_count_dataset = SimpleNamespace(filter=lambda callback, input_columns: "filtered", num_rows="unknown")
+    no_count_dataset = SimpleNamespace(filter=lambda *_args, **_kwargs: "filtered", num_rows="unknown")
     assert selection._select_materialized_dataset(no_count_dataset) == "filtered"
 
 
@@ -293,7 +293,7 @@ def test_calculate_metrics_from_text_and_internal_error_fallback(monkeypatch: py
     monkeypatch.setattr(
         evaluate_page_module,
         "bleu_metric",
-        SimpleNamespace(compute=lambda predictions, references: {"bleu": 0.5}),
+        SimpleNamespace(compute=lambda *_args, **_kwargs: {"bleu": 0.5}),
     )
 
     result = evaluate_page_module.calculate_metrics_from_text("pred", "gold", "English", "Latin")
