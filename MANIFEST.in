@@ -1,0 +1,9 @@
+include LICENSE
+include docs/pypi.md
+include pyproject.toml
+graft src/churro_ocr
+prune scripts
+prune tests
+prune tooling
+global-exclude __pycache__
+global-exclude *.py[cod]

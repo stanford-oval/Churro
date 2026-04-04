@@ -1,0 +1,353 @@
+[
+  {
+    "modelName": "Churro",
+    "modelId": "stanford-oval/churro-3B",
+    "modelUrl": "https://huggingface.co/stanford-oval/churro-3B",
+    "hasIcon": true,
+    "printed": 82.3309,
+    "handwritten": 70.0965,
+    "total": 75.7431
+  },
+  {
+    "modelName": "Gemini 3 Flash",
+    "modelId": "gemini-3-flash",
+    "modelUrl": "https://ai.google.dev/gemini-api/docs/models",
+    "hasIcon": false,
+    "printed": 82.6,
+    "handwritten": 66.5,
+    "total": 73.9
+  },
+  {
+    "modelName": "Gemini 3 Pro",
+    "modelId": "gemini-3-pro",
+    "modelUrl": "https://ai.google.dev/gemini-api/docs/models",
+    "hasIcon": false,
+    "printed": 78.2,
+    "handwritten": 66.7,
+    "total": 72.0
+  },
+  {
+    "modelName": "Gemini 2.5 Pro",
+    "modelId": "gemini-2.5-pro",
+    "modelUrl": "https://ai.google.dev/gemini-api/docs/models",
+    "hasIcon": false,
+    "printed": 80.8523,
+    "handwritten": 63.6329,
+    "total": 71.5803
+  },
+  {
+    "modelName": "Gemini 2.5 Flash",
+    "modelId": "gemini-2.5-flash",
+    "modelUrl": "https://ai.google.dev/gemini-api/docs/models",
+    "hasIcon": false,
+    "printed": 73.719,
+    "handwritten": 58.7283,
+    "total": 65.6471
+  },
+  {
+    "modelName": "Qwen 3 VL (8B)",
+    "modelId": "Qwen/Qwen3-VL-8B-Instruct",
+    "modelUrl": "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct",
+    "hasIcon": false,
+    "printed": 76.6136,
+    "handwritten": 48.4963,
+    "total": 61.4735
+  },
+  {
+    "modelName": "Qwen 3 VL (30B-A3B)",
+    "modelId": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+    "modelUrl": "https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct",
+    "hasIcon": false,
+    "printed": 74.8873,
+    "handwritten": 49.558,
+    "total": 61.2485
+  },
+  {
+    "modelName": "NuMarkdown",
+    "modelId": "numind/NuMarkdown-8B-Thinking",
+    "modelUrl": "https://huggingface.co/numind/NuMarkdown-8B-Thinking",
+    "hasIcon": false,
+    "printed": 72.7318,
+    "handwritten": 51.2224,
+    "total": 61.1498
+  },
+  {
+    "modelName": "GPT-4.1 Mini",
+    "modelId": "gpt-4.1-mini-2025-04-14",
+    "modelUrl": "https://platform.openai.com/docs/models/gpt-4.1-mini",
+    "hasIcon": false,
+    "printed": 73.1042,
+    "handwritten": 50.2487,
+    "total": 60.7974
+  },
+  {
+    "modelName": "Qwen 2.5 VL (72B)",
+    "modelId": "Qwen/Qwen2.5-VL-72B-Instruct",
+    "modelUrl": "https://huggingface.co/Qwen/Qwen2.5-VL-72B-Instruct",
+    "hasIcon": false,
+    "printed": 66.2783,
+    "handwritten": 54.4717,
+    "total": 59.9209
+  },
+  {
+    "modelName": "Azure OCR",
+    "modelId": null,
+    "modelUrl": null,
+    "hasIcon": false,
+    "printed": 71.8617,
+    "handwritten": 47.7443,
+    "total": 58.8754
+  },
+  {
+    "modelName": "GPT-5.2",
+    "modelId": "gpt-5.2-2025-12-11",
+    "modelUrl": "https://platform.openai.com/docs/models/gpt-5.2",
+    "hasIcon": false,
+    "printed": 71.4,
+    "handwritten": 46.8,
+    "total": 58.2
+  },
+  {
+    "modelName": "GPT-5 Mini",
+    "modelId": "gpt-5-mini-2025-08-07",
+    "modelUrl": "https://platform.openai.com/docs/models/gpt-5-mini",
+    "hasIcon": false,
+    "printed": 69.8107,
+    "handwritten": 47.5121,
+    "total": 57.8038
+  },
+  {
+    "modelName": "Claude Sonnet 3.7",
+    "modelId": "claude-3-7-sonnet-20250219",
+    "modelUrl": "https://docs.claude.com/en/docs/about-claude/models/overview",
+    "hasIcon": false,
+    "printed": 70.1866,
+    "handwritten": 46.5904,
+    "total": 57.481
+  },
+  {
+    "modelName": "RolmOCR",
+    "modelId": "reducto/RolmOCR",
+    "modelUrl": "https://huggingface.co/reducto/RolmOCR",
+    "hasIcon": false,
+    "printed": 67.2281,
+    "handwritten": 49.0075,
+    "total": 57.417
+  },
+  {
+    "modelName": "Qwen 3 VL (4B)",
+    "modelId": "Qwen/Qwen3-VL-4B-Instruct",
+    "modelUrl": "https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct",
+    "hasIcon": false,
+    "printed": 74.9451,
+    "handwritten": 40.6463,
+    "total": 56.4765
+  },
+  {
+    "modelName": "Nanonets OCR",
+    "modelId": "nanonets/Nanonets-OCR-s",
+    "modelUrl": "https://huggingface.co/nanonets/Nanonets-OCR-s",
+    "hasIcon": false,
+    "printed": 69.7033,
+    "handwritten": 43.1781,
+    "total": 55.4205
+  },
+  {
+    "modelName": "olmOCR",
+    "modelId": "allenai/olmOCR-7B-0825",
+    "modelUrl": "https://huggingface.co/allenai/olmOCR-7B-0825",
+    "hasIcon": false,
+    "printed": 69.766,
+    "handwritten": 41.5165,
+    "total": 54.5547
+  },
+  {
+    "modelName": "Qwen 2.5 VL (3B)",
+    "modelId": "Qwen/Qwen2.5-VL-3B-Instruct",
+    "modelUrl": "https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct",
+    "hasIcon": false,
+    "printed": 67.8366,
+    "handwritten": 42.8576,
+    "total": 54.3864
+  },
+  {
+    "modelName": "O4 Mini",
+    "modelId": "o4-mini-2025-04-16",
+    "modelUrl": "https://platform.openai.com/docs/models/o4-mini",
+    "hasIcon": false,
+    "printed": 65.5032,
+    "handwritten": 41.4801,
+    "total": 52.5677
+  },
+  {
+    "modelName": "Claude Opus 4.1",
+    "modelId": "claude-opus-4-1-20250805",
+    "modelUrl": "https://docs.claude.com/en/docs/about-claude/models/overview",
+    "hasIcon": false,
+    "printed": 66.6052,
+    "handwritten": 40.1808,
+    "total": 52.3767
+  },
+  {
+    "modelName": "GPT-4.1",
+    "modelId": "gpt-4.1-2025-04-14",
+    "modelUrl": "https://platform.openai.com/docs/models/gpt-4.1",
+    "hasIcon": false,
+    "printed": 64.4017,
+    "handwritten": 41.4127,
+    "total": 52.023
+  },
+  {
+    "modelName": "Claude Sonnet 4",
+    "modelId": "claude-sonnet-4-20250514",
+    "modelUrl": "https://docs.claude.com/en/docs/about-claude/models/overview",
+    "hasIcon": false,
+    "printed": 62.2358,
+    "handwritten": 37.0701,
+    "total": 48.685
+  },
+  {
+    "modelName": "O1",
+    "modelId": "o1-2024-12-17",
+    "modelUrl": "https://platform.openai.com/docs/models/o1",
+    "hasIcon": false,
+    "printed": 62.4692,
+    "handwritten": 35.0806,
+    "total": 47.7215
+  },
+  {
+    "modelName": "O3",
+    "modelId": "o3-2025-04-16",
+    "modelUrl": "https://platform.openai.com/docs/models/o3",
+    "hasIcon": false,
+    "printed": 62.65,
+    "handwritten": 30.9051,
+    "total": 45.5566
+  },
+  {
+    "modelName": "Mistral OCR",
+    "modelId": null,
+    "modelUrl": null,
+    "hasIcon": false,
+    "printed": 64.0418,
+    "handwritten": 29.4388,
+    "total": 45.4094
+  },
+  {
+    "modelName": "GPT-5",
+    "modelId": "gpt-5-2025-08-07",
+    "modelUrl": "https://platform.openai.com/docs/models/gpt-5",
+    "hasIcon": false,
+    "printed": 60.7442,
+    "handwritten": 30.4073,
+    "total": 44.409
+  },
+  {
+    "modelName": "GPT-4o",
+    "modelId": "gpt-4o-2024-11-20",
+    "modelUrl": "https://platform.openai.com/docs/models/gpt-4o",
+    "hasIcon": false,
+    "printed": 56.2807,
+    "handwritten": 34.1932,
+    "total": 44.3875
+  },
+  {
+    "modelName": "MiMo VL",
+    "modelId": "XiaomiMiMo/MiMo-VL-7B-RL-2508",
+    "modelUrl": "https://huggingface.co/XiaomiMiMo/MiMo-VL-7B-RL-2508",
+    "hasIcon": false,
+    "printed": 54.8469,
+    "handwritten": 34.6299,
+    "total": 43.9608
+  },
+  {
+    "modelName": "Gemma 3 (27B)",
+    "modelId": "google/gemma-3-27b-it",
+    "modelUrl": "https://huggingface.co/google/gemma-3-27b-it",
+    "hasIcon": false,
+    "printed": 55.3292,
+    "handwritten": 34.1056,
+    "total": 43.9011
+  },
+  {
+    "modelName": "GPT-4o Mini",
+    "modelId": "gpt-4o-mini-2024-07-18",
+    "modelUrl": "https://platform.openai.com/docs/models/gpt-4o-mini",
+    "hasIcon": false,
+    "printed": 52.8335,
+    "handwritten": 29.7653,
+    "total": 40.4121
+  },
+  {
+    "modelName": "MiniCPM-V 4.5",
+    "modelId": "openbmb/MiniCPM-V-4_5",
+    "modelUrl": "https://huggingface.co/openbmb/MiniCPM-V-4_5",
+    "hasIcon": false,
+    "printed": 49.7495,
+    "handwritten": 32.0729,
+    "total": 40.2314
+  },
+  {
+    "modelName": "GPT-4.1 Nano",
+    "modelId": "gpt-4.1-nano-2025-04-14",
+    "modelUrl": "https://platform.openai.com/docs/models/gpt-4.1-nano",
+    "hasIcon": false,
+    "printed": 51.8564,
+    "handwritten": 28.3488,
+    "total": 39.1984
+  },
+  {
+    "modelName": "Skywork R1V3",
+    "modelId": "Skywork/Skywork-R1V3-38B",
+    "modelUrl": "https://huggingface.co/Skywork/Skywork-R1V3-38B",
+    "hasIcon": false,
+    "printed": 42.4283,
+    "handwritten": 25.619,
+    "total": 33.3771
+  },
+  {
+    "modelName": "InternVL 3.5 (30B-A3B)",
+    "modelId": "OpenGVLab/InternVL3_5-30B-A3B",
+    "modelUrl": "https://huggingface.co/OpenGVLab/InternVL3_5-30B-A3B",
+    "hasIcon": false,
+    "printed": 35.8059,
+    "handwritten": 26.3691,
+    "total": 30.7246
+  },
+  {
+    "modelName": "R",
+    "modelId": "YannQi/R-4B",
+    "modelUrl": "https://huggingface.co/YannQi/R-4B",
+    "hasIcon": false,
+    "printed": 32.6874,
+    "handwritten": 21.735,
+    "total": 26.79
+  },
+  {
+    "modelName": "GPT-5 Nano",
+    "modelId": "gpt-5-nano-2025-08-07",
+    "modelUrl": "https://platform.openai.com/docs/models/gpt-5-nano",
+    "hasIcon": false,
+    "printed": 38.7162,
+    "handwritten": 14.165,
+    "total": 25.4963
+  },
+  {
+    "modelName": "Nemotron Nano VL",
+    "modelId": "nvidia/Llama-3.1-Nemotron-Nano-VL-8B-V1",
+    "modelUrl": "https://huggingface.co/nvidia/Llama-3.1-Nemotron-Nano-VL-8B-V1",
+    "hasIcon": false,
+    "printed": 29.3383,
+    "handwritten": 15.2615,
+    "total": 21.7585
+  },
+  {
+    "modelName": "Phi 4 Multimodal",
+    "modelId": "microsoft/Phi-4-multimodal-instruct",
+    "modelUrl": "https://huggingface.co/microsoft/Phi-4-multimodal-instruct",
+    "hasIcon": false,
+    "printed": 9.0269,
+    "handwritten": 5.3393,
+    "total": 7.0413
+  }
+]

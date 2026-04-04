@@ -1,0 +1,5 @@
+[src]
+include = ["src", "tests"]
+
+[terminal]
+output-format = "concise"

@@ -1,0 +1,15 @@
+line-length = 110
+required-version = "==0.15.7"
+
+[lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "SIM", "D"]
+
+[format]
+docstring-code-format = true
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.per-file-ignores]
+"src/churro_ocr/cli.py" = ["B008"]
+"tests/**/*.py" = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
