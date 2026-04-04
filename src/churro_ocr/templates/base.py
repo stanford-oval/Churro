@@ -14,7 +14,13 @@ OCRConversation = list[dict[str, Any]]
 class OCRPromptTemplate(Protocol):
     """Protocol for OCR templates that build model conversations."""
 
-    def build_conversation(self, page: DocumentPage) -> OCRConversation: ...
+    def build_conversation(self, page: DocumentPage) -> OCRConversation:
+        """Build a model conversation for one page.
+
+        :param page: Page to convert into a model-specific prompt payload.
+        :returns: Structured conversation ready for backend-specific rendering.
+        """
+        ...
 
 
 OCRPromptTemplateCallable = Callable[[DocumentPage], OCRConversation]
@@ -22,7 +28,12 @@ OCRPromptTemplateLike = OCRPromptTemplate | OCRPromptTemplateCallable
 
 
 def build_ocr_conversation(template: OCRPromptTemplateLike, page: DocumentPage) -> OCRConversation:
-    """Build an OCR conversation from a template or template callable."""
+    """Build an OCR conversation from a template or template callable.
+
+    :param template: Prompt template object or callable.
+    :param page: Page to convert into a conversation.
+    :returns: Structured OCR conversation for ``page``.
+    """
     if callable(template) and not isinstance(template, OCRPromptTemplate):
         return template(page)
     return template.build_conversation(page)

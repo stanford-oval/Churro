@@ -50,7 +50,20 @@ def _load_vllm_runtime() -> tuple[Any, Any]:
 
 @dataclass(slots=True)
 class VLLMVisionOCRBackend(OCRBackend):
-    """OCR backend for local multimodal models served by vLLM."""
+    """OCR backend for local multimodal models served by vLLM.
+
+    :param model_id: Model identifier served by vLLM.
+    :param template: Prompt template used to render OCR input.
+    :param model_name: Optional human-readable model name for result metadata.
+    :param trust_remote_code: Whether to allow remote model code execution.
+    :param processor_kwargs: Extra kwargs passed to processor loading.
+    :param llm_kwargs: Extra kwargs passed to the vLLM ``LLM`` constructor.
+    :param sampling_kwargs: Extra sampling kwargs passed at inference time.
+    :param limit_mm_per_prompt: Multimodal limits passed to vLLM.
+    :param image_preprocessor: Image preprocessor applied before OCR.
+    :param text_postprocessor: Text postprocessor applied after OCR.
+    :param provider_name: Provider identifier written into OCR results.
+    """
 
     model_id: str
     template: OCRPromptTemplateLike
@@ -76,9 +89,19 @@ class VLLMVisionOCRBackend(OCRBackend):
         }
 
     async def ocr(self, page: DocumentPage) -> OCRResult:
+        """Run OCR for one page.
+
+        :param page: Page to transcribe.
+        :returns: Provider-agnostic OCR result.
+        """
         return (await self.ocr_batch([page]))[0]
 
     async def ocr_batch(self, pages: list[DocumentPage]) -> list[OCRResult]:
+        """Run OCR for multiple pages in one batch.
+
+        :param pages: Pages to transcribe in batch order.
+        :returns: OCR results in the same order as ``pages``.
+        """
         return await asyncio.to_thread(self._ocr_batch_sync, pages)
 
     def _ocr_batch_sync(self, pages: list[DocumentPage]) -> list[OCRResult]:
@@ -169,7 +192,7 @@ class VLLMVisionOCRBackend(OCRBackend):
 
 @dataclass(slots=True)
 class DotsOCR15VLLMOCRBackend(VLLMVisionOCRBackend):
-    """Preset vLLM OCR backend for `kristaller486/dots.ocr-1.5`."""
+    """Preset vLLM OCR backend for ``kristaller486/dots.ocr-1.5``."""
 
     model_id: str = DOTS_OCR_1_5_MODEL_ID
     template: OCRPromptTemplateLike = DOTS_OCR_1_5_OCR_TEMPLATE

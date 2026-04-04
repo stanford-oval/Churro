@@ -17,7 +17,13 @@ from churro_ocr.page_detection import DocumentPage
 
 @dataclass(slots=True)
 class OCRResult:
-    """Provider-agnostic OCR result."""
+    """Provider-agnostic OCR result.
+
+    :param text: OCR text after any backend-specific postprocessing.
+    :param provider_name: Stable provider identifier attached to the result.
+    :param model_name: Human-readable model name attached to the result.
+    :param metadata: Provider-returned metadata for this OCR call.
+    """
 
     text: str
     provider_name: str
@@ -29,14 +35,26 @@ class OCRResult:
 class OCRBackend(Protocol):
     """Async OCR backend interface."""
 
-    async def ocr(self, page: DocumentPage) -> OCRResult: ...
+    async def ocr(self, page: DocumentPage) -> OCRResult:
+        """Run OCR for one page.
+
+        :param page: Page image and page metadata to transcribe.
+        :returns: Provider-agnostic OCR result for the page.
+        """
+        ...
 
 
 @runtime_checkable
 class BatchOCRBackend(Protocol):
     """Async batch OCR backend interface."""
 
-    async def ocr_batch(self, pages: list[DocumentPage]) -> list[OCRResult]: ...
+    async def ocr_batch(self, pages: list[DocumentPage]) -> list[OCRResult]:
+        """Run OCR for multiple pages in one batch.
+
+        :param pages: Pages to transcribe in batch order.
+        :returns: OCR results in the same order as ``pages``.
+        """
+        ...
 
 
 OCRCallable = Callable[[DocumentPage], Awaitable[OCRResult]]
@@ -44,7 +62,11 @@ OCRBackendLike = OCRBackend | OCRCallable
 
 
 def prepare_ocr_page(page: DocumentPage) -> DocumentPage:
-    """Return a page copy with the shared OCR image preprocessing applied."""
+    """Return a page copy with the shared OCR image preprocessing applied.
+
+    :param page: Page to preprocess for OCR.
+    :returns: Copy of ``page`` with its image replaced by the preprocessed image.
+    """
     return replace(page, image=prepare_ocr_image(page.image))
 
 
@@ -52,10 +74,18 @@ class OCRClient:
     """User-facing OCR client with page-first sync and async entrypoints."""
 
     def __init__(self, backend: OCRBackendLike) -> None:
+        """Create an OCR client.
+
+        :param backend: OCR backend or async callable used for page OCR.
+        """
         self._backend = backend
 
     async def aocr(self, page: DocumentPage) -> DocumentPage:
-        """Run OCR asynchronously for one page."""
+        """Run OCR asynchronously for one page.
+
+        :param page: Page to transcribe.
+        :returns: Copy of ``page`` with OCR output attached.
+        """
         if callable(self._backend) and not isinstance(self._backend, OCRBackend):
             result = await self._backend(page)
         else:
@@ -69,7 +99,11 @@ class OCRClient:
         )
 
     def ocr(self, page: DocumentPage) -> DocumentPage:
-        """Run OCR synchronously for one page."""
+        """Run OCR synchronously for one page.
+
+        :param page: Page to transcribe.
+        :returns: Copy of ``page`` with OCR output attached.
+        """
         return run_sync(self.aocr(page))
 
     async def aocr_image(
@@ -81,7 +115,17 @@ class OCRClient:
         source_index: int = 0,
         metadata: dict[str, Any] | None = None,
     ) -> DocumentPage:
-        """Create a single page from an image input and OCR it."""
+        """Create a single page from an image input and OCR it.
+
+        :param image: In-memory page image. Mutually exclusive with ``image_path``.
+        :param image_path: Path to a page image on disk. Mutually exclusive with ``image``.
+        :param page_index: Page position to attach to the generated page.
+        :param source_index: Original source index to attach to the generated page.
+        :param metadata: Optional caller-side metadata attached before OCR runs.
+        :returns: OCR-enriched page object.
+        :raises ConfigurationError: If both or neither of ``image`` and
+            ``image_path`` are provided.
+        """
         page = _page_from_image_input(
             image=image,
             image_path=image_path,
@@ -100,7 +144,17 @@ class OCRClient:
         source_index: int = 0,
         metadata: dict[str, Any] | None = None,
     ) -> DocumentPage:
-        """Create a single page from an image input and OCR it synchronously."""
+        """Create a single page from an image input and OCR it synchronously.
+
+        :param image: In-memory page image. Mutually exclusive with ``image_path``.
+        :param image_path: Path to a page image on disk. Mutually exclusive with ``image``.
+        :param page_index: Page position to attach to the generated page.
+        :param source_index: Original source index to attach to the generated page.
+        :param metadata: Optional caller-side metadata attached before OCR runs.
+        :returns: OCR-enriched page object.
+        :raises ConfigurationError: If both or neither of ``image`` and
+            ``image_path`` are provided.
+        """
         return run_sync(
             self.aocr_image(
                 image=image,

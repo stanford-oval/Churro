@@ -33,23 +33,43 @@ DEFAULT_OCR_MAX_TOKENS = 20_000
 
 
 def identity_text_postprocessor(text: str) -> str:
-    """Return OCR text unchanged."""
+    """Return OCR text unchanged.
+
+    :param text: OCR text to return.
+    :returns: The original ``text`` value.
+    """
     return text
 
 
 def default_ocr_image_preprocessor(image: Image.Image) -> Image.Image:
-    """Apply the default OCR image preprocessing."""
+    """Apply the default OCR image preprocessing.
+
+    :param image: Source page image.
+    :returns: Preprocessed image ready for OCR.
+    """
     return prepare_ocr_image(image)
 
 
 def default_ocr_text_postprocessor(text: str) -> str:
-    """Strip the default OCR output tag wrapper."""
+    """Strip the default OCR output tag wrapper.
+
+    :param text: Raw OCR response text.
+    :returns: OCR text with the default wrapper removed when present.
+    """
     return strip_ocr_output_tag(text, output_tag=DEFAULT_OCR_OUTPUT_TAG)
 
 
 @dataclass(slots=True, frozen=True)
 class LiteLLMTransportConfig:
-    """Shared transport config for LiteLLM-based multimodal requests."""
+    """Shared transport config for LiteLLM-based multimodal requests.
+
+    :param api_base: Optional API base URL override.
+    :param api_key: Optional API key forwarded to LiteLLM.
+    :param api_version: Optional API version string for providers that need one.
+    :param image_detail: Optional image-detail hint supported by some providers.
+    :param completion_kwargs: Extra completion kwargs merged into LiteLLM calls.
+    :param cache_dir: Optional disk-cache directory for LiteLLM request caching.
+    """
 
     api_base: str | None = None
     api_key: str | None = None
@@ -61,14 +81,25 @@ class LiteLLMTransportConfig:
 
 @dataclass(slots=True, frozen=True)
 class OpenAICompatibleOptions:
-    """Provider options for OpenAI-compatible OCR servers."""
+    """Provider options for OpenAI-compatible OCR servers.
+
+    :param model_prefix: Provider prefix prepended to the configured model name.
+    """
 
     model_prefix: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
 class HuggingFaceOptions:
-    """Provider options for local Hugging Face OCR backends."""
+    """Provider options for local Hugging Face OCR backends.
+
+    :param trust_remote_code: Whether to allow remote model code execution.
+    :param processor_kwargs: Extra kwargs passed to ``AutoProcessor.from_pretrained``.
+    :param model_kwargs: Extra kwargs passed to model loading.
+    :param generation_kwargs: Extra generation kwargs passed at inference time.
+    :param vision_input_builder: Optional override for building multimodal inputs.
+    :param backend_variant: Optional implementation preset such as ``"dots-ocr-1.5"``.
+    """
 
     trust_remote_code: bool | None = None
     processor_kwargs: dict[str, object] = field(default_factory=dict)
@@ -80,7 +111,14 @@ class HuggingFaceOptions:
 
 @dataclass(slots=True, frozen=True)
 class VLLMOptions:
-    """Provider options for local vLLM OCR backends."""
+    """Provider options for local vLLM OCR backends.
+
+    :param trust_remote_code: Whether to allow remote model code execution.
+    :param processor_kwargs: Extra kwargs passed to ``AutoProcessor.from_pretrained``.
+    :param llm_kwargs: Extra kwargs passed to the vLLM ``LLM`` constructor.
+    :param sampling_kwargs: Extra kwargs passed to vLLM sampling params.
+    :param limit_mm_per_prompt: Per-request multimodal limits passed to vLLM.
+    """
 
     trust_remote_code: bool | None = None
     processor_kwargs: dict[str, object] = field(default_factory=dict)
@@ -91,7 +129,11 @@ class VLLMOptions:
 
 @dataclass(slots=True, frozen=True)
 class AzureDocumentIntelligenceOptions:
-    """Provider options for Azure Document Intelligence OCR."""
+    """Provider options for Azure Document Intelligence OCR.
+
+    :param endpoint: Azure Document Intelligence endpoint URL.
+    :param api_key: Azure API key for the configured resource.
+    """
 
     endpoint: str | None = None
     api_key: str | None = None
@@ -99,7 +141,10 @@ class AzureDocumentIntelligenceOptions:
 
 @dataclass(slots=True, frozen=True)
 class MistralOptions:
-    """Provider options for Mistral OCR."""
+    """Provider options for Mistral OCR.
+
+    :param api_key: Mistral API key used for OCR requests.
+    """
 
     api_key: str | None = None
 
@@ -115,7 +160,17 @@ OCRProviderOptions = (
 
 @dataclass(slots=True, frozen=True)
 class OCRModelProfile:
-    """Model-level OCR behavior shared across provider adapters."""
+    """Model-level OCR behavior shared across provider adapters.
+
+    :param profile_name: Stable profile identifier.
+    :param template: Prompt template used to render OCR input.
+    :param image_preprocessor: Image preprocessor applied before OCR.
+    :param text_postprocessor: Text postprocessor applied after OCR.
+    :param display_name: Optional human-readable model name.
+    :param transport: Default LiteLLM transport settings for this profile.
+    :param huggingface: Default Hugging Face backend options for this profile.
+    :param vllm: Default vLLM backend options for this profile.
+    """
 
     profile_name: str
     template: OCRPromptTemplateLike = DEFAULT_OCR_TEMPLATE
@@ -129,7 +184,14 @@ class OCRModelProfile:
 
 @dataclass(slots=True, frozen=True)
 class OCRBackendSpec:
-    """Declarative builder input for OCR backends."""
+    """Declarative builder input for OCR backends.
+
+    :param provider: OCR provider identifier.
+    :param model: Provider-specific model identifier.
+    :param profile: Optional built-in or custom model profile.
+    :param transport: Optional transport settings for LiteLLM-based providers.
+    :param options: Optional provider-specific options dataclass.
+    """
 
     provider: OCRProvider
     model: str | None = None
@@ -139,12 +201,18 @@ class OCRBackendSpec:
 
 
 def default_ocr_profile() -> OCRModelProfile:
-    """Return the generic OCR model profile."""
+    """Return the generic OCR model profile.
+
+    :returns: Baseline profile used when no more specific profile matches.
+    """
     return OCRModelProfile(profile_name="default")
 
 
 def churro_3b_profile() -> OCRModelProfile:
-    """Return the built-in `stanford-oval/churro-3B` OCR profile."""
+    """Return the built-in ``stanford-oval/churro-3B`` OCR profile.
+
+    :returns: Profile configured for the built-in CHURRO 3B template.
+    """
     return OCRModelProfile(
         profile_name=CHURRO_3B_MODEL_ID,
         template=CHURRO_3B_XML_TEMPLATE,
@@ -154,7 +222,10 @@ def churro_3b_profile() -> OCRModelProfile:
 
 
 def dots_ocr_1_5_profile() -> OCRModelProfile:
-    """Return the built-in `kristaller486/dots.ocr-1.5` OCR profile."""
+    """Return the built-in ``kristaller486/dots.ocr-1.5`` OCR profile.
+
+    :returns: Profile configured for the built-in Dots OCR 1.5 template.
+    """
     return OCRModelProfile(
         profile_name=DOTS_OCR_1_5_MODEL_ID,
         template=DOTS_OCR_1_5_OCR_TEMPLATE,
@@ -186,7 +257,13 @@ def resolve_ocr_profile(
     model_id: str | None,
     profile: str | OCRModelProfile | None = None,
 ) -> OCRModelProfile:
-    """Resolve the OCR model profile for a model or explicit profile."""
+    """Resolve the OCR model profile for a model or explicit profile.
+
+    :param model_id: Model identifier that may map to a built-in profile.
+    :param profile: Explicit profile name or profile object to use.
+    :returns: Resolved OCR model profile.
+    :raises ValueError: If ``profile`` is a string that does not match a known profile.
+    """
     if isinstance(profile, OCRModelProfile):
         return profile
 

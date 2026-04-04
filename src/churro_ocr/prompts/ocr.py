@@ -41,7 +41,12 @@ DEFAULT_MARKDOWN_OCR_USER_PROMPT = (
 
 
 def strip_ocr_output_tag(text: str, *, output_tag: str = DEFAULT_OCR_OUTPUT_TAG) -> str:
-    """Remove outer OCR output tags and any stray tag tokens when present."""
+    """Remove outer OCR output tags and any stray tag tokens when present.
+
+    :param text: Raw OCR response text.
+    :param output_tag: Expected wrapper tag name.
+    :returns: OCR text with the outer wrapper removed when present.
+    """
     outer_wrapper_pattern = re.compile(
         rf"^\s*<{re.escape(output_tag)}>\s*(.*?)\s*</{re.escape(output_tag)}>\s*$",
         flags=re.DOTALL,

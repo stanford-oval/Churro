@@ -48,7 +48,16 @@ def _with_default_ocr_completion_kwargs(config: LiteLLMTransportConfig) -> LiteL
 
 @dataclass(slots=True)
 class LiteLLMVisionOCRBackend(OCRBackend):
-    """OCR backend for any LiteLLM-supported multimodal provider."""
+    """OCR backend for any LiteLLM-supported multimodal provider.
+
+    :param model: LiteLLM model identifier to call.
+    :param template: Prompt template used to render OCR input.
+    :param model_name: Optional human-readable model name for result metadata.
+    :param transport: LiteLLM transport used for request execution.
+    :param image_preprocessor: Image preprocessor applied before OCR.
+    :param text_postprocessor: Text postprocessor applied after OCR.
+    :param provider_name: Provider identifier written into OCR results.
+    """
 
     model: str
     template: OCRPromptTemplateLike = DEFAULT_OCR_TEMPLATE
@@ -66,6 +75,11 @@ class LiteLLMVisionOCRBackend(OCRBackend):
             object.__setattr__(self.transport, "_config", config)
 
     async def ocr(self, page: DocumentPage) -> OCRResult:
+        """Run OCR for one page through LiteLLM.
+
+        :param page: Page to transcribe.
+        :returns: Provider-agnostic OCR result.
+        """
         prepared_page = preprocess_backend_page(
             page,
             image_preprocessor=self.image_preprocessor,
@@ -109,6 +123,16 @@ class OpenAICompatibleOCRBackend(LiteLLMVisionOCRBackend):
         text_postprocessor: TextPostprocessor = identity_text_postprocessor,
         model_name: str | None = None,
     ) -> None:
+        """Create an OCR backend for an OpenAI-compatible server.
+
+        :param model: Model identifier exposed by the target server.
+        :param transport: LiteLLM transport used for request execution.
+        :param model_prefix: LiteLLM provider prefix prepended to ``model``.
+        :param template: Prompt template used to render OCR input.
+        :param image_preprocessor: Image preprocessor applied before OCR.
+        :param text_postprocessor: Text postprocessor applied after OCR.
+        :param model_name: Optional human-readable model name for result metadata.
+        """
         LiteLLMVisionOCRBackend.__init__(
             self,
             model=f"{model_prefix}/{model}",
@@ -123,7 +147,15 @@ class OpenAICompatibleOCRBackend(LiteLLMVisionOCRBackend):
 
 @dataclass(slots=True)
 class AzureDocumentIntelligenceOCRBackend(OCRBackend):
-    """Azure Document Intelligence OCR backend."""
+    """Azure Document Intelligence OCR backend.
+
+    :param endpoint: Azure Document Intelligence endpoint URL.
+    :param api_key: Azure API key for the configured resource.
+    :param model_id: Azure model ID used for OCR.
+    :param model_name: Optional human-readable model name for result metadata.
+    :param image_preprocessor: Image preprocessor applied before OCR.
+    :param text_postprocessor: Text postprocessor applied after OCR.
+    """
 
     endpoint: str
     api_key: str
@@ -161,6 +193,13 @@ class AzureDocumentIntelligenceOCRBackend(OCRBackend):
             return client
 
     async def ocr(self, page: DocumentPage) -> OCRResult:
+        """Run OCR for one page through Azure Document Intelligence.
+
+        :param page: Page to transcribe.
+        :returns: Provider-agnostic OCR result.
+        :raises ConfigurationError: If the optional Azure dependency is not installed.
+        :raises ProviderError: If Azure returns no text content.
+        """
         prepared_page = preprocess_backend_page(
             page,
             image_preprocessor=self.image_preprocessor,
@@ -197,7 +236,14 @@ class AzureDocumentIntelligenceOCRBackend(OCRBackend):
 
 @dataclass(slots=True)
 class MistralOCRBackend(OCRBackend):
-    """Mistral OCR backend."""
+    """Mistral OCR backend.
+
+    :param api_key: Mistral API key used for OCR requests.
+    :param model: Mistral OCR model identifier.
+    :param model_name: Optional human-readable model name for result metadata.
+    :param image_preprocessor: Image preprocessor applied before OCR.
+    :param text_postprocessor: Text postprocessor applied after OCR.
+    """
 
     api_key: str
     model: str = "mistral-ocr-latest"
@@ -231,6 +277,13 @@ class MistralOCRBackend(OCRBackend):
             return client
 
     async def ocr(self, page: DocumentPage) -> OCRResult:
+        """Run OCR for one page through Mistral OCR.
+
+        :param page: Page to transcribe.
+        :returns: Provider-agnostic OCR result.
+        :raises ConfigurationError: If the optional Mistral dependency is not installed.
+        :raises ProviderError: If the response does not contain any OCR pages.
+        """
         prepared_page = preprocess_backend_page(
             page,
             image_preprocessor=self.image_preprocessor,

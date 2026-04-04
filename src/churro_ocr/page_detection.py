@@ -17,7 +17,14 @@ from churro_ocr.errors import ConfigurationError
 
 @dataclass(slots=True)
 class PageCandidate:
-    """Intermediate page candidate returned by a page detector."""
+    """Intermediate page candidate returned by a page detector.
+
+    :param bbox: Bounding box in source-image coordinates.
+    :param image: Optional already-cropped page image. When provided, detection
+        callers use this image directly instead of cropping from ``bbox`` or ``polygon``.
+    :param polygon: Optional polygon in source-image coordinates.
+    :param metadata: Detector-side metadata attached to the candidate.
+    """
 
     bbox: tuple[float, float, float, float] | None = None
     image: Image.Image | None = None
@@ -27,7 +34,19 @@ class PageCandidate:
 
 @dataclass(slots=True)
 class DocumentPage:
-    """A document page image with optional OCR output attached."""
+    """A document page image with optional OCR output attached.
+
+    :param page_index: Page position in the current output sequence.
+    :param image: Page image.
+    :param source_index: Index of the original source item that produced the page.
+    :param bbox: Bounding box in source-image coordinates when available.
+    :param polygon: Polygon in source-image coordinates when available.
+    :param metadata: Caller-side or detector-side metadata for the page.
+    :param text: OCR text attached to the page when OCR has been run.
+    :param provider_name: Provider identifier attached by OCR.
+    :param model_name: Model name attached by OCR.
+    :param ocr_metadata: Provider-returned OCR metadata for this page.
+    """
 
     page_index: int
     image: Image.Image
@@ -42,10 +61,12 @@ class DocumentPage:
 
     @property
     def width(self) -> int:
+        """Return the current page image width in pixels."""
         return self.image.width
 
     @property
     def height(self) -> int:
+        """Return the current page image height in pixels."""
         return self.image.height
 
     @classmethod
@@ -57,7 +78,14 @@ class DocumentPage:
         source_index: int = 0,
         metadata: dict[str, Any] | None = None,
     ) -> DocumentPage:
-        """Create a document page from an in-memory image."""
+        """Create a document page from an in-memory image.
+
+        :param image: Source page image.
+        :param page_index: Page position to attach to the page.
+        :param source_index: Source index to attach to the page.
+        :param metadata: Optional caller-side metadata for the page.
+        :returns: New page object with a copied image.
+        """
         return cls(
             page_index=page_index,
             source_index=source_index,
@@ -74,7 +102,14 @@ class DocumentPage:
         source_index: int = 0,
         metadata: dict[str, Any] | None = None,
     ) -> DocumentPage:
-        """Create a document page from an image path."""
+        """Create a document page from an image path.
+
+        :param path: Path to the page image on disk.
+        :param page_index: Page position to attach to the page.
+        :param source_index: Source index to attach to the page.
+        :param metadata: Optional caller-side metadata for the page.
+        :returns: New page object loaded from ``path``.
+        """
         return cls.from_image(
             load_image(path),
             page_index=page_index,
@@ -90,7 +125,14 @@ class DocumentPage:
         model_name: str,
         ocr_metadata: dict[str, Any] | None = None,
     ) -> DocumentPage:
-        """Return a copy of the page with OCR output attached."""
+        """Return a copy of the page with OCR output attached.
+
+        :param text: OCR text for the page.
+        :param provider_name: Provider identifier to attach.
+        :param model_name: Model name to attach.
+        :param ocr_metadata: Provider-returned OCR metadata.
+        :returns: Copy of the current page with OCR fields filled in.
+        """
         return replace(
             self,
             text=text,
@@ -102,14 +144,25 @@ class DocumentPage:
 
 @dataclass(slots=True)
 class PageDetectionRequest:
-    """Request payload for image page detection."""
+    """Request payload for image page detection.
+
+    :param image: In-memory image to detect pages from. Mutually exclusive with
+        ``image_path``.
+    :param image_path: Path to an image on disk. Mutually exclusive with ``image``.
+    :param trim_margin: Margin in pixels to add around detected crops.
+    """
 
     image: Image.Image | None = None
     image_path: str | Path | None = None
     trim_margin: int = 30
 
     def require_image(self) -> Image.Image:
-        """Return the input image, loading it from disk when needed."""
+        """Return the input image, loading it from disk when needed.
+
+        :returns: Copy of the requested image.
+        :raises ConfigurationError: If both or neither of ``image`` and
+            ``image_path`` are provided.
+        """
         if (self.image is None) == (self.image_path is None):
             raise ConfigurationError("PageDetectionRequest requires exactly one of `image` or `image_path`.")
         if self.image is not None:
@@ -121,7 +174,12 @@ class PageDetectionRequest:
 
 @dataclass(slots=True)
 class PageDetectionResult:
-    """Page detection output for an image or PDF."""
+    """Page detection output for an image or PDF.
+
+    :param pages: Detected pages in output order.
+    :param source_type: Input source type, typically ``"image"`` or ``"pdf"``.
+    :param metadata: Detection-level metadata, such as PDF rasterization settings.
+    """
 
     pages: list[DocumentPage]
     source_type: str
@@ -132,7 +190,13 @@ class PageDetectionResult:
 class PageDetectionBackend(Protocol):
     """Async interface for page detection."""
 
-    async def detect(self, image: Image.Image) -> list[PageCandidate]: ...
+    async def detect(self, image: Image.Image) -> list[PageCandidate]:
+        """Detect page candidates from one image.
+
+        :param image: Source image to analyze.
+        :returns: Page candidates in reading order.
+        """
+        ...
 
 
 PageDetectionCallable = Callable[[Image.Image], Awaitable[list[PageCandidate]]]
@@ -143,10 +207,19 @@ class PageDetector:
     """Detect one or more page crops from an input image."""
 
     def __init__(self, backend: PageDetectionBackendLike | None = None) -> None:
+        """Create a page detector.
+
+        :param backend: Optional low-level backend or async callable. When not
+            provided, the full input image is treated as a single page.
+        """
         self._backend = backend
 
     async def adetect(self, request: PageDetectionRequest) -> list[DocumentPage]:
-        """Asynchronously detect pages for a single image."""
+        """Asynchronously detect pages for a single image.
+
+        :param request: Detection request describing the source image.
+        :returns: Detected page crops in reading order.
+        """
         image = request.require_image()
         candidates = await self._detect_candidates(image)
         detected_pages: list[DocumentPage] = []
@@ -168,7 +241,11 @@ class PageDetector:
         return detected_pages
 
     def detect(self, request: PageDetectionRequest) -> list[DocumentPage]:
-        """Synchronous wrapper for page detection."""
+        """Synchronously detect pages for a single image.
+
+        :param request: Detection request describing the source image.
+        :returns: Detected page crops in reading order.
+        """
         return run_sync(self.adetect(request))
 
     async def _detect_candidates(self, image: Image.Image) -> list[PageCandidate]:
@@ -205,15 +282,27 @@ class DocumentPageDetector:
         *,
         backend: PageDetectionBackendLike | None = None,
     ) -> None:
+        """Create a document page detector.
+
+        :param backend: Optional low-level detection backend or async callable.
+        """
         self._page_detector = PageDetector(backend)
 
     async def detect_image(self, request: PageDetectionRequest) -> PageDetectionResult:
-        """Detect pages in a single image."""
+        """Detect pages in a single image.
+
+        :param request: Detection request describing the source image.
+        :returns: Detection result for one image input.
+        """
         pages = await self._page_detector.adetect(request)
         return PageDetectionResult(pages=pages, source_type="image")
 
     def detect_image_sync(self, request: PageDetectionRequest) -> PageDetectionResult:
-        """Synchronous wrapper for image page detection."""
+        """Synchronously detect pages in a single image.
+
+        :param request: Detection request describing the source image.
+        :returns: Detection result for one image input.
+        """
         return run_sync(self.detect_image(request))
 
     async def detect_pdf(
@@ -223,7 +312,13 @@ class DocumentPageDetector:
         dpi: int = 300,
         trim_margin: int = 30,
     ) -> PageDetectionResult:
-        """Rasterize a PDF and detect pages on each image."""
+        """Rasterize a PDF and detect pages on each image.
+
+        :param path: PDF path to rasterize.
+        :param dpi: Rasterization DPI used before detection.
+        :param trim_margin: Pixel margin added around detected crops.
+        :returns: Detection result containing all detected pages from the PDF.
+        """
         images = rasterize_pdf(path, dpi=dpi)
         pages: list[DocumentPage] = []
         for pdf_index, image in enumerate(images):
@@ -254,7 +349,13 @@ class DocumentPageDetector:
         dpi: int = 300,
         trim_margin: int = 30,
     ) -> PageDetectionResult:
-        """Synchronous wrapper for PDF page detection."""
+        """Synchronously rasterize a PDF and detect pages on each image.
+
+        :param path: PDF path to rasterize.
+        :param dpi: Rasterization DPI used before detection.
+        :param trim_margin: Pixel margin added around detected crops.
+        :returns: Detection result containing all detected pages from the PDF.
+        """
         return run_sync(self.detect_pdf(path, dpi=dpi, trim_margin=trim_margin))
 
 

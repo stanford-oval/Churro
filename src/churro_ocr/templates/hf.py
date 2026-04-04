@@ -10,14 +10,23 @@ from churro_ocr.templates.base import OCRConversation
 
 @dataclass(slots=True, frozen=True)
 class HFChatTemplate:
-    """Template for processor/tokenizer chat-template OCR models."""
+    """Template for processor/tokenizer chat-template OCR models.
+
+    :param system_message: Optional system message prepended to the conversation.
+    :param user_prompt: Optional user-side text prompt appended with the image.
+    :param include_image: Whether to include the page image in the user message.
+    """
 
     system_message: str | None = None
     user_prompt: str | None = None
     include_image: bool = True
 
     def build_conversation(self, page: DocumentPage) -> OCRConversation:
-        """Build a structured multimodal conversation for one OCR page."""
+        """Build a structured multimodal conversation for one OCR page.
+
+        :param page: Page to represent in the conversation.
+        :returns: Conversation payload suitable for chat-template OCR models.
+        """
         conversation: OCRConversation = []
         if self.system_message:
             conversation.append(

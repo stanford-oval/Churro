@@ -989,7 +989,15 @@ async def _run_review_pipeline(
 
 @dataclass(slots=True)
 class LLMPageDetector(PageDetectionBackend):
-    """Detect one or more pages via a multimodal LLM prompt."""
+    """Detect one or more pages via a multimodal LLM prompt.
+
+    :param model: Multimodal model identifier to query through LiteLLM.
+    :param system_prompt: System prompt used for the initial page-box request.
+    :param prompt_template: Optional user prompt override for the initial request.
+    :param transport: Optional LiteLLM transport config.
+    :param max_review_rounds: Number of iterative review rounds used to refine
+        the initial page boxes.
+    """
 
     model: str
     system_prompt: str = DEFAULT_BOUNDARY_DETECTION_PROMPT
@@ -998,6 +1006,12 @@ class LLMPageDetector(PageDetectionBackend):
     max_review_rounds: int = 0
 
     async def detect(self, image: Image.Image) -> list[PageCandidate]:
+        """Detect page candidates from one image.
+
+        :param image: Source image that may contain one or more visible pages.
+        :returns: Detected page candidates in reading order. Falls back to a
+            single full-image candidate when no page boxes are returned.
+        """
         processed_image, transform = _prepare_detection_image(image)
         transport = LiteLLMTransport(self.transport)
         boxes = await _complete_page_boxes(
@@ -1059,7 +1073,19 @@ async def locate_text_block_bbox_with_llm(
     transport: LiteLLMTransportLike = None,
     max_review_rounds: int = 0,
 ) -> tuple[float, float, float, float] | None:
-    """Locate the tight bbox of a specific rendered text block via a multimodal LLM."""
+    """Locate the tight bbox of a specific rendered text block via a multimodal LLM.
+
+    :param image: Source page image containing the rendered block.
+    :param block_text: Normalized text content of the target block.
+    :param block_tag: HDML-style block tag describing the block type.
+    :param model: Multimodal model identifier to query through LiteLLM.
+    :param transport: Optional LiteLLM transport or transport config.
+    :param max_review_rounds: Number of iterative review rounds used to refine
+        the initial box.
+    :returns: Bounding box in source-image coordinates, or ``None`` when no
+        unique matching block can be found.
+    :raises ValueError: If ``block_text`` or ``block_tag`` is blank.
+    """
     normalized_block_text = block_text.strip()
     if not normalized_block_text:
         raise ValueError("block_text must not be blank.")
@@ -1125,7 +1151,19 @@ def locate_text_block_bbox_with_llm_sync(
     transport: LiteLLMTransportLike = None,
     max_review_rounds: int = 0,
 ) -> tuple[float, float, float, float] | None:
-    """Synchronously locate the tight bbox of a specific rendered text block via a multimodal LLM."""
+    """Synchronously locate the tight bbox of a specific rendered text block via a multimodal LLM.
+
+    :param image: Source page image containing the rendered block.
+    :param block_text: Normalized text content of the target block.
+    :param block_tag: HDML-style block tag describing the block type.
+    :param model: Multimodal model identifier to query through LiteLLM.
+    :param transport: Optional LiteLLM transport or transport config.
+    :param max_review_rounds: Number of iterative review rounds used to refine
+        the initial box.
+    :returns: Bounding box in source-image coordinates, or ``None`` when no
+        unique matching block can be found.
+    :raises ValueError: If ``block_text`` or ``block_tag`` is blank.
+    """
     return run_sync(
         locate_text_block_bbox_with_llm(
             image,
@@ -1140,13 +1178,25 @@ def locate_text_block_bbox_with_llm_sync(
 
 @dataclass(slots=True)
 class AzurePageDetector(PageDetectionBackend):
-    """Detect pages from Azure Document Intelligence page output."""
+    """Detect pages from Azure Document Intelligence page output.
+
+    :param endpoint: Azure Document Intelligence endpoint URL.
+    :param api_key: Azure API key for the configured resource.
+    :param model_id: Azure model ID used for page analysis.
+    """
 
     endpoint: str
     api_key: str
     model_id: str = "prebuilt-layout"
 
     async def detect(self, image: Image.Image) -> list[PageCandidate]:
+        """Detect page candidates from one image using Azure.
+
+        :param image: Source image to analyze.
+        :returns: Detected page candidates in reading order. Falls back to a
+            single full-image candidate when Azure returns no pages.
+        :raises ConfigurationError: If the optional Azure dependency is not installed.
+        """
         try:
             from azure.ai.documentintelligence.aio import DocumentIntelligenceClient
             from azure.core.credentials import AzureKeyCredential

@@ -260,7 +260,14 @@ def _build_mistral_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -> OC
 
 
 def build_ocr_backend(spec: OCRBackendSpec) -> OCRBackend:
-    """Build an OCR backend from a declarative spec."""
+    """Build an OCR backend from a declarative spec.
+
+    :param spec: Declarative backend specification.
+    :returns: Configured OCR backend ready for use with ``OCRClient`` or
+        ``DocumentOCRPipeline``.
+    :raises ConfigurationError: If the provider is unsupported or required
+        provider-specific configuration is missing.
+    """
     profile = resolve_ocr_profile(model_id=spec.model, profile=spec.profile)
     if spec.provider == "litellm":
         return _build_litellm_backend(spec, profile)

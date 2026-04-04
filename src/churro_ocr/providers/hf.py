@@ -167,7 +167,20 @@ def _default_dots_ocr_1_5_model_kwargs() -> dict[str, object]:
 
 @dataclass(slots=True)
 class HuggingFaceVisionOCRBackend(OCRBackend):
-    """OCR backend for local Hugging Face multimodal models with custom templates."""
+    """OCR backend for local Hugging Face multimodal models with custom templates.
+
+    :param model_id: Hugging Face model identifier.
+    :param template: Prompt template used to render OCR input.
+    :param model_name: Optional human-readable model name for result metadata.
+    :param trust_remote_code: Whether to allow remote model code execution.
+    :param processor_kwargs: Extra kwargs passed to processor loading.
+    :param model_kwargs: Extra kwargs passed to model loading.
+    :param generation_kwargs: Extra generation kwargs passed at inference time.
+    :param vision_input_builder: Optional override for building multimodal inputs.
+    :param image_preprocessor: Image preprocessor applied before OCR.
+    :param text_postprocessor: Text postprocessor applied after OCR.
+    :param provider_name: Provider identifier written into OCR results.
+    """
 
     model_id: str
     template: OCRPromptTemplateLike
@@ -194,9 +207,19 @@ class HuggingFaceVisionOCRBackend(OCRBackend):
         }
 
     async def ocr(self, page: DocumentPage) -> OCRResult:
+        """Run OCR for one page.
+
+        :param page: Page to transcribe.
+        :returns: Provider-agnostic OCR result.
+        """
         return await asyncio.to_thread(self._ocr_sync, page)
 
     async def ocr_batch(self, pages: list[DocumentPage]) -> list[OCRResult]:
+        """Run OCR for multiple pages in one batch.
+
+        :param pages: Pages to transcribe in batch order.
+        :returns: OCR results in the same order as ``pages``.
+        """
         return await asyncio.to_thread(self._ocr_batch_sync, pages)
 
     def _ocr_sync(self, page: DocumentPage) -> OCRResult:
@@ -404,7 +427,7 @@ class HuggingFaceVisionOCRBackend(OCRBackend):
 
 @dataclass(slots=True)
 class Churro3BOCRBackend(HuggingFaceVisionOCRBackend):
-    """Preset OCR backend for `stanford-oval/churro-3B`."""
+    """Preset OCR backend for ``stanford-oval/churro-3B``."""
 
     model_id: str = CHURRO_3B_MODEL_ID
     template: OCRPromptTemplateLike = CHURRO_3B_XML_TEMPLATE
@@ -413,7 +436,11 @@ class Churro3BOCRBackend(HuggingFaceVisionOCRBackend):
 
 @dataclass(slots=True)
 class DotsOCR15OCRBackend(HuggingFaceVisionOCRBackend):
-    """Preset OCR backend for `kristaller486/dots.ocr-1.5`."""
+    """Preset OCR backend for ``kristaller486/dots.ocr-1.5``.
+
+    :param model_kwargs: Extra kwargs passed to model loading on top of the
+        built-in Dots OCR defaults.
+    """
 
     model_id: str = DOTS_OCR_1_5_MODEL_ID
     template: OCRPromptTemplateLike = DOTS_OCR_1_5_OCR_TEMPLATE

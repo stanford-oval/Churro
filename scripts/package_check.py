@@ -20,6 +20,7 @@ BUILD_DIR = ROOT / "build"
 EGG_INFO_DIR = ROOT / "src" / "churro_ocr.egg-info"
 EXPECTED_PROJECT_URLS = {
     "Homepage": "https://github.com/stanford-oval/Churro",
+    "Documentation": "https://stanford-oval.github.io/Churro/",
     "Repository": "https://github.com/stanford-oval/Churro",
     "Issues": "https://github.com/stanford-oval/Churro/issues",
 }
@@ -27,7 +28,6 @@ EXPECTED_EXTRAS = {
     "all",
     "azure",
     "hf",
-    "huggingface",
     "llm",
     "local",
     "mistral",
@@ -35,7 +35,7 @@ EXPECTED_EXTRAS = {
     "vllm",
 }
 FORBIDDEN_ARTIFACT_SEGMENTS = ("/tests/", "/tooling/", "/scripts/")
-FORBIDDEN_ARTIFACT_SUFFIXES = ("REPO_WORKFLOWS.md", "PYPI_AUDIT.md")
+FORBIDDEN_ARTIFACT_SUFFIXES = ("PYPI_AUDIT.md",)
 REQUIREMENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+")
 ALLOWED_LICENSE_TOKENS = (
     "apache",

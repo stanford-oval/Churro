@@ -20,18 +20,29 @@ from churro_ocr.page_detection import (
 
 @dataclass(slots=True)
 class DocumentOCRResult:
-    """Document OCR output across all detected pages."""
+    """Document OCR output across all detected pages.
+
+    :param pages: OCR-enriched pages in output order.
+    :param source_type: Input source type, typically ``"image"`` or ``"pdf"``.
+    :param metadata: Document-level metadata carried forward from page detection.
+    """
 
     pages: list[DocumentPage]
     source_type: str
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def texts(self) -> list[str]:
-        """Return OCR text for each page in order."""
+        """Return OCR text for each page in order.
+
+        :returns: Plain OCR text for each page. Missing page text is normalized to ``""``.
+        """
         return [page.text or "" for page in self.pages]
 
     def as_ocr_results(self) -> list[OCRResult]:
-        """Return plain OCR results in page order."""
+        """Return plain OCR results in page order.
+
+        :returns: ``OCRResult`` objects derived from the current pages.
+        """
         return [
             OCRResult(
                 text=page.text or "",
@@ -44,7 +55,12 @@ class DocumentOCRResult:
 
 
 class DocumentOCRPipeline:
-    """Run page detection and OCR as one document-level pipeline."""
+    """Run page detection and OCR as one document-level pipeline.
+
+    The pipeline is the highest-level API in the package. It detects pages from
+    an image or PDF, runs OCR on each detected page, and preserves the page
+    objects in the final result.
+    """
 
     def __init__(
         self,
@@ -54,6 +70,15 @@ class DocumentOCRPipeline:
         detection_backend: PageDetectionBackendLike | None = None,
         max_concurrency: int = 8,
     ) -> None:
+        """Create a document OCR pipeline.
+
+        :param ocr_backend: OCR backend or async OCR callable used for each page.
+        :param page_detector: Optional fully constructed page detector to reuse.
+        :param detection_backend: Optional low-level detection backend used when
+            ``page_detector`` is not provided.
+        :param max_concurrency: Maximum number of page OCR jobs run at once.
+        :raises ConfigurationError: If ``max_concurrency`` is less than 1.
+        """
         if max_concurrency < 1:
             raise ConfigurationError("DocumentOCRPipeline max_concurrency must be at least 1.")
         self._ocr_client = OCRClient(ocr_backend)
@@ -66,7 +91,13 @@ class DocumentOCRPipeline:
         *,
         ocr_metadata: dict[str, Any] | None = None,
     ) -> DocumentOCRResult:
-        """Detect pages and OCR a single input image."""
+        """Detect pages and OCR a single input image.
+
+        :param request: Image detection request describing the source image.
+        :param ocr_metadata: Optional caller-side metadata merged into each page
+            before OCR runs.
+        :returns: Document OCR result preserving page order and page images.
+        """
         detection_result = await self._page_detector.detect_image(request)
         return await self._ocr_detection_result(
             detection_result.pages,
@@ -81,7 +112,13 @@ class DocumentOCRPipeline:
         *,
         ocr_metadata: dict[str, Any] | None = None,
     ) -> DocumentOCRResult:
-        """Synchronous wrapper for image OCR."""
+        """Synchronously detect pages and OCR a single input image.
+
+        :param request: Image detection request describing the source image.
+        :param ocr_metadata: Optional caller-side metadata merged into each page
+            before OCR runs.
+        :returns: Document OCR result preserving page order and page images.
+        """
         return run_sync(self.process_image(request, ocr_metadata=ocr_metadata))
 
     async def process_pdf(
@@ -92,7 +129,15 @@ class DocumentOCRPipeline:
         trim_margin: int = 30,
         ocr_metadata: dict[str, Any] | None = None,
     ) -> DocumentOCRResult:
-        """Rasterize, detect pages, and OCR a PDF."""
+        """Rasterize, detect pages, and OCR a PDF.
+
+        :param path: PDF path to rasterize and process.
+        :param dpi: Rasterization DPI used before page detection.
+        :param trim_margin: Pixel margin added around detected crops.
+        :param ocr_metadata: Optional caller-side metadata merged into each page
+            before OCR runs.
+        :returns: Document OCR result across the rasterized PDF pages.
+        """
         detection_result = await self._page_detector.detect_pdf(
             path,
             dpi=dpi,
@@ -113,7 +158,15 @@ class DocumentOCRPipeline:
         trim_margin: int = 30,
         ocr_metadata: dict[str, Any] | None = None,
     ) -> DocumentOCRResult:
-        """Synchronous wrapper for PDF OCR."""
+        """Synchronously rasterize, detect pages, and OCR a PDF.
+
+        :param path: PDF path to rasterize and process.
+        :param dpi: Rasterization DPI used before page detection.
+        :param trim_margin: Pixel margin added around detected crops.
+        :param ocr_metadata: Optional caller-side metadata merged into each page
+            before OCR runs.
+        :returns: Document OCR result across the rasterized PDF pages.
+        """
         return run_sync(
             self.process_pdf(
                 path,
