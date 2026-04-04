@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "churro-ocr"
 version = "0.1.0"
 description = "Library-first OCR and layout detection for historical documents"
-readme = "README.md"
+readme = { file = "docs/pypi.md", content-type = "text/markdown" }
 requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [{ name = "History Genie" }]
@@ -30,11 +30,6 @@ llm = [
 ]
 azure = [
     "azure-ai-documentintelligence==1.0.2",
-]
-huggingface = [
-    "qwen-vl-utils",
-    "transformers[torch]>=4.57.0,<5",
-    "torchvision",
 ]
 hf = [
     "qwen-vl-utils",
@@ -74,16 +69,22 @@ dev = [
     "datasets>=4.4.1,<5",
     "evaluate>=0.4.6,<0.5",
     "google-auth>=2.41.1,<3",
+    "myst-parser>=4.0.1,<5",
     "nltk>=3.9.2,<4",
+    "pydata-sphinx-theme>=0.16.1,<1",
     "pyarabic>=0.6.15,<0.7",
     "pytest",
     "pytest-asyncio",
     "pytest-cov>=7.0.0,<8",
     "rapidfuzz>=3.14.3,<4",
     "ruff",
+    "sphinx>=8.2.3,<9",
+    "sphinx-autobuild>=2024.10.3,<2026",
+    "sphinx-copybutton>=0.5.2,<1",
+    "sphinx-design>=0.6.1,<1",
     "tqdm>=4.67.1,<5",
     "twine",
-    "ty>=0.0.24,<0.0.25",
+    "ty>=0.0.28,<0.0.29",
 ]
 minimal = [
     "qwen-vl-utils",
@@ -96,6 +97,7 @@ churro-ocr = "churro_ocr.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/stanford-oval/Churro"
+Documentation = "https://stanford-oval.github.io/Churro/"
 Repository = "https://github.com/stanford-oval/Churro"
 Issues = "https://github.com/stanford-oval/Churro/issues"
 
@@ -139,6 +141,8 @@ lint = "ruff check src tests"
 typecheck = "ty check src tests"
 test = "python -m pytest"
 coverage = "python -m pytest --cov=src/churro_ocr --cov=tooling --cov-report=term-missing"
+docs-build = "python -m sphinx -W --keep-going -b html docs docs/_build/html"
+docs-serve = "python -m sphinx_autobuild --port 0 docs docs/_build/html"
 package-check = "python scripts/package_check.py"
 
 [tool.pytest.ini_options]

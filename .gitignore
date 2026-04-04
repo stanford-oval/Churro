@@ -14,10 +14,12 @@ __pycache__/
 .coverage
 build/
 dist/
+docs/_build/
 *.egg-info/
 
 # Local data and logs
 workdir/
+workdir
 debug.log
 debug_logs*
 .env

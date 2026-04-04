@@ -1,0 +1,227 @@
+:root {
+  --pst-color-primary: #8b451f;
+  --pst-color-secondary: #a16207;
+  --pst-color-accent: #8b451f;
+  --pst-color-link: #8b451f;
+  --pst-color-link-hover: #6c2e10;
+  --pst-font-family-base: "Source Sans 3", "IBM Plex Sans", "Aptos", "Segoe UI", sans-serif;
+  --pst-font-family-heading: "Source Sans 3", "IBM Plex Sans", "Aptos", "Segoe UI", sans-serif;
+  --pst-font-family-monospace: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  --bs-body-font-size: 1.0625rem;
+  --bs-body-line-height: 1.65;
+}
+
+html[data-theme="dark"] {
+  --pst-color-primary: #f4b25e;
+  --pst-color-secondary: #d6a255;
+  --pst-color-accent: #f4b25e;
+  --pst-color-link: #f4b25e;
+  --pst-color-link-hover: #f8cf92;
+}
+
+.bd-article-container h1,
+.bd-article-container h2,
+.bd-article-container h3,
+.bd-article-container h4,
+.bd-article-container h5,
+.bd-article-container h6 {
+  font-family: var(--pst-font-family-heading);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.bd-article-container {
+  max-width: 58rem;
+}
+
+.bd-article-container h1 {
+  font-size: clamp(2.1rem, 2.4vw, 2.7rem);
+}
+
+.bd-article-container h2 {
+  font-size: clamp(1.65rem, 1.8vw, 2rem);
+}
+
+.bd-article-container h3 {
+  font-size: clamp(1.3rem, 1.35vw, 1.55rem);
+}
+
+.bd-header .navbar-header-items {
+  column-gap: 0.5rem;
+}
+
+.bd-docs-nav .bd-toc-item > ul + ul {
+  border-top: 1px solid var(--pst-color-border);
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+}
+
+.bd-header .navbar-header-items__start,
+.bd-header .navbar-brand {
+  display: none;
+}
+
+.bd-header .navbar-header-items__end {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.bd-search .form-control {
+  min-width: min(100%, 40rem);
+}
+
+.bd-sidebar-primary #pst-collapse-sidebar-button {
+  gap: 0;
+  justify-content: center;
+  width: 1.75rem;
+}
+
+.bd-sidebar-primary #pst-collapse-sidebar-button .pst-icon {
+  padding: 0;
+}
+
+.prev-next-footer {
+  padding-top: 1.75rem;
+}
+
+.benchmark-table-wrapper {
+  overflow-x: auto;
+}
+
+.benchmark-table {
+  border-collapse: collapse;
+  min-width: 100%;
+  width: 100%;
+}
+
+.benchmark-table th,
+.benchmark-table td {
+  border-bottom: 1px solid rgba(139, 69, 31, 0.1);
+  padding: 0.9rem 0.85rem;
+  vertical-align: top;
+}
+
+.benchmark-table th {
+  background: rgba(139, 69, 31, 0.035);
+  font-size: 0.9rem;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.benchmark-sort-button {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  display: inline-flex;
+  font: inherit;
+  gap: 0.5rem;
+  padding: 0;
+}
+
+.benchmark-sort-button:hover {
+  color: var(--pst-color-link-hover);
+}
+
+.benchmark-sort-indicator {
+  color: var(--pst-color-text-muted);
+  font-size: 0.8rem;
+}
+
+.benchmark-rank,
+.benchmark-score {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.benchmark-rank {
+  color: var(--pst-color-text-muted);
+  width: 1%;
+}
+
+.benchmark-model {
+  align-items: start;
+  display: flex;
+  gap: 0.8rem;
+}
+
+.benchmark-model-icon {
+  border-radius: 0.4rem;
+  height: 1.65rem;
+  margin-top: 0.1rem;
+  width: 1.65rem;
+}
+
+.benchmark-model-text {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.benchmark-model-name {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.benchmark-model-name:hover {
+  color: var(--pst-color-link-hover);
+}
+
+.benchmark-model-id {
+  color: var(--pst-color-text-muted);
+  font-size: 0.83rem;
+  overflow-wrap: anywhere;
+}
+
+.benchmark-error {
+  color: var(--pst-color-danger);
+}
+
+html[data-theme="dark"] .benchmark-table th {
+  border-color: rgba(244, 178, 94, 0.18);
+}
+
+html[data-theme="dark"] .benchmark-table th {
+  background: rgba(244, 178, 94, 0.06);
+}
+
+@media (min-width: 1200px) {
+  .bd-page-width {
+    max-width: 96rem;
+  }
+
+  .bd-main .bd-content .bd-article-container {
+    max-width: 60rem;
+  }
+}
+
+@media (min-width: 960px) {
+  .bd-header .navbar-header-items {
+    display: flex;
+    flex: 1 1 auto;
+    justify-content: center;
+    margin-inline: auto;
+    padding-left: 0;
+  }
+
+  .bd-header .navbar-header-items__end {
+    column-gap: 0.75rem;
+    justify-content: center;
+    margin-inline: auto;
+  }
+
+  .bd-header .navbar-item.navbar-persistent--container,
+  .bd-header .search-button-field {
+    width: clamp(16rem, 28vw, 24rem);
+  }
+
+  .bd-header .search-button-field {
+    justify-content: space-between;
+    padding-inline: 0.9rem;
+  }
+}
