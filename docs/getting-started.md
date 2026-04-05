@@ -11,36 +11,31 @@
 | Run an end-to-end image or PDF OCR workflow | `DocumentOCRPipeline` |
 | Tune provider options directly | `build_ocr_backend(...)` + `OCRBackendSpec` |
 
-## Install Only What You Need
+## Install
+
+Use UV as the supported install path.
 
 ```bash
-pip install churro-ocr
-pip install "churro-ocr[llm]"
-pip install "churro-ocr[local]"
-pip install "churro-ocr[hf]"
-pip install "churro-ocr[vllm]"
-pip install "churro-ocr[azure]"
-pip install "churro-ocr[mistral]"
-pip install "churro-ocr[pdf]"
-pip install "churro-ocr[all]"
+uv tool install churro-ocr
+# or, in a project:
+uv add churro-ocr
 ```
 
-## Provider Extras
+Then install the runtime for the backend you plan to use:
 
-| Extra | Use it when |
-| --- | --- |
-| `llm` | you want hosted multimodal OCR and LLM-based page detection through LiteLLM |
-| `local` | you have a local or self-hosted OpenAI-compatible server |
-| `hf` | you want local Transformers inference in-process |
-| `vllm` | you want higher-throughput local serving |
-| `azure` | you want Azure Document Intelligence OCR or layout detection |
-| `mistral` | you want Mistral OCR |
-| `pdf` | you want PDF rasterization through `pypdfium2` |
-| `all` | you want every supported backend and utility extra |
+```bash
+uv run churro-ocr install llm
+uv run churro-ocr install hf
+uv run churro-ocr install vllm
+```
+
+If you installed the CLI with `uv tool install churro-ocr`, drop the `uv run` prefix.
+For the full provider/runtime matrix, use [Providers And Configuration](guides/providers.md).
 
 ## First OCR Example
 
 Use `OCRClient` when your input is already one page per image.
+This example uses `provider="litellm"`, so install the `llm` runtime first.
 
 ```python
 from churro_ocr.ocr import OCRClient
@@ -67,6 +62,8 @@ When an API accepts both `image` and `image_path`, pass exactly one of them.
 Use the CLI when you want to confirm a model or backend before writing Python code.
 
 ```bash
+uv tool install churro-ocr
+churro-ocr install hf
 churro-ocr transcribe \
   --image scan.png \
   --backend hf \

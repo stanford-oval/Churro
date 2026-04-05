@@ -2,7 +2,7 @@
 
 CHURRO is an OCR toolkit for historical document transcription, built to make handwritten and printed sources readable at high accuracy and lower cost.
 
-It works with all major OCR proividers and vision-language models, and provides first-party support for the CHURRO 3B model and CHURRO-DS dataset.
+It works with all major OCR providers and vision-language models, and provides first-party support for the CHURRO 3B model and CHURRO-DS dataset.
 
 [![Model](https://img.shields.io/badge/Model-CHURRO%203B-8A4FFF)](https://huggingface.co/stanford-oval/churro-3B)
 [![Dataset](https://img.shields.io/badge/Dataset-CHURRO--DS-0A7BBB)](https://huggingface.co/datasets/stanford-oval/churro-dataset)
@@ -24,7 +24,8 @@ It works with all major OCR proividers and vision-language models, and provides 
 ## Quick Try
 
 ```bash
-pip install "churro-ocr[hf]"
+uv tool install churro-ocr
+churro-ocr install hf
 churro-ocr transcribe --image scan.png --backend hf --model stanford-oval/churro-3B
 ```
 
