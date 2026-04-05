@@ -77,11 +77,20 @@ def build_ocr_result(
     metadata: dict[str, Any] | None = None,
 ) -> OCRResult:
     """Build a normalized OCR result after postprocessing."""
+    processed = text_postprocessor(text)
+    postprocessor_metadata: dict[str, Any] = {}
+    if isinstance(processed, tuple):
+        processed_text, postprocessor_metadata = processed
+    else:
+        processed_text = processed
+
+    combined_metadata = dict(metadata or {})
+    combined_metadata.update(postprocessor_metadata)
     return OCRResult(
-        text=text_postprocessor(text),
+        text=processed_text,
         provider_name=provider_name,
         model_name=model_name,
-        metadata=dict(metadata or {}),
+        metadata=combined_metadata,
     )
 
 

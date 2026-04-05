@@ -15,11 +15,13 @@ class HFChatTemplate:
     :param system_message: Optional system message prepended to the conversation.
     :param user_prompt: Optional user-side text prompt appended with the image.
     :param include_image: Whether to include the page image in the user message.
+    :param user_prompt_first: Whether to place the user prompt before the image.
     """
 
     system_message: str | None = None
     user_prompt: str | None = None
     include_image: bool = True
+    user_prompt_first: bool = False
 
     def build_conversation(self, page: DocumentPage) -> OCRConversation:
         """Build a structured multimodal conversation for one OCR page.
@@ -37,9 +39,11 @@ class HFChatTemplate:
             )
 
         user_content: list[dict[str, object]] = []
+        if self.user_prompt and self.user_prompt_first:
+            user_content.append({"type": "text", "text": self.user_prompt})
         if self.include_image:
             user_content.append({"type": "image", "image": page.image.copy()})
-        if self.user_prompt:
+        if self.user_prompt and not self.user_prompt_first:
             user_content.append({"type": "text", "text": self.user_prompt})
 
         conversation.append({"role": "user", "content": user_content})

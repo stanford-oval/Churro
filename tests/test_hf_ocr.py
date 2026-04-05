@@ -12,7 +12,7 @@ import churro_ocr.providers.hf as hf_module
 from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRClient
 from churro_ocr.page_detection import DocumentPage
-from churro_ocr.prompts import DEFAULT_OCR_OUTPUT_TAG
+from churro_ocr.prompts import DEFAULT_OCR_OUTPUT_TAG, OLMOCR_V4_YAML_PROMPT, parse_olmocr_response
 from churro_ocr.providers import OCRBackendSpec, build_ocr_backend
 from churro_ocr.providers.hf import (
     Churro3BOCRBackend,
@@ -25,6 +25,8 @@ from churro_ocr.templates import (
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_PROMPT,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    OLMOCR_2_7B_1025_MODEL_ID,
+    OLMOCR_2_7B_1025_OCR_TEMPLATE,
     HFChatTemplate,
 )
 
@@ -43,6 +45,63 @@ def test_hf_chat_template_builds_expected_conversation() -> None:
     assert conversation[1]["role"] == "user"
     assert conversation[1]["content"][0]["type"] == "image"
     assert conversation[1]["content"][1]["text"] == "user text"
+
+
+def test_olmocr_template_builds_prompt_before_image() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = OLMOCR_2_7B_1025_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "user"
+    assert conversation[0]["content"][0]["text"] == OLMOCR_V4_YAML_PROMPT
+    assert conversation[0]["content"][1]["type"] == "image"
+
+
+def test_parse_olmocr_response_extracts_plain_text_and_metadata() -> None:
+    text, metadata = parse_olmocr_response(
+        "---\n"
+        "primary_language: en\n"
+        "is_rotation_valid: true\n"
+        "rotation_correction: 0\n"
+        "is_table: true\n"
+        "is_diagram: false\n"
+        "---\n"
+        "# Heading\n\n"
+        "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+        "![Figure alt text](page_0_0_100_100.png)\n"
+        "Paragraph with [reference](https://example.test)."
+    )
+
+    assert text == "Heading\n\nYear | Value\n1900 | 42\n\nParagraph with reference."
+    assert metadata["front_matter"] == {
+        "primary_language": "en",
+        "is_rotation_valid": True,
+        "rotation_correction": 0,
+        "is_table": True,
+        "is_diagram": False,
+    }
+    assert "Heading" in cast("str", metadata["raw_markdown"])
+
+
+def test_build_ocr_backend_uses_olmocr_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=OLMOCR_2_7B_1025_MODEL_ID,
+            )
+        ),
+    )
+
+    assert backend.template == OLMOCR_2_7B_1025_OCR_TEMPLATE
+    assert backend.model_name == "olmOCR-2-7B-1025"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 8_000,
+        "temperature": 0.1,
+        "do_sample": True,
+    }
+    assert backend.image_preprocessor(Image.new("RGB", (5_000, 3_000), color="white")).size == (1_288, 772)
 
 
 @pytest.mark.asyncio
@@ -345,7 +404,7 @@ def test_dots_ocr_15_backend_uses_expected_defaults() -> None:
     assert backend.trust_remote_code is True
     assert backend.processor_kwargs == {}
     assert backend.model_kwargs["dtype"] in {"auto", "float32"}
-    if backend.model_kwargs["dtype"] == "auto":
+    if backend.model_kwargs["dtype"] == "auto" and "device_map" in backend.model_kwargs:
         assert backend.model_kwargs["device_map"] == "auto"
         assert "max_memory" in backend.model_kwargs
     assert backend.generation_kwargs == {"max_new_tokens": DEFAULT_OCR_MAX_TOKENS}

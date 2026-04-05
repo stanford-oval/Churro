@@ -15,6 +15,9 @@ from churro_ocr.templates.presets import (
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_PROMPT,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    OLMOCR_2_7B_1025_FP8_MODEL_ID,
+    OLMOCR_2_7B_1025_MODEL_ID,
+    OLMOCR_2_7B_1025_OCR_TEMPLATE,
 )
 
 __all__ = [
@@ -26,6 +29,9 @@ __all__ = [
     "DOTS_OCR_1_5_OCR_PROMPT",
     "DOTS_OCR_1_5_OCR_TEMPLATE",
     "HFChatTemplate",
+    "OLMOCR_2_7B_1025_FP8_MODEL_ID",
+    "OLMOCR_2_7B_1025_MODEL_ID",
+    "OLMOCR_2_7B_1025_OCR_TEMPLATE",
     "OCRConversation",
     "OCRPromptTemplate",
     "OCRPromptTemplateCallable",

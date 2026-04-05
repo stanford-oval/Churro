@@ -8,6 +8,8 @@ from churro_ocr.prompts.ocr import (
     DEFAULT_OCR_OUTPUT_TAG,
     DEFAULT_OCR_SYSTEM_PROMPT,
     DEFAULT_OCR_USER_PROMPT,
+    OLMOCR_V4_YAML_PROMPT,
+    parse_olmocr_response,
     strip_ocr_output_tag,
 )
 
@@ -17,5 +19,7 @@ __all__ = [
     "DEFAULT_OCR_OUTPUT_TAG",
     "DEFAULT_OCR_SYSTEM_PROMPT",
     "DEFAULT_OCR_USER_PROMPT",
+    "OLMOCR_V4_YAML_PROMPT",
+    "parse_olmocr_response",
     "strip_ocr_output_tag",
 ]

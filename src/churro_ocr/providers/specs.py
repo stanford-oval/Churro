@@ -5,18 +5,25 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from PIL import Image
 
-from churro_ocr._internal.image import prepare_ocr_image
-from churro_ocr.prompts import DEFAULT_OCR_OUTPUT_TAG, strip_ocr_output_tag
+from churro_ocr._internal.image import ensure_rgb, prepare_ocr_image, resize_image_to_fit
+from churro_ocr.prompts import (
+    DEFAULT_OCR_OUTPUT_TAG,
+    parse_olmocr_response,
+    strip_ocr_output_tag,
+)
 from churro_ocr.templates import (
     CHURRO_3B_MODEL_ID,
     CHURRO_3B_XML_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    OLMOCR_2_7B_1025_FP8_MODEL_ID,
+    OLMOCR_2_7B_1025_MODEL_ID,
+    OLMOCR_2_7B_1025_OCR_TEMPLATE,
     OCRConversation,
     OCRPromptTemplateLike,
 )
@@ -27,9 +34,12 @@ if TYPE_CHECKING:
 
 OCRProvider = Literal["litellm", "openai-compatible", "azure", "mistral", "hf", "vllm"]
 ImagePreprocessor = Callable[[Image.Image], Image.Image]
-TextPostprocessor = Callable[[str], str]
+TextPostprocessorResult = str | tuple[str, dict[str, Any]]
+TextPostprocessor = Callable[[str], TextPostprocessorResult]
 VisionInputBuilder = Callable[[OCRConversation], object]
 DEFAULT_OCR_MAX_TOKENS = 20_000
+OLMOCR_MAX_TOKENS = 8_000
+OLMOCR_TARGET_LONGEST_IMAGE_DIM = 1_288
 
 
 def identity_text_postprocessor(text: str) -> str:
@@ -57,6 +67,22 @@ def default_ocr_text_postprocessor(text: str) -> str:
     :returns: OCR text with the default wrapper removed when present.
     """
     return strip_ocr_output_tag(text, output_tag=DEFAULT_OCR_OUTPUT_TAG)
+
+
+def olmocr_image_preprocessor(image: Image.Image) -> Image.Image:
+    """Resize an image to olmOCR's expected 1288px longest side and normalize to RGB."""
+    return ensure_rgb(
+        resize_image_to_fit(
+            image,
+            OLMOCR_TARGET_LONGEST_IMAGE_DIM,
+            OLMOCR_TARGET_LONGEST_IMAGE_DIM,
+        )
+    )
+
+
+def olmocr_text_postprocessor(text: str) -> TextPostprocessorResult:
+    """Extract plain text and metadata from olmOCR YAML/markdown output."""
+    return parse_olmocr_response(text)
 
 
 @dataclass(slots=True, frozen=True)
@@ -241,14 +267,57 @@ def dots_ocr_1_5_profile() -> OCRModelProfile:
     )
 
 
+def _olmocr_profile(*, profile_name: str, display_name: str) -> OCRModelProfile:
+    return OCRModelProfile(
+        profile_name=profile_name,
+        template=OLMOCR_2_7B_1025_OCR_TEMPLATE,
+        image_preprocessor=olmocr_image_preprocessor,
+        text_postprocessor=olmocr_text_postprocessor,
+        display_name=display_name,
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": OLMOCR_MAX_TOKENS,
+                "temperature": 0.1,
+            }
+        ),
+        huggingface=HuggingFaceOptions(
+            generation_kwargs={
+                "max_new_tokens": OLMOCR_MAX_TOKENS,
+                "temperature": 0.1,
+                "do_sample": True,
+            },
+        ),
+    )
+
+
+def olmocr_2_7b_1025_profile() -> OCRModelProfile:
+    """Return the built-in ``allenai/olmOCR-2-7B-1025`` OCR profile."""
+    return _olmocr_profile(
+        profile_name=OLMOCR_2_7B_1025_MODEL_ID,
+        display_name="olmOCR-2-7B-1025",
+    )
+
+
+def olmocr_2_7b_1025_fp8_profile() -> OCRModelProfile:
+    """Return the built-in ``allenai/olmOCR-2-7B-1025-FP8`` OCR profile."""
+    return _olmocr_profile(
+        profile_name=OLMOCR_2_7B_1025_FP8_MODEL_ID,
+        display_name="olmOCR-2-7B-1025-FP8",
+    )
+
+
 def _profile_registry() -> dict[str, OCRModelProfile]:
     default_profile = default_ocr_profile()
     churro_profile = churro_3b_profile()
     dots_profile = dots_ocr_1_5_profile()
+    olmocr_profile = olmocr_2_7b_1025_profile()
+    olmocr_fp8_profile = olmocr_2_7b_1025_fp8_profile()
     return {
         default_profile.profile_name: default_profile,
         churro_profile.profile_name: churro_profile,
         dots_profile.profile_name: dots_profile,
+        olmocr_profile.profile_name: olmocr_profile,
+        olmocr_fp8_profile.profile_name: olmocr_fp8_profile,
     }
 
 
@@ -290,6 +359,8 @@ __all__ = [
     "ImagePreprocessor",
     "LiteLLMTransportConfig",
     "MistralOptions",
+    "olmocr_image_preprocessor",
+    "olmocr_text_postprocessor",
     "OCRBackendSpec",
     "OCRModelProfile",
     "OCRProvider",
