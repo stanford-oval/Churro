@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     pass
 
 
-OCRProvider = Literal["litellm", "openai-compatible", "azure", "mistral", "hf", "vllm"]
+OCRProvider = Literal["litellm", "openai-compatible", "azure", "mistral", "hf"]
 ImagePreprocessor = Callable[[Image.Image], Image.Image]
 TextPostprocessorResult = str | tuple[str, dict[str, Any]]
 TextPostprocessor = Callable[[str], TextPostprocessorResult]
@@ -136,24 +136,6 @@ class HuggingFaceOptions:
 
 
 @dataclass(slots=True, frozen=True)
-class VLLMOptions:
-    """Provider options for local vLLM OCR backends.
-
-    :param trust_remote_code: Whether to allow remote model code execution.
-    :param processor_kwargs: Extra kwargs passed to ``AutoProcessor.from_pretrained``.
-    :param llm_kwargs: Extra kwargs passed to the vLLM ``LLM`` constructor.
-    :param sampling_kwargs: Extra kwargs passed to vLLM sampling params.
-    :param limit_mm_per_prompt: Per-request multimodal limits passed to vLLM.
-    """
-
-    trust_remote_code: bool | None = None
-    processor_kwargs: dict[str, object] = field(default_factory=dict)
-    llm_kwargs: dict[str, object] = field(default_factory=dict)
-    sampling_kwargs: dict[str, object] = field(default_factory=dict)
-    limit_mm_per_prompt: dict[str, int] = field(default_factory=dict)
-
-
-@dataclass(slots=True, frozen=True)
 class AzureDocumentIntelligenceOptions:
     """Provider options for Azure Document Intelligence OCR.
 
@@ -176,11 +158,7 @@ class MistralOptions:
 
 
 OCRProviderOptions = (
-    OpenAICompatibleOptions
-    | HuggingFaceOptions
-    | VLLMOptions
-    | AzureDocumentIntelligenceOptions
-    | MistralOptions
+    OpenAICompatibleOptions | HuggingFaceOptions | AzureDocumentIntelligenceOptions | MistralOptions
 )
 
 
@@ -195,7 +173,6 @@ class OCRModelProfile:
     :param display_name: Optional human-readable model name.
     :param transport: Default LiteLLM transport settings for this profile.
     :param huggingface: Default Hugging Face backend options for this profile.
-    :param vllm: Default vLLM backend options for this profile.
     """
 
     profile_name: str
@@ -205,7 +182,6 @@ class OCRModelProfile:
     display_name: str | None = None
     transport: LiteLLMTransportConfig = field(default_factory=LiteLLMTransportConfig)
     huggingface: HuggingFaceOptions = field(default_factory=HuggingFaceOptions)
-    vllm: VLLMOptions = field(default_factory=VLLMOptions)
 
 
 @dataclass(slots=True, frozen=True)
@@ -260,9 +236,6 @@ def dots_ocr_1_5_profile() -> OCRModelProfile:
         huggingface=HuggingFaceOptions(
             trust_remote_code=True,
             backend_variant="dots-ocr-1.5",
-        ),
-        vllm=VLLMOptions(
-            trust_remote_code=True,
         ),
     )
 
@@ -368,5 +341,4 @@ __all__ = [
     "resolve_ocr_profile",
     "TextPostprocessor",
     "VisionInputBuilder",
-    "VLLMOptions",
 ]

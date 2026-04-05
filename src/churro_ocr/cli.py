@@ -23,7 +23,6 @@ from churro_ocr.providers import (
     MistralOptions,
     OCRBackendSpec,
     OpenAICompatibleOptions,
-    VLLMOptions,
     build_ocr_backend,
 )
 
@@ -56,10 +55,8 @@ def _build_ocr_backend(
             )
         )
     if backend == "openai-compatible":
-        if not model or not base_url or not api_key:
-            raise typer.BadParameter(
-                "--model, --base-url, and --api-key are required for backend=openai-compatible"
-            )
+        if not model or not base_url:
+            raise typer.BadParameter("--model and --base-url are required for backend=openai-compatible")
         return build_ocr_backend(
             OCRBackendSpec(
                 provider="openai-compatible",
@@ -103,16 +100,6 @@ def _build_ocr_backend(
                 provider="hf",
                 model=model,
                 options=HuggingFaceOptions(model_kwargs={"device_map": "auto", "torch_dtype": "auto"}),
-            )
-        )
-    if backend == "vllm":
-        if not model:
-            raise typer.BadParameter("--model is required for backend=vllm")
-        return build_ocr_backend(
-            OCRBackendSpec(
-                provider="vllm",
-                model=model,
-                options=VLLMOptions(),
             )
         )
     raise typer.BadParameter(f"Unsupported backend: {backend}")

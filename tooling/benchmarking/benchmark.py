@@ -32,7 +32,6 @@ from churro_ocr.providers import (
     MistralOptions,
     OCRBackendSpec,
     OpenAICompatibleOptions,
-    VLLMOptions,
 )
 from tooling.benchmarking.dataset import (
     DatasetSelection,
@@ -44,7 +43,7 @@ from tooling.evaluation.types import BenchmarkDatasetExample, EvaluationExample,
 
 CHURRO_DATASET_ID = "stanford-oval/churro-dataset"
 VALID_DATASET_SPLITS = {"dev", "test"}
-VALID_OCR_BACKENDS = {"litellm", "openai-compatible", "azure", "mistral", "hf", "vllm"}
+VALID_OCR_BACKENDS = {"litellm", "openai-compatible", "azure", "mistral", "hf"}
 BENCHMARK_DATASET_COLUMNS = (
     "image",
     "cleaned_transcription",
@@ -73,8 +72,6 @@ class BenchmarkOptions:
     api_key: str | None = None
     base_url: str | None = None
     api_version: str | None = None
-    vllm_gpu_memory_utilization: float | None = None
-    vllm_cpu_offload_gb: float | None = None
 
     def dataset_subset(self) -> DatasetSubset:
         """Return the normalized subset filters for this benchmark run."""
@@ -108,8 +105,6 @@ def build_parser(*, add_help: bool = True) -> argparse.ArgumentParser:
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--api-version", default=None)
-    parser.add_argument("--vllm-gpu-memory-utilization", type=float, default=None)
-    parser.add_argument("--vllm-cpu-offload-gb", type=float, default=None)
     return parser
 
 
@@ -130,8 +125,6 @@ def parse_args(argv: list[str] | None = None) -> BenchmarkOptions:
         api_key=namespace.api_key,
         base_url=namespace.base_url,
         api_version=namespace.api_version,
-        vllm_gpu_memory_utilization=namespace.vllm_gpu_memory_utilization,
-        vllm_cpu_offload_gb=namespace.vllm_cpu_offload_gb,
     )
 
 
@@ -148,24 +141,11 @@ def _validate_options(options: BenchmarkOptions) -> int:
     if options.backend == "litellm" and not options.model:
         logger.error("--model is required for backend=litellm.")
         return 1
-    if options.backend == "openai-compatible" and (
-        not options.model or not options.base_url or not options.api_key
-    ):
-        logger.error("--model, --base-url, and --api-key are required for backend=openai-compatible.")
+    if options.backend == "openai-compatible" and (not options.model or not options.base_url):
+        logger.error("--model and --base-url are required for backend=openai-compatible.")
         return 1
     if options.backend == "hf" and not options.model:
         logger.error("--model is required for backend=hf.")
-        return 1
-    if options.backend == "vllm" and not options.model:
-        logger.error("--model is required for backend=vllm.")
-        return 1
-    if options.vllm_gpu_memory_utilization is not None and not (
-        0.0 < options.vllm_gpu_memory_utilization <= 1.0
-    ):
-        logger.error("--vllm-gpu-memory-utilization must be in the range (0, 1].")
-        return 1
-    if options.vllm_cpu_offload_gb is not None and options.vllm_cpu_offload_gb < 0.0:
-        logger.error("--vllm-cpu-offload-gb must be non-negative.")
         return 1
     if options.backend == "azure" and (not options.endpoint or not options.api_key):
         logger.error("--endpoint and --api-key are required for backend=azure.")
@@ -232,7 +212,6 @@ def _build_ocr_backend(options: BenchmarkOptions) -> OCRBackendLike:
     if options.backend == "openai-compatible":
         assert options.model is not None
         assert options.base_url is not None
-        assert options.api_key is not None
         return build_ocr_backend(
             OCRBackendSpec(
                 provider="openai-compatible",
@@ -265,20 +244,6 @@ def _build_ocr_backend(options: BenchmarkOptions) -> OCRBackendLike:
                 provider="hf",
                 model=options.model,
                 options=HuggingFaceOptions(model_kwargs={"device_map": "auto", "torch_dtype": "auto"}),
-            )
-        )
-    if options.backend == "vllm":
-        assert options.model is not None
-        llm_kwargs: dict[str, object] = {}
-        if options.vllm_gpu_memory_utilization is not None:
-            llm_kwargs["gpu_memory_utilization"] = options.vllm_gpu_memory_utilization
-        if options.vllm_cpu_offload_gb is not None:
-            llm_kwargs["cpu_offload_gb"] = options.vllm_cpu_offload_gb
-        return build_ocr_backend(
-            OCRBackendSpec(
-                provider="vllm",
-                model=options.model,
-                options=VLLMOptions(llm_kwargs=llm_kwargs),
             )
         )
     assert options.api_key is not None

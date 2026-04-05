@@ -18,7 +18,6 @@ from churro_ocr._internal.litellm import LiteLLMTransport, complete_text
 from churro_ocr.errors import ConfigurationError, ProviderError
 from churro_ocr.providers.hf import _load_hf_causal_runtime, _load_hf_runtime
 from churro_ocr.providers.specs import LiteLLMTransportConfig
-from churro_ocr.providers.vllm import _load_vllm_processor_cls, _load_vllm_runtime
 
 
 def _make_fake_litellm_module(*, acompletion: object, completion_cost: object | None = None) -> ModuleType:
@@ -354,8 +353,6 @@ def test_log_prompt_payload_once_sanitizes_nested_payloads(monkeypatch: pytest.M
 @pytest.mark.parametrize(
     ("loader", "dependency_name", "message"),
     [
-        (_load_vllm_processor_cls, "transformers", None),
-        (_load_vllm_runtime, "vllm", None),
         (_load_hf_runtime, "torch", "PyTorch runtime"),
         (_load_hf_runtime, "qwen_vl_utils", "install hf"),
         (_load_hf_causal_runtime, "torch", "PyTorch runtime"),
@@ -365,7 +362,7 @@ def test_log_prompt_payload_once_sanitizes_nested_payloads(monkeypatch: pytest.M
 def test_optional_dependency_loaders_raise_configuration_error(
     loader: Any,
     dependency_name: str,
-    message: str | None,
+    message: str,
     patch_import_failure,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -382,11 +379,6 @@ def test_optional_dependency_loaders_raise_configuration_error(
         patch_import_failure(failing_name=dependency_name)
     else:
         patch_import_failure(failing_name=dependency_name)
-
-    if message is None:
-        with pytest.raises(ConfigurationError):
-            loader()
-        return
 
     with pytest.raises(ConfigurationError, match=re.escape(message)):
         loader()

@@ -14,7 +14,6 @@ from churro_ocr.providers import (
     MistralOptions,
     OCRBackendSpec,
     OpenAICompatibleOptions,
-    VLLMOptions,
     build_ocr_backend,
     resolve_ocr_profile,
 )
@@ -59,7 +58,7 @@ def test_provider_dir_lists_lazy_exports() -> None:
         (OCRBackendSpec(provider="litellm"), "OCR provider 'litellm' requires `model`."),
         (
             OCRBackendSpec(provider="openai-compatible", model="local-model"),
-            "OCR provider 'openai-compatible' requires `transport.api_base` and `transport.api_key`.",
+            "OCR provider 'openai-compatible' requires `transport.api_base`.",
         ),
         (
             OCRBackendSpec(provider="azure"),
@@ -73,17 +72,20 @@ def test_provider_dir_lists_lazy_exports() -> None:
             OCRBackendSpec(
                 provider="hf",
                 model="example/model",
-                options=cast("Any", VLLMOptions()),
+                options=cast("Any", OpenAICompatibleOptions()),
             ),
-            "OCR provider 'hf' requires options of type HuggingFaceOptions, got VLLMOptions.",
+            "OCR provider 'hf' requires options of type HuggingFaceOptions, got OpenAICompatibleOptions.",
         ),
         (
             OCRBackendSpec(
-                provider="vllm",
+                provider="openai-compatible",
                 model="example/model",
                 options=cast("Any", HuggingFaceOptions()),
             ),
-            "OCR provider 'vllm' requires options of type VLLMOptions, got HuggingFaceOptions.",
+            (
+                "OCR provider 'openai-compatible' requires options of type "
+                "OpenAICompatibleOptions, got HuggingFaceOptions."
+            ),
         ),
     ],
 )
@@ -99,7 +101,6 @@ def test_build_ocr_backend_supports_custom_openai_model_prefix() -> None:
             model="local-model",
             transport=LiteLLMTransportConfig(
                 api_base="http://127.0.0.1:8000/v1",
-                api_key="dummy",
             ),
             options=OpenAICompatibleOptions(model_prefix="custom"),
         )

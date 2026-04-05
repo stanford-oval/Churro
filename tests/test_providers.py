@@ -12,7 +12,11 @@ from PIL import Image
 from churro_ocr._internal.litellm import LiteLLMTransport
 from churro_ocr.errors import ProviderError
 from churro_ocr.page_detection import DocumentPage
-from churro_ocr.prompts import DEFAULT_BOUNDARY_DETECTION_PROMPT, DEFAULT_OCR_OUTPUT_TAG
+from churro_ocr.prompts import (
+    DEFAULT_BOUNDARY_DETECTION_PROMPT,
+    DEFAULT_OCR_OUTPUT_TAG,
+    OLMOCR_V4_YAML_PROMPT,
+)
 from churro_ocr.providers import (
     AzureDocumentIntelligenceOptions,
     AzurePageDetector,
@@ -22,7 +26,6 @@ from churro_ocr.providers import (
     MistralOptions,
     OCRBackendSpec,
     OpenAICompatibleOptions,
-    VLLMOptions,
     build_ocr_backend,
     locate_text_block_bbox_with_llm,
     resolve_ocr_profile,
@@ -32,6 +35,7 @@ from churro_ocr.providers.ocr import (
     AzureDocumentIntelligenceOCRBackend,
     LiteLLMVisionOCRBackend,
     MistralOCRBackend,
+    OpenAICompatibleOCRBackend,
 )
 from churro_ocr.providers.page_detection import (
     _normalize_azure_page_polygon,
@@ -39,8 +43,12 @@ from churro_ocr.providers.page_detection import (
     locate_text_block_bbox_with_llm_sync,
 )
 from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
-from churro_ocr.providers.vllm import VLLMVisionOCRBackend
-from churro_ocr.templates import DEFAULT_OCR_TEMPLATE
+from churro_ocr.templates import (
+    DEFAULT_OCR_TEMPLATE,
+    OLMOCR_2_7B_1025_FP8_MODEL_ID,
+    OLMOCR_2_7B_1025_MODEL_ID,
+    OLMOCR_2_7B_1025_OCR_TEMPLATE,
+)
 
 
 def _extract_user_text_parts(messages: list[dict[str, Any]]) -> list[str]:
@@ -348,183 +356,142 @@ async def test_mistral_ocr_backend_reuses_client(monkeypatch: pytest.MonkeyPatch
     assert calls == {"client_inits": 1, "requests": 2}
 
 
+def test_build_ocr_backend_uses_olmocr_profile_defaults_for_openai_compatible() -> None:
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=OLMOCR_2_7B_1025_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+
+    assert backend.template == OLMOCR_2_7B_1025_OCR_TEMPLATE
+    assert backend.model_name == "olmOCR-2-7B-1025"
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_000,
+        "temperature": 0.1,
+    }
+    assert backend.image_preprocessor(Image.new("RGB", (5_000, 3_000), color="white")).size == (1_288, 772)
+
+
+def test_build_ocr_backend_resolves_olmocr_fp8_profile_defaults_for_openai_compatible() -> None:
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=OLMOCR_2_7B_1025_FP8_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+
+    assert backend.template == OLMOCR_2_7B_1025_OCR_TEMPLATE
+    assert backend.model_name == "olmOCR-2-7B-1025-FP8"
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_000,
+        "temperature": 0.1,
+    }
+
+
 @pytest.mark.asyncio
-async def test_vllm_ocr_backend_reuses_engine_and_batches(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = {"processor_inits": 0, "engine_inits": 0}
+async def test_openai_compatible_backend_uses_olmocr_prompt_and_plain_text_postprocessing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
-    class FakeProcessor:
-        tokenizer = None
+    def _fake_prepare_messages_from_conversation(
+        self: LiteLLMTransport,
+        conversation: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        captured["conversation"] = conversation
+        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
 
-        def apply_chat_template(
-            self,
-            conversation: list[dict[str, object]],
-            *,
-            add_generation_prompt: bool,
-            tokenize: bool,
-        ) -> str:
-            assert add_generation_prompt is True
-            assert tokenize is False
-            content = cast("list[dict[str, object]]", conversation[0]["content"])
-            return f"prompt:{content[1]['text']}"
+    async def _fake_complete_text(
+        self: LiteLLMTransport,
+        *,
+        model: str,
+        messages: list[dict[str, object]],
+        timeout_seconds: int = 600,
+        output_json: bool = False,
+    ) -> str:
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["timeout_seconds"] = timeout_seconds
+        captured["output_json"] = output_json
+        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        return (
+            "---\n"
+            "primary_language: en\n"
+            "is_rotation_valid: true\n"
+            "rotation_correction: 0\n"
+            "is_table: true\n"
+            "is_diagram: false\n"
+            "---\n"
+            "# Ledger\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr>"
+            "<tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test).\n"
+            "![Figure alt text](page_0_0_100_100.png)\n"
+        )
 
-    class FakeProcessorCls:
-        @staticmethod
-        def from_pretrained(model_id: str, **kwargs: object) -> FakeProcessor:
-            calls["processor_inits"] += 1
-            captured["processor_model_id"] = model_id
-            captured["processor_kwargs"] = kwargs
-            return FakeProcessor()
-
-    class FakeSamplingParams:
-        def __init__(self, **kwargs: object) -> None:
-            captured["sampling_kwargs"] = kwargs
-
-    class FakeLLM:
-        def __init__(self, **kwargs: object) -> None:
-            calls["engine_inits"] += 1
-            captured["llm_kwargs"] = kwargs
-
-        def generate(
-            self,
-            prompts: list[dict[str, object]],
-            sampling_params: FakeSamplingParams,
-            *,
-            use_tqdm: bool,
-        ) -> list[SimpleNamespace]:
-            del sampling_params
-            captured["prompts"] = prompts
-            captured["use_tqdm"] = use_tqdm
-            return [
-                SimpleNamespace(outputs=[SimpleNamespace(text=f"text:{index}")])
-                for index, _prompt in enumerate(prompts)
-            ]
-
-    vllm_module = ModuleType("vllm")
-    cast("Any", vllm_module).LLM = FakeLLM
-    cast("Any", vllm_module).SamplingParams = FakeSamplingParams
-    monkeypatch.setitem(sys.modules, "vllm", vllm_module)
-    monkeypatch.setattr("churro_ocr.providers.vllm._load_vllm_processor_cls", lambda: FakeProcessorCls)
+    monkeypatch.setattr(
+        LiteLLMTransport,
+        "prepare_messages_from_conversation",
+        _fake_prepare_messages_from_conversation,
+    )
+    monkeypatch.setattr(LiteLLMTransport, "complete_text", _fake_complete_text)
 
     backend = cast(
-        "VLLMVisionOCRBackend",
+        "OpenAICompatibleOCRBackend",
         build_ocr_backend(
             OCRBackendSpec(
-                provider="vllm",
-                model="kristaller486/dots.ocr-1.5",
-                options=VLLMOptions(),
+                provider="openai-compatible",
+                model=OLMOCR_2_7B_1025_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
             )
         ),
     )
-    pages = [
-        DocumentPage.from_image(Image.new("RGBA", (5_000, 3_000), color=(255, 255, 255, 255))),
-        DocumentPage.from_image(Image.new("RGB", (12, 12), color="white")),
-    ]
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (5_000, 3_000), color=(255, 255, 255, 255)))
+    )
 
-    first = await backend.ocr(pages[0])
-    second_batch = await backend.ocr_batch(pages)
-
-    assert first.text == "text:0"
-    assert [result.text for result in second_batch] == ["text:0", "text:1"]
-    assert calls == {"processor_inits": 1, "engine_inits": 1}
-    assert captured["processor_model_id"] == "kristaller486/dots.ocr-1.5"
-    assert captured["processor_kwargs"] == {"trust_remote_code": True}
-    assert captured["llm_kwargs"] == {
-        "model": "kristaller486/dots.ocr-1.5",
-        "trust_remote_code": True,
-        "limit_mm_per_prompt": {"image": 1},
+    assert result.text == "Ledger\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert result.metadata == {
+        "front_matter": {
+            "primary_language": "en",
+            "is_rotation_valid": True,
+            "rotation_correction": 0,
+            "is_table": True,
+            "is_diagram": False,
+        },
+        "raw_markdown": (
+            "# Ledger\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test).\n"
+            "![Figure alt text](page_0_0_100_100.png)"
+        ),
     }
-    assert captured["sampling_kwargs"] == {"max_tokens": DEFAULT_OCR_MAX_TOKENS}
-    assert captured["use_tqdm"] is False
-    prompt_batch = cast("list[dict[str, object]]", captured["prompts"])
-    assert isinstance(prompt_batch, list)
-    assert len(prompt_batch) == 2
-    assert prompt_batch[0]["prompt"] == "prompt:Extract the text content from this image."
-    prompt_media = cast("dict[str, object]", prompt_batch[0]["multi_modal_data"])
-    prompt_image = cast("Image.Image", prompt_media["image"])
-    assert isinstance(prompt_image, Image.Image)
-    assert prompt_image.size == (2_500, 1_500)
+    assert captured["model"] == f"openai/{OLMOCR_2_7B_1025_MODEL_ID}"
+    assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+    assert captured["timeout_seconds"] == 600
+    assert captured["output_json"] is False
+    assert captured["completion_kwargs"] == {
+        "max_tokens": 8_000,
+        "temperature": 0.1,
+    }
+    conversation = cast("list[dict[str, object]]", captured["conversation"])
+    assert conversation[0]["role"] == "user"
+    user_content = cast("list[dict[str, object]]", conversation[0]["content"])
+    assert user_content[0] == {"type": "text", "text": OLMOCR_V4_YAML_PROMPT}
+    assert user_content[1]["type"] == "image"
+    prompt_image = cast("Image.Image", user_content[1]["image"])
+    assert prompt_image.size == (1_288, 772)
     assert prompt_image.mode == "RGB"
-
-
-def test_vllm_backend_defaults_are_public() -> None:
-    backend = cast(
-        "VLLMVisionOCRBackend",
-        build_ocr_backend(
-            OCRBackendSpec(
-                provider="vllm",
-                model="kristaller486/dots.ocr-1.5",
-                options=VLLMOptions(),
-            )
-        ),
-    )
-
-    assert backend.model_id == "kristaller486/dots.ocr-1.5"
-    assert backend.model_name == "dots.ocr-1.5"
-    assert backend.provider_name == "vllm"
-    assert backend.processor_kwargs == {}
-
-
-@pytest.mark.asyncio
-async def test_vllm_ocr_backend_strips_default_output_tags(monkeypatch: pytest.MonkeyPatch) -> None:
-    class FakeProcessor:
-        tokenizer = None
-
-        def apply_chat_template(
-            self,
-            conversation: list[dict[str, object]],
-            *,
-            add_generation_prompt: bool,
-            tokenize: bool,
-        ) -> str:
-            del conversation, add_generation_prompt, tokenize
-            return "prompt"
-
-    class FakeProcessorCls:
-        @staticmethod
-        def from_pretrained(model_id: str, **kwargs: object) -> FakeProcessor:
-            del model_id, kwargs
-            return FakeProcessor()
-
-    class FakeSamplingParams:
-        def __init__(self, **kwargs: object) -> None:
-            del kwargs
-
-    class FakeLLM:
-        def __init__(self, **kwargs: object) -> None:
-            del kwargs
-
-        def generate(
-            self,
-            prompts: list[dict[str, object]],
-            sampling_params: FakeSamplingParams,
-            *,
-            use_tqdm: bool,
-        ) -> list[SimpleNamespace]:
-            del prompts, sampling_params, use_tqdm
-            return [
-                SimpleNamespace(
-                    outputs=[
-                        SimpleNamespace(
-                            text=(f"<{DEFAULT_OCR_OUTPUT_TAG}>\npage text\n</{DEFAULT_OCR_OUTPUT_TAG}>")
-                        )
-                    ]
-                )
-            ]
-
-    vllm_module = ModuleType("vllm")
-    cast("Any", vllm_module).LLM = FakeLLM
-    cast("Any", vllm_module).SamplingParams = FakeSamplingParams
-    monkeypatch.setitem(sys.modules, "vllm", vllm_module)
-    monkeypatch.setattr("churro_ocr.providers.vllm._load_vllm_processor_cls", lambda: FakeProcessorCls)
-
-    backend = cast(
-        "VLLMVisionOCRBackend",
-        build_ocr_backend(OCRBackendSpec(provider="vllm", model="example/model")),
-    )
-    result = await backend.ocr(DocumentPage.from_image(Image.new("RGB", (10, 10), color="white")))
-
-    assert result.text == "page text"
 
 
 @pytest.mark.asyncio
@@ -1017,11 +984,12 @@ def test_azure_page_detector_type_is_public() -> None:
 
 def test_build_ocr_backend_resolves_profile_defaults() -> None:
     backend = cast(
-        "VLLMVisionOCRBackend",
+        "OpenAICompatibleOCRBackend",
         build_ocr_backend(
             OCRBackendSpec(
-                provider="vllm",
+                provider="openai-compatible",
                 model="stanford-oval/churro-3B",
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
             )
         ),
     )
@@ -1032,19 +1000,19 @@ def test_build_ocr_backend_resolves_profile_defaults() -> None:
 
 def test_build_ocr_backend_uses_generic_defaults_for_qwen_model() -> None:
     backend = cast(
-        "VLLMVisionOCRBackend",
+        "OpenAICompatibleOCRBackend",
         build_ocr_backend(
             OCRBackendSpec(
-                provider="vllm",
+                provider="openai-compatible",
                 model="Qwen/Qwen3.5-0.8B",
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
             )
         ),
     )
 
     assert backend.model_name == "Qwen/Qwen3.5-0.8B"
     assert backend.template == DEFAULT_OCR_TEMPLATE
-    assert backend.llm_kwargs == {}
-    assert backend.sampling_kwargs == {"max_tokens": DEFAULT_OCR_MAX_TOKENS}
+    assert backend.transport.config.completion_kwargs == {"max_tokens": DEFAULT_OCR_MAX_TOKENS}
 
 
 def test_build_ocr_backend_merges_hf_overrides_with_profile_defaults() -> None:

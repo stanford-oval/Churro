@@ -15,7 +15,12 @@ from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRResult
 from churro_ocr.page_detection import DocumentPage, PageDetectionResult
 from churro_ocr.prompts import DEFAULT_OCR_OUTPUT_TAG
-from churro_ocr.templates import DEFAULT_OCR_TEMPLATE, DOTS_OCR_1_5_OCR_TEMPLATE
+from churro_ocr.templates import (
+    DEFAULT_OCR_TEMPLATE,
+    DOTS_OCR_1_5_OCR_TEMPLATE,
+    OLMOCR_2_7B_1025_MODEL_ID,
+    OLMOCR_2_7B_1025_OCR_TEMPLATE,
+)
 
 
 def test_transcribe_cli_writes_output(
@@ -113,20 +118,20 @@ def test_build_ocr_backend_aligns_templates_for_generic_models() -> None:
         base_url=None,
         api_version=None,
     )
-    vllm_backend = cli_module._build_ocr_backend(
-        backend="vllm",
+    openai_backend = cli_module._build_ocr_backend(
+        backend="openai-compatible",
         model="example/model",
         endpoint=None,
         api_key=None,
-        base_url=None,
+        base_url="http://127.0.0.1:8000/v1",
         api_version=None,
     )
 
     assert litellm_backend.template == DEFAULT_OCR_TEMPLATE
-    assert litellm_backend.template == hf_backend.template == vllm_backend.template
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
     assert litellm_backend.model_name == "example/model"
     assert hf_backend.model_name == "example/model"
-    assert vllm_backend.model_name == "example/model"
+    assert openai_backend.model_name == "example/model"
     assert f"<{DEFAULT_OCR_OUTPUT_TAG}>" in litellm_backend.template.system_message
     assert f"</{DEFAULT_OCR_OUTPUT_TAG}>" in litellm_backend.template.system_message
     assert f"<{DEFAULT_OCR_OUTPUT_TAG}>" in litellm_backend.template.user_prompt
@@ -150,20 +155,20 @@ def test_build_ocr_backend_aligns_templates_for_dots() -> None:
         base_url=None,
         api_version=None,
     )
-    vllm_backend = cli_module._build_ocr_backend(
-        backend="vllm",
+    openai_backend = cli_module._build_ocr_backend(
+        backend="openai-compatible",
         model="kristaller486/dots.ocr-1.5",
         endpoint=None,
         api_key=None,
-        base_url=None,
+        base_url="http://127.0.0.1:8000/v1",
         api_version=None,
     )
 
     assert litellm_backend.template == DOTS_OCR_1_5_OCR_TEMPLATE
-    assert litellm_backend.template == hf_backend.template == vllm_backend.template
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
     assert litellm_backend.model_name == "dots.ocr-1.5"
     assert hf_backend.model_name == "dots.ocr-1.5"
-    assert vllm_backend.model_name == "dots.ocr-1.5"
+    assert openai_backend.model_name == "dots.ocr-1.5"
 
 
 def test_build_ocr_backend_uses_generic_defaults_for_qwen_3_5_0_8b() -> None:
@@ -183,21 +188,57 @@ def test_build_ocr_backend_uses_generic_defaults_for_qwen_3_5_0_8b() -> None:
         base_url=None,
         api_version=None,
     )
-    vllm_backend = cli_module._build_ocr_backend(
-        backend="vllm",
+    openai_backend = cli_module._build_ocr_backend(
+        backend="openai-compatible",
         model="Qwen/Qwen3.5-0.8B",
+        endpoint=None,
+        api_key=None,
+        base_url="http://127.0.0.1:8000/v1",
+        api_version=None,
+    )
+
+    assert litellm_backend.template == DEFAULT_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "Qwen/Qwen3.5-0.8B"
+    assert hf_backend.model_name == "Qwen/Qwen3.5-0.8B"
+    assert openai_backend.model_name == "Qwen/Qwen3.5-0.8B"
+
+
+def test_build_ocr_backend_aligns_templates_for_olmocr() -> None:
+    litellm_backend = cli_module._build_ocr_backend(
+        backend="litellm",
+        model=OLMOCR_2_7B_1025_MODEL_ID,
         endpoint=None,
         api_key=None,
         base_url=None,
         api_version=None,
     )
+    hf_backend = cli_module._build_ocr_backend(
+        backend="hf",
+        model=OLMOCR_2_7B_1025_MODEL_ID,
+        endpoint=None,
+        api_key=None,
+        base_url=None,
+        api_version=None,
+    )
+    openai_backend = cli_module._build_ocr_backend(
+        backend="openai-compatible",
+        model=OLMOCR_2_7B_1025_MODEL_ID,
+        endpoint=None,
+        api_key=None,
+        base_url="http://127.0.0.1:8000/v1",
+        api_version=None,
+    )
 
-    assert litellm_backend.template == DEFAULT_OCR_TEMPLATE
-    assert litellm_backend.template == hf_backend.template == vllm_backend.template
-    assert litellm_backend.model_name == "Qwen/Qwen3.5-0.8B"
-    assert hf_backend.model_name == "Qwen/Qwen3.5-0.8B"
-    assert vllm_backend.model_name == "Qwen/Qwen3.5-0.8B"
-    assert vllm_backend.llm_kwargs == {}
+    assert litellm_backend.template == OLMOCR_2_7B_1025_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "olmOCR-2-7B-1025"
+    assert hf_backend.model_name == "olmOCR-2-7B-1025"
+    assert openai_backend.model_name == "olmOCR-2-7B-1025"
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_000,
+        "temperature": 0.1,
+    }
 
 
 def test_install_command_invokes_runtime_installer(

@@ -11,8 +11,7 @@ from PIL import Image
 from churro_ocr.providers.hf import HuggingFaceVisionOCRBackend
 from churro_ocr.providers.ocr import LiteLLMVisionOCRBackend
 from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
-from churro_ocr.providers.vllm import VLLMVisionOCRBackend
-from churro_ocr.templates import CHURRO_3B_XML_TEMPLATE
+from churro_ocr.templates import CHURRO_3B_XML_TEMPLATE, DOTS_OCR_1_5_OCR_TEMPLATE
 from tooling.benchmarking import benchmark
 from tooling.evaluation.types import BenchmarkDatasetExample
 
@@ -104,23 +103,14 @@ def test_validate_options_requires_model_for_hf() -> None:
     assert benchmark._validate_options(options) == 1
 
 
-def test_validate_options_requires_model_for_vllm() -> None:
+def test_validate_options_allows_openai_compatible_without_api_key() -> None:
     options = benchmark.BenchmarkOptions(
-        backend="vllm",
-        model=None,
+        backend="openai-compatible",
         dataset_split="dev",
+        model="local-model",
+        base_url="http://127.0.0.1:8000/v1",
     )
-    assert benchmark._validate_options(options) == 1
-
-
-def test_validate_options_rejects_invalid_vllm_gpu_memory_utilization() -> None:
-    options = benchmark.BenchmarkOptions(
-        backend="vllm",
-        model="Qwen/Qwen3.5-0.8B",
-        dataset_split="dev",
-        vllm_gpu_memory_utilization=1.5,
-    )
-    assert benchmark._validate_options(options) == 1
+    assert benchmark._validate_options(options) == 0
 
 
 def test_validate_options_rejects_invalid_split() -> None:
@@ -155,24 +145,18 @@ def test_parse_args_accepts_subset_filters() -> None:
     assert options.document_type == "print"
 
 
-def test_parse_args_accepts_vllm_resource_overrides() -> None:
-    options = benchmark.parse_args(
-        [
-            "--backend",
-            "vllm",
-            "--dataset-split",
-            "dev",
-            "--model",
-            "Qwen/Qwen3.5-0.8B",
-            "--vllm-gpu-memory-utilization",
-            "0.25",
-            "--vllm-cpu-offload-gb",
-            "8",
-        ]
-    )
-
-    assert options.vllm_gpu_memory_utilization == pytest.approx(0.25)
-    assert options.vllm_cpu_offload_gb == pytest.approx(8.0)
+def test_parse_args_rejects_removed_vllm_backend() -> None:
+    with pytest.raises(SystemExit):
+        benchmark.parse_args(
+            [
+                "--backend",
+                "vllm",
+                "--dataset-split",
+                "dev",
+                "--model",
+                "Qwen/Qwen3.5-0.8B",
+            ]
+        )
 
 
 def test_build_ocr_backend_enables_disk_cache_for_litellm(
@@ -198,6 +182,24 @@ def test_build_ocr_backend_enables_disk_cache_for_litellm(
     assert backend.transport.config.completion_kwargs == {"max_tokens": DEFAULT_OCR_MAX_TOKENS}
 
 
+def test_build_ocr_backend_allows_openai_compatible_without_api_key() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="local-model",
+                base_url="http://127.0.0.1:8000/v1",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.transport.config.api_base == "http://127.0.0.1:8000/v1"
+    assert backend.transport.config.api_key is None
+
+
 def test_build_ocr_backend_uses_dots_preset_for_hf() -> None:
     backend = cast(
         "HuggingFaceVisionOCRBackend",
@@ -214,38 +216,41 @@ def test_build_ocr_backend_uses_dots_preset_for_hf() -> None:
     assert backend.processor_kwargs == {}
     assert backend.trust_remote_code is True
     assert backend.model_kwargs["dtype"] in {"auto", "float32"}
-    if backend.model_kwargs["dtype"] == "auto":
+    if backend.model_kwargs["dtype"] == "auto" and "device_map" in backend.model_kwargs:
         assert backend.model_kwargs["device_map"] == "auto"
-        assert "max_memory" in backend.model_kwargs
+    if "max_memory" in backend.model_kwargs:
+        assert backend.model_kwargs["max_memory"]
     assert backend.generation_kwargs == {"max_new_tokens": DEFAULT_OCR_MAX_TOKENS}
 
 
-def test_build_ocr_backend_uses_dots_preset_for_vllm() -> None:
+def test_build_ocr_backend_uses_dots_preset_for_openai_compatible() -> None:
     backend = cast(
-        "VLLMVisionOCRBackend",
+        "LiteLLMVisionOCRBackend",
         benchmark._build_ocr_backend(
             benchmark.BenchmarkOptions(
-                backend="vllm",
+                backend="openai-compatible",
                 dataset_split="dev",
                 model="kristaller486/dots.ocr-1.5",
+                base_url="http://127.0.0.1:8000/v1",
             )
         ),
     )
 
+    assert backend.provider_name == "openai-compatible"
     assert backend.model_name == "dots.ocr-1.5"
-    assert backend.processor_kwargs == {}
-    assert backend.trust_remote_code is True
-    assert backend.sampling_kwargs == {"max_tokens": DEFAULT_OCR_MAX_TOKENS}
+    assert backend.template == DOTS_OCR_1_5_OCR_TEMPLATE
+    assert backend.transport.config.completion_kwargs == {"max_tokens": DEFAULT_OCR_MAX_TOKENS}
 
 
-def test_build_ocr_backend_uses_churro_preset_template_for_vllm() -> None:
+def test_build_ocr_backend_uses_churro_preset_template_for_openai_compatible() -> None:
     backend = cast(
-        "VLLMVisionOCRBackend",
+        "LiteLLMVisionOCRBackend",
         benchmark._build_ocr_backend(
             benchmark.BenchmarkOptions(
-                backend="vllm",
+                backend="openai-compatible",
                 dataset_split="dev",
                 model="stanford-oval/churro-3B",
+                base_url="http://127.0.0.1:8000/v1",
             )
         ),
     )
@@ -254,29 +259,24 @@ def test_build_ocr_backend_uses_churro_preset_template_for_vllm() -> None:
     assert backend.model_name == "churro-3B"
 
 
-def test_build_ocr_backend_uses_generic_qwen_model_name_for_vllm() -> None:
+def test_build_ocr_backend_uses_generic_qwen_model_name_for_openai_compatible() -> None:
     backend = cast(
-        "VLLMVisionOCRBackend",
+        "LiteLLMVisionOCRBackend",
         benchmark._build_ocr_backend(
             benchmark.BenchmarkOptions(
-                backend="vllm",
+                backend="openai-compatible",
                 dataset_split="dev",
                 model="Qwen/Qwen3.5-0.8B",
-                vllm_gpu_memory_utilization=0.25,
-                vllm_cpu_offload_gb=8.0,
+                base_url="http://127.0.0.1:8000/v1",
             )
         ),
     )
 
     assert backend.model_name == "Qwen/Qwen3.5-0.8B"
-    assert backend.llm_kwargs == {
-        "gpu_memory_utilization": 0.25,
-        "cpu_offload_gb": 8.0,
-    }
-    assert backend.sampling_kwargs == {"max_tokens": DEFAULT_OCR_MAX_TOKENS}
+    assert backend.transport.config.completion_kwargs == {"max_tokens": DEFAULT_OCR_MAX_TOKENS}
 
 
-def test_build_ocr_backend_aligns_hf_and_vllm_templates_for_generic_models() -> None:
+def test_build_ocr_backend_aligns_hf_and_openai_compatible_templates_for_generic_models() -> None:
     hf_backend = cast(
         "HuggingFaceVisionOCRBackend",
         benchmark._build_ocr_backend(
@@ -287,18 +287,19 @@ def test_build_ocr_backend_aligns_hf_and_vllm_templates_for_generic_models() -> 
             )
         ),
     )
-    vllm_backend = cast(
-        "VLLMVisionOCRBackend",
+    openai_backend = cast(
+        "LiteLLMVisionOCRBackend",
         benchmark._build_ocr_backend(
             benchmark.BenchmarkOptions(
-                backend="vllm",
+                backend="openai-compatible",
                 dataset_split="dev",
                 model="example/model",
+                base_url="http://127.0.0.1:8000/v1",
             )
         ),
     )
 
-    assert hf_backend.template == vllm_backend.template
+    assert hf_backend.template == openai_backend.template
 
 
 @pytest.mark.asyncio
@@ -676,43 +677,6 @@ async def test_predict_texts_logs_first_batch_output_once(monkeypatch) -> None:
     assert logged_messages == [
         "First benchmark OCR output for backend=hf model=kristaller486/dots.ocr-1.5:\npage-3"
     ]
-
-
-@pytest.mark.asyncio
-async def test_predict_texts_uses_max_concurrency_for_vllm_batch_backend(monkeypatch) -> None:
-    dataset = [
-        _benchmark_example(str(index), size=(index + 1, index + 1), transcription=f"text-{index}")
-        for index in range(10)
-    ]
-    captured_batch_sizes: list[int] = []
-
-    class FakeOCRResult:
-        def __init__(self, text: str) -> None:
-            self.text = text
-
-    class FakeBatchBackend:
-        async def ocr_batch(self, pages):  # noqa: ANN001
-            captured_batch_sizes.append(len(pages))
-            return [FakeOCRResult(text=f"page-{page.width}") for page in pages]
-
-    monkeypatch.setattr(benchmark, "_build_ocr_backend", lambda _: FakeBatchBackend())
-
-    options = benchmark.BenchmarkOptions(
-        backend="vllm",
-        dataset_split="dev",
-        model="Qwen/Qwen3.5-0.8B",
-        max_concurrency=2,
-    )
-
-    evaluation_examples, predictions = await benchmark._predict_texts(
-        dataset,
-        options,
-        total_pages=10,
-    )
-
-    assert captured_batch_sizes == [2, 2, 2, 2, 2]
-    assert predictions == [f"page-{index + 1}" for index in range(10)]
-    assert evaluation_examples == [benchmark._build_evaluation_example(example) for example in dataset]
 
 
 @pytest.mark.asyncio

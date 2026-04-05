@@ -24,7 +24,6 @@ if TYPE_CHECKING:
         OCRBackendSpec,
         OCRModelProfile,
         OpenAICompatibleOptions,
-        VLLMOptions,
         resolve_ocr_profile,
     )
 
@@ -53,7 +52,6 @@ _LAZY_EXPORTS = {
     "OCRModelProfile": ("churro_ocr.providers.specs", "OCRModelProfile"),
     "OpenAICompatibleOptions": ("churro_ocr.providers.specs", "OpenAICompatibleOptions"),
     "resolve_ocr_profile": ("churro_ocr.providers.specs", "resolve_ocr_profile"),
-    "VLLMOptions": ("churro_ocr.providers.specs", "VLLMOptions"),
 }
 
 __all__ = [
@@ -72,7 +70,6 @@ __all__ = [
     "OCRModelProfile",
     "OpenAICompatibleOptions",
     "resolve_ocr_profile",
-    "VLLMOptions",
 ]
 
 
