@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from PIL import Image, ImageDraw, ImageOps
 
+from churro_ocr._internal.install import install_command_hint
 from churro_ocr._internal.litellm import LiteLLMTransport
 from churro_ocr._internal.logging import logger
 from churro_ocr._internal.runtime import run_sync
@@ -1202,8 +1203,7 @@ class AzurePageDetector(PageDetectionBackend):
             from azure.core.credentials import AzureKeyCredential
         except ImportError as exc:  # pragma: no cover - optional extra path
             raise ConfigurationError(
-                "Azure page detection requires the 'azure' extra. "
-                'Install with `pip install "churro-ocr[azure]"`.'
+                f"Azure page detection requires the `azure` runtime. {install_command_hint('azure')}"
             ) from exc
 
         buffer = BytesIO()

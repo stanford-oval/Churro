@@ -4,12 +4,14 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
 
 import churro_ocr.cli as cli_module
 from churro_ocr.cli import app
+from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRResult
 from churro_ocr.page_detection import DocumentPage, PageDetectionResult
 from churro_ocr.prompts import DEFAULT_OCR_OUTPUT_TAG
@@ -198,6 +200,105 @@ def test_build_ocr_backend_uses_generic_defaults_for_qwen_3_5_0_8b() -> None:
     assert vllm_backend.llm_kwargs == {}
 
 
+def test_install_command_invokes_runtime_installer(
+    monkeypatch: pytest.MonkeyPatch,
+    cli_runner,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_install_runtime_dependencies(**kwargs: object) -> SimpleNamespace:
+        captured.update(kwargs)
+        return SimpleNamespace(
+            target="vllm",
+            notes=("runtime ready",),
+            vllm_runtime_dir=tmp_path / "vllm-runtime",
+        )
+
+    monkeypatch.setattr(
+        "churro_ocr.cli.install_runtime_dependencies",
+        _fake_install_runtime_dependencies,
+    )
+
+    result = cli_runner.invoke(
+        app,
+        [
+            "install",
+            "vllm",
+            "--torch-backend",
+            "cu126",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured == {
+        "target": "vllm",
+        "torch_backend": "cu126",
+        "vllm_runtime_dir": None,
+    }
+    assert "Installed runtime target: vllm" in result.output
+    assert "runtime ready" in result.output
+
+
+def test_install_command_surfaces_configuration_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    cli_runner,
+) -> None:
+    def _raise_configuration_error(**_: object) -> SimpleNamespace:
+        raise ConfigurationError("missing uv")
+
+    monkeypatch.setattr(
+        "churro_ocr.cli.install_runtime_dependencies",
+        _raise_configuration_error,
+    )
+
+    result = cli_runner.invoke(app, ["install", "hf"])
+
+    assert result.exit_code == 1
+    assert "missing uv" in result.output
+
+
+def test_serve_vllm_command_forwards_extra_args(
+    monkeypatch: pytest.MonkeyPatch,
+    cli_runner,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_serve_vllm_runtime(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(
+        "churro_ocr.cli.serve_vllm_runtime",
+        _fake_serve_vllm_runtime,
+    )
+
+    result = cli_runner.invoke(
+        app,
+        [
+            "serve-vllm",
+            "--model",
+            "stanford-oval/churro-3B",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "9000",
+            "--tensor-parallel-size",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured == {
+        "model": "stanford-oval/churro-3B",
+        "host": "0.0.0.0",
+        "port": 9000,
+        "runtime_dir": None,
+        "extra_args": ("--tensor-parallel-size", "2"),
+    }
+
+
 def test_module_entrypoint_help() -> None:
     result = subprocess.run(
         [sys.executable, "-m", "churro_ocr", "--help"],
@@ -209,6 +310,8 @@ def test_module_entrypoint_help() -> None:
     assert result.returncode == 0
     assert "transcribe" in result.stdout
     assert "extract-pages" in result.stdout
+    assert "install" in result.stdout
+    assert "serve-vllm" in result.stdout
 
 
 def test_console_script_help() -> None:
@@ -225,3 +328,5 @@ def test_console_script_help() -> None:
     assert result.returncode == 0
     assert "transcribe" in result.stdout
     assert "extract-pages" in result.stdout
+    assert "install" in result.stdout
+    assert "serve-vllm" in result.stdout

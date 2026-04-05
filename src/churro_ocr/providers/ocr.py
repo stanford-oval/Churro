@@ -10,6 +10,7 @@ from threading import Lock
 from typing import Any
 
 from churro_ocr._internal.image import image_to_base64
+from churro_ocr._internal.install import install_command_hint
 from churro_ocr._internal.litellm import LiteLLMTransport
 from churro_ocr._internal.prompt_logging import log_prompt_payload_once
 from churro_ocr.errors import ConfigurationError, ProviderError
@@ -183,7 +184,7 @@ class AzureDocumentIntelligenceOCRBackend(OCRBackend):
                 from azure.core.credentials import AzureKeyCredential
             except ImportError as exc:  # pragma: no cover - optional extra path
                 raise ConfigurationError(
-                    "Azure OCR requires the 'azure' extra. Install with `pip install \"churro-ocr[azure]\"`."
+                    f"Azure OCR requires the `azure` runtime. {install_command_hint('azure')}"
                 ) from exc
 
             client = DocumentIntelligenceClient(
@@ -269,8 +270,7 @@ class MistralOCRBackend(OCRBackend):
                 from mistralai import Mistral
             except ImportError as exc:  # pragma: no cover - optional extra path
                 raise ConfigurationError(
-                    "Mistral OCR requires the 'mistral' extra. "
-                    'Install with `pip install "churro-ocr[mistral]"`.'
+                    f"Mistral OCR requires the `mistral` runtime. {install_command_hint('mistral')}"
                 ) from exc
 
             client = Mistral(api_key=self.api_key)

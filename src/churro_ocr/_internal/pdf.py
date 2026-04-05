@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from churro_ocr._internal.install import install_command_hint
 from churro_ocr.errors import ConfigurationError
 
 
@@ -15,7 +16,7 @@ def rasterize_pdf(path: str | Path, *, dpi: int = 300) -> list[Image.Image]:
         import pypdfium2
     except ImportError as exc:  # pragma: no cover - depends on optional extra
         raise ConfigurationError(
-            "PDF support requires the 'pdf' extra. Install with `pip install \"churro-ocr[pdf]\"`."
+            f"PDF support requires the `pdf` runtime. {install_command_hint('pdf')}"
         ) from exc
 
     resolved = Path(path)

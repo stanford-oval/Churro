@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import threading
 from dataclasses import dataclass, field
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
+from churro_ocr._internal.install import install_command_hint
 from churro_ocr._internal.prompt_logging import log_prompt_payload_once
 from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRBackend, OCRResult
@@ -35,6 +37,11 @@ from churro_ocr.templates import (
     OCRPromptTemplateLike,
 )
 
+_HF_EXTRA_INSTALL_HINT = install_command_hint("hf")
+_HF_TORCH_INSTALL_HINT = (
+    f"Hugging Face OCR requires a separately installed PyTorch runtime. {_HF_EXTRA_INSTALL_HINT}"
+)
+
 
 @dataclass(slots=True)
 class _HFRuntime:
@@ -43,13 +50,21 @@ class _HFRuntime:
     process_vision_info: Any
 
 
+def _ensure_hf_torch_runtime() -> None:
+    try:
+        import_module("torch")
+    except ImportError as exc:  # pragma: no cover - optional extra path
+        raise ConfigurationError(_HF_TORCH_INSTALL_HINT) from exc
+
+
 def _load_hf_runtime() -> _HFRuntime:
+    _ensure_hf_torch_runtime()
     try:
         from qwen_vl_utils import process_vision_info
         from transformers import AutoModelForImageTextToText, AutoProcessor
     except ImportError as exc:  # pragma: no cover - optional extra path
         raise ConfigurationError(
-            "Hugging Face OCR requires the 'hf' extra. Install with `pip install \"churro-ocr[hf]\"`."
+            f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
         ) from exc
 
     return _HFRuntime(
@@ -60,12 +75,13 @@ def _load_hf_runtime() -> _HFRuntime:
 
 
 def _load_hf_causal_runtime() -> _HFRuntime:
+    _ensure_hf_torch_runtime()
     try:
         from qwen_vl_utils import process_vision_info
         from transformers import AutoModelForCausalLM, AutoProcessor
     except ImportError as exc:  # pragma: no cover - optional extra path
         raise ConfigurationError(
-            "Hugging Face OCR requires the 'hf' extra. Install with `pip install \"churro-ocr[hf]\"`."
+            f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
         ) from exc
 
     return _HFRuntime(
@@ -129,7 +145,7 @@ def _prepare_dots_ocr_model_dir(model_id: str) -> str:
         from huggingface_hub import snapshot_download
     except ImportError as exc:  # pragma: no cover - transitively provided by transformers
         raise ConfigurationError(
-            'Hugging Face OCR requires huggingface_hub. Install with `pip install "churro-ocr[hf]"`.'
+            f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
         ) from exc
 
     model_dir = (
@@ -148,8 +164,8 @@ def _prepare_dots_ocr_model_dir(model_id: str) -> str:
 def _default_dots_ocr_1_5_model_kwargs() -> dict[str, object]:
     model_kwargs: dict[str, object] = {"dtype": "auto"}
     try:
-        import torch
-    except ImportError:  # pragma: no cover - torch comes from the hf extra
+        torch = import_module("torch")
+    except ImportError:  # pragma: no cover - torch is installed separately for local HF use
         return model_kwargs
 
     if not torch.cuda.is_available():

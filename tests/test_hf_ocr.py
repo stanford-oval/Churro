@@ -518,6 +518,7 @@ def test_hf_runtime_loaders_use_installed_modules(
     cast(Any, transformers_module).AutoModelForImageTextToText = image_text_model_cls
     cast(Any, transformers_module).AutoModelForCausalLM = causal_model_cls
 
+    monkeypatch.setitem(sys.modules, "torch", ModuleType("torch"))
     monkeypatch.setitem(sys.modules, "qwen_vl_utils", qwen_module)
     monkeypatch.setitem(sys.modules, "transformers", transformers_module)
 

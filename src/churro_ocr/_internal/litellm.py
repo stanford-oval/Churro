@@ -12,6 +12,7 @@ from typing import Any, cast
 from PIL import Image
 
 from churro_ocr._internal.image import image_to_base64
+from churro_ocr._internal.install import install_command_hint
 from churro_ocr.errors import ConfigurationError, ProviderError
 from churro_ocr.providers.specs import LiteLLMTransportConfig
 from churro_ocr.templates import OCRConversation
@@ -28,8 +29,7 @@ def _ensure_initialized() -> None:
         import litellm
     except ImportError as exc:  # pragma: no cover - optional extra path
         raise ConfigurationError(
-            "LiteLLM-backed providers require the 'llm' extra. "
-            'Install with `pip install "churro-ocr[llm]"`.'
+            f"LiteLLM-backed providers require the `llm` runtime. {install_command_hint('llm')}"
         ) from exc
 
     litellm_any = cast(Any, litellm)

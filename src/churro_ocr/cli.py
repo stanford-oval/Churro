@@ -6,6 +6,12 @@ from pathlib import Path
 
 import typer
 
+from churro_ocr._internal.install import (
+    INSTALL_TARGETS,
+    install_runtime_dependencies,
+    serve_vllm_runtime,
+)
+from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRClient
 from churro_ocr.page_detection import DocumentPage, DocumentPageDetector, PageDetectionRequest
 from churro_ocr.providers import (
@@ -22,6 +28,8 @@ from churro_ocr.providers import (
 )
 
 app = typer.Typer(help="churro-ocr library-first CLI")
+
+_INSTALL_TARGET_METAVAR = "{" + "|".join(INSTALL_TARGETS) + "}"
 
 
 def _build_ocr_backend(
@@ -228,6 +236,69 @@ def extract_pages_command(
         output_path = output_dir / f"page_{page.page_index:04d}.png"
         page.image.save(output_path)
         typer.echo(str(output_path))
+
+
+@app.command("install")
+def install_command(
+    target: str = typer.Argument(
+        ...,
+        metavar=_INSTALL_TARGET_METAVAR,
+        help="Runtime target to install into the active environment with uv.",
+    ),
+    torch_backend: str = typer.Option(
+        "auto",
+        help="PyTorch backend passed through to uv when a local runtime needs torch.",
+    ),
+    vllm_runtime_dir: Path | None = typer.Option(
+        None,
+        help="Override the dedicated vLLM runtime directory for `install vllm`.",
+    ),
+) -> None:
+    """Install optional runtime dependencies with uv."""
+    try:
+        result = install_runtime_dependencies(
+            target=target,
+            torch_backend=torch_backend,
+            vllm_runtime_dir=vllm_runtime_dir,
+        )
+    except ConfigurationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Installed runtime target: {result.target}")
+    if result.vllm_runtime_dir is not None:
+        typer.echo(f"Dedicated vLLM runtime: {result.vllm_runtime_dir}")
+    for note in result.notes:
+        typer.echo(note)
+
+
+@app.command(
+    "serve-vllm",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def serve_vllm_command(
+    ctx: typer.Context,
+    model: str = typer.Option(..., help="Model identifier to serve from the dedicated vLLM runtime."),
+    host: str = typer.Option("127.0.0.1", help="Bind address passed to `vllm serve`."),
+    port: int = typer.Option(8000, help="Port passed to `vllm serve`."),
+    vllm_runtime_dir: Path | None = typer.Option(
+        None,
+        help="Override the dedicated vLLM runtime directory.",
+    ),
+) -> None:
+    """Start the dedicated vLLM runtime managed by `churro-ocr install vllm`."""
+    try:
+        exit_code = serve_vllm_runtime(
+            model=model,
+            host=host,
+            port=port,
+            runtime_dir=vllm_runtime_dir,
+            extra_args=tuple(ctx.args),
+        )
+    except ConfigurationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    raise typer.Exit(code=exit_code)
 
 
 def main() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 from base64 import b64encode
 from threading import Lock
@@ -351,20 +352,41 @@ def test_log_prompt_payload_once_sanitizes_nested_payloads(monkeypatch: pytest.M
 
 
 @pytest.mark.parametrize(
-    ("loader", "dependency_name"),
+    ("loader", "dependency_name", "message"),
     [
-        (_load_vllm_processor_cls, "transformers"),
-        (_load_vllm_runtime, "vllm"),
-        (_load_hf_runtime, "qwen_vl_utils"),
-        (_load_hf_causal_runtime, "qwen_vl_utils"),
+        (_load_vllm_processor_cls, "transformers", None),
+        (_load_vllm_runtime, "vllm", None),
+        (_load_hf_runtime, "torch", "PyTorch runtime"),
+        (_load_hf_runtime, "qwen_vl_utils", "install hf"),
+        (_load_hf_causal_runtime, "torch", "PyTorch runtime"),
+        (_load_hf_causal_runtime, "qwen_vl_utils", "install hf"),
     ],
 )
 def test_optional_dependency_loaders_raise_configuration_error(
     loader: Any,
     dependency_name: str,
+    message: str | None,
     patch_import_failure,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    patch_import_failure(failing_name=dependency_name)
+    if dependency_name == "torch":
 
-    with pytest.raises(ConfigurationError):
+        def _fake_import_module(name: str) -> object:
+            if name == "torch":
+                raise ImportError("missing torch")
+            return __import__(name)
+
+        monkeypatch.setattr("churro_ocr.providers.hf.import_module", _fake_import_module)
+    elif dependency_name == "qwen_vl_utils":
+        monkeypatch.setitem(sys.modules, "torch", ModuleType("torch"))
+        patch_import_failure(failing_name=dependency_name)
+    else:
+        patch_import_failure(failing_name=dependency_name)
+
+    if message is None:
+        with pytest.raises(ConfigurationError):
+            loader()
+        return
+
+    with pytest.raises(ConfigurationError, match=re.escape(message)):
         loader()
