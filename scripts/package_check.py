@@ -125,17 +125,44 @@ def _assert_metadata(metadata_message: Message, entry_points_text: str) -> None:
     if provides_extra != EXPECTED_EXTRAS:
         raise RuntimeError(f"Unexpected extras set: {sorted(provides_extra)!r}.")
 
-    requires_dist = metadata_message.get_all("Requires-Dist", [])
-    if not any(
-        requirement.startswith("vllm") and 'extra == "all"' in requirement for requirement in requires_dist
-    ):
-        raise RuntimeError("The all extra does not include vllm.")
+    _assert_local_runtime_packaging_policy(metadata_message)
 
     if (
         "[console_scripts]" not in entry_points_text
         or "churro-ocr = churro_ocr.cli:main" not in entry_points_text
     ):
         raise RuntimeError("Console script entry point is missing or incorrect.")
+
+
+def _iter_requirements_for_extra(metadata_message: Message, extra: str) -> list[Requirement]:
+    requirements: list[Requirement] = []
+    for requirement_text in metadata_message.get_all("Requires-Dist", []):
+        parsed = Requirement(requirement_text)
+        marker_text = str(parsed.marker) if parsed.marker is not None else ""
+        if f'extra == "{extra}"' in marker_text:
+            requirements.append(parsed)
+    return requirements
+
+
+def _assert_local_runtime_packaging_policy(metadata_message: Message) -> None:
+    disallowed_runtime_reqs: list[str] = []
+    for extra in ("hf", "all"):
+        for requirement in _iter_requirements_for_extra(metadata_message, extra):
+            normalized_name = requirement.name.replace("_", "-").lower()
+            if extra == "all" and normalized_name == "vllm":
+                disallowed_runtime_reqs.append(f"{extra}:{requirement}")
+                continue
+            if normalized_name in {"torch", "torchvision"}:
+                disallowed_runtime_reqs.append(f"{extra}:{requirement}")
+                continue
+            if normalized_name == "transformers" and "torch" in requirement.extras:
+                disallowed_runtime_reqs.append(f"{extra}:{requirement}")
+    if disallowed_runtime_reqs:
+        formatted = ", ".join(sorted(disallowed_runtime_reqs))
+        raise RuntimeError(
+            "PyPI extras for active-environment runtimes must not pin a local PyTorch or vLLM runtime. "
+            f"Found disallowed requirements: {formatted}."
+        )
 
 
 def _assert_runtime_only_artifacts(wheel: Path, sdist: Path) -> None:

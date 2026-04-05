@@ -43,3 +43,20 @@ def test_license_audit_fails_for_missing_base_dependency(monkeypatch: pytest.Mon
 
     with pytest.raises(RuntimeError, match="pillow \\(not installed in the Pixi audit environment\\)"):
         package_check._audit_dependency_licenses(_metadata_message("Pillow<12,>=10.4.0"))
+
+
+def test_local_runtime_packaging_policy_rejects_direct_torch_runtime_pin() -> None:
+    metadata_message = _metadata_message(
+        'transformers[torch]<5,>=4.57.0; extra == "hf"',
+        'torchvision; extra == "all"',
+    )
+
+    with pytest.raises(RuntimeError, match="must not pin a local PyTorch or vLLM runtime"):
+        package_check._assert_local_runtime_packaging_policy(metadata_message)
+
+
+def test_local_runtime_packaging_policy_rejects_vllm_in_all_extra() -> None:
+    metadata_message = _metadata_message('vllm<1,>=0.18; extra == "all"')
+
+    with pytest.raises(RuntimeError, match="must not pin a local PyTorch or vLLM runtime"):
+        package_check._assert_local_runtime_packaging_policy(metadata_message)
