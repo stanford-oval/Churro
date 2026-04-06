@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import cast
 
 from tooling.evaluation import metrics
-from tooling.evaluation.types import EvaluationExample, PageEvaluationResult
+from tooling.evaluation.types import BenchmarkPrediction, EvaluationExample, PageEvaluationResult
 
 
 def test_calculate_language_and_type_metrics_handles_missing_categories() -> None:
@@ -55,7 +55,7 @@ def test_compute_metrics_writes_expected_outputs(
             "document_type": "print",
         },
     ]
-    predicted_texts = [""]
+    predictions: list[BenchmarkPrediction] = [{"text": "", "metadata": {"raw_html": "<p></p>"}}]
 
     def fake_batch_evaluate(ds, preds):  # noqa: ANN001
         assert ds == dataset
@@ -81,7 +81,7 @@ def test_compute_metrics_writes_expected_outputs(
     output_prefix = tmp_path / "results"
     combined = metrics.compute_metrics(
         dataset=dataset,
-        predicted_texts=predicted_texts,
+        predictions=predictions,
         output_prefix=output_prefix,
         elapsed_time=4.567,
     )
@@ -90,6 +90,7 @@ def test_compute_metrics_writes_expected_outputs(
     assert outputs == [
         {
             "example_id": "file1",
+            "metadata": {"raw_html": "<p></p>"},
             "main_language": "english",
             "document_type": "print",
             "normalized_levenshtein_similarity": 0.9,

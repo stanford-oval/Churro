@@ -41,7 +41,12 @@ from tooling.benchmarking.dataset import (
     load_dataset_split,
 )
 from tooling.evaluation.metrics import compute_metrics
-from tooling.evaluation.types import BenchmarkDatasetExample, EvaluationExample, to_evaluation_example
+from tooling.evaluation.types import (
+    BenchmarkDatasetExample,
+    BenchmarkPrediction,
+    EvaluationExample,
+    to_evaluation_example,
+)
 
 CHURRO_DATASET_ID = "stanford-oval/churro-dataset"
 VALID_DATASET_SPLITS = {"dev", "test"}
@@ -284,14 +289,14 @@ async def _predict_texts(
     options: BenchmarkOptions,
     *,
     total_pages: int | None = None,
-) -> tuple[list[EvaluationExample], list[str]]:
+) -> tuple[list[EvaluationExample], list[BenchmarkPrediction]]:
     ocr_backend = _build_ocr_backend(options)
     max_in_flight = max(1, options.max_concurrency)
     has_logged_first_output = False
     if isinstance(ocr_backend, BatchOCRBackend):
         dataset_iterator = iter(dataset)
         evaluation_examples: list[EvaluationExample] = []
-        predicted_texts: list[str] = []
+        predictions: list[BenchmarkPrediction] = []
         submitted_pages = 0
 
         with tqdm(total=total_pages, desc="OCR", unit="page") as progress:
@@ -324,25 +329,34 @@ async def _predict_texts(
                         text=batch_results[0].text or "",
                     )
                     has_logged_first_output = True
-                predicted_texts.extend((result.text or "") for result in batch_results)
+                predictions.extend(
+                    {
+                        "text": result.text or "",
+                        "metadata": dict(result.metadata),
+                    }
+                    for result in batch_results
+                )
                 progress.update(len(batch_results))
                 progress.set_postfix(submitted=submitted_pages, in_flight=0, refresh=False)
 
-        return evaluation_examples, predicted_texts
+        return evaluation_examples, predictions
 
-    async def _predict(index: int, image: Image.Image) -> tuple[int, str]:
+    async def _predict(index: int, image: Image.Image) -> tuple[int, BenchmarkPrediction]:
         page = DocumentPage(page_index=index, source_index=0, image=image)
         if callable(ocr_backend) and not isinstance(ocr_backend, OCRBackend):
             result = await ocr_backend(page)
         else:
             assert isinstance(ocr_backend, OCRBackend)
             result = await ocr_backend.ocr(page)
-        return index, (result.text or "")
+        return index, {
+            "text": result.text or "",
+            "metadata": dict(result.metadata),
+        }
 
     dataset_iterator = iter(dataset)
     evaluation_examples: list[EvaluationExample] = []
-    pending_tasks: set[asyncio.Task[tuple[int, str]]] = set()
-    predicted_texts: list[str] = []
+    pending_tasks: set[asyncio.Task[tuple[int, BenchmarkPrediction]]] = set()
+    predictions: list[BenchmarkPrediction] = []
     next_index = 0
     wait_poll_seconds = 1.0
 
@@ -378,7 +392,7 @@ async def _predict_texts(
                     image = example["image"]
                     assert isinstance(image, Image.Image)
                     evaluation_examples.append(_build_evaluation_example(example))
-                    predicted_texts.append("")
+                    predictions.append({"text": "", "metadata": {}})
                     pending_tasks.add(asyncio.create_task(_predict(next_index, image)))
                     next_index += 1
                     _update_progress_status(progress)
@@ -391,10 +405,10 @@ async def _predict_texts(
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 for task in done_tasks:
-                    index, text = await task
-                    predicted_texts[index] = text
+                    index, prediction = await task
+                    predictions[index] = prediction
                     if not has_logged_first_output and index == 0:
-                        _log_first_benchmark_output(options=options, text=text)
+                        _log_first_benchmark_output(options=options, text=prediction["text"])
                         has_logged_first_output = True
                     progress.update(1)
                 _update_progress_status(progress)
@@ -408,7 +422,7 @@ async def _predict_texts(
             heartbeat_thread.join(timeout=wait_poll_seconds * 2)
             _update_progress_status(progress, force_refresh=True)
 
-    return evaluation_examples, predicted_texts
+    return evaluation_examples, predictions
 
 
 async def run(options: BenchmarkOptions) -> int:
@@ -425,17 +439,17 @@ async def run(options: BenchmarkOptions) -> int:
 
     output_prefix = create_output_prefix(options)
     start_time = time()
-    evaluation_examples, predicted_texts = await _predict_texts(
+    evaluation_examples, predictions = await _predict_texts(
         dataset,
         options,
         total_pages=total_pages,
     )
     elapsed_time = time() - start_time
 
-    assert len(evaluation_examples) == len(predicted_texts), (
-        f"Mismatch in dataset size ({len(evaluation_examples)}) and predictions ({len(predicted_texts)})."
+    assert len(evaluation_examples) == len(predictions), (
+        f"Mismatch in dataset size ({len(evaluation_examples)}) and predictions ({len(predictions)})."
     )
-    compute_metrics(evaluation_examples, predicted_texts, output_prefix, elapsed_time)
+    compute_metrics(evaluation_examples, predictions, output_prefix, elapsed_time)
     return 0
 
 

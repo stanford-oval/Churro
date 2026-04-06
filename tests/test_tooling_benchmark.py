@@ -8,6 +8,7 @@ import pytest
 from datasets import Dataset
 from PIL import Image
 
+from churro_ocr.ocr import OCRResult
 from churro_ocr.providers.hf import HuggingFaceVisionOCRBackend
 from churro_ocr.providers.ocr import LiteLLMVisionOCRBackend
 from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
@@ -360,7 +361,9 @@ async def test_run_executes_pipeline(monkeypatch, tmp_path: Path) -> None:
         assert selected[0]["example_id"] == "1"
         assert options.max_concurrency == 2
         assert total_pages is None
-        return [benchmark._build_evaluation_example(selected[0])], ["prediction"]
+        return [
+            benchmark._build_evaluation_example(selected[0])
+        ], [{"text": "prediction", "metadata": {"raw_html": "<p>prediction</p>"}}]
 
     monkeypatch.setattr(benchmark, "_predict_texts", fake_predict)
 
@@ -392,7 +395,7 @@ async def test_run_executes_pipeline(monkeypatch, tmp_path: Path) -> None:
 
     assert result == 0
     assert captured["dataset"] == [benchmark._build_evaluation_example(dataset[1])]
-    assert captured["predictions"] == ["prediction"]
+    assert captured["predictions"] == [{"text": "prediction", "metadata": {"raw_html": "<p>prediction</p>"}}]
     assert captured["output_prefix"] == str(tmp_path / "outputs")
     assert captured["elapsed_time"] == pytest.approx(3.5)
 
@@ -569,14 +572,15 @@ async def test_predict_texts_updates_progress_and_preserves_order(monkeypatch) -
         progress_bars.append(progress_bar)
         return progress_bar
 
-    class FakeOCRResult:
-        def __init__(self, text: str) -> None:
-            self.text = text
-
     class FakeOCRBackend:
         async def ocr(self, page):  # noqa: ANN001
             await asyncio.sleep(page.width / 1000)
-            return FakeOCRResult(text=f"page-{page.width}")
+            return OCRResult(
+                text=f"page-{page.width}",
+                provider_name="fake",
+                model_name="fake-model",
+                metadata={"page_width": page.width},
+            )
 
     monkeypatch.setattr(benchmark, "tqdm", fake_tqdm)
     monkeypatch.setattr(benchmark, "_build_ocr_backend", lambda _: FakeOCRBackend())
@@ -595,7 +599,11 @@ async def test_predict_texts_updates_progress_and_preserves_order(monkeypatch) -
         total_pages=3,
     )
 
-    assert predictions == ["page-3", "page-1", "page-2"]
+    assert predictions == [
+        {"text": "page-3", "metadata": {"page_width": 3}},
+        {"text": "page-1", "metadata": {"page_width": 1}},
+        {"text": "page-2", "metadata": {"page_width": 2}},
+    ]
     assert evaluation_examples == [benchmark._build_evaluation_example(example) for example in dataset]
     assert len(progress_bars) == 1
     assert progress_bars[0].total == 3
@@ -633,14 +641,18 @@ async def test_predict_texts_uses_batch_backend_with_max_concurrency_as_batch_si
     ]
     captured_batch_sizes: list[int] = []
 
-    class FakeOCRResult:
-        def __init__(self, text: str) -> None:
-            self.text = text
-
     class FakeBatchBackend:
         async def ocr_batch(self, pages):  # noqa: ANN001
             captured_batch_sizes.append(len(pages))
-            return [FakeOCRResult(text=f"page-{page.width}") for page in pages]
+            return [
+                OCRResult(
+                    text=f"page-{page.width}",
+                    provider_name="fake",
+                    model_name="fake-model",
+                    metadata={"page_width": page.width},
+                )
+                for page in pages
+            ]
 
     monkeypatch.setattr(benchmark, "_build_ocr_backend", lambda _: FakeBatchBackend())
 
@@ -658,7 +670,11 @@ async def test_predict_texts_uses_batch_backend_with_max_concurrency_as_batch_si
     )
 
     assert captured_batch_sizes == [2, 1]
-    assert predictions == ["page-3", "page-1", "page-2"]
+    assert predictions == [
+        {"text": "page-3", "metadata": {"page_width": 3}},
+        {"text": "page-1", "metadata": {"page_width": 1}},
+        {"text": "page-2", "metadata": {"page_width": 2}},
+    ]
     assert evaluation_examples == [benchmark._build_evaluation_example(example) for example in dataset]
 
 
@@ -674,13 +690,17 @@ async def test_predict_texts_logs_first_batch_output_once(monkeypatch) -> None:
         def info(self, message: str, *args: object) -> None:
             logged_messages.append(message % args if args else message)
 
-    class FakeOCRResult:
-        def __init__(self, text: str) -> None:
-            self.text = text
-
     class FakeBatchBackend:
         async def ocr_batch(self, pages):  # noqa: ANN001
-            return [FakeOCRResult(text=f"page-{page.width}") for page in pages]
+            return [
+                OCRResult(
+                    text=f"page-{page.width}",
+                    provider_name="fake",
+                    model_name="fake-model",
+                    metadata={"page_width": page.width},
+                )
+                for page in pages
+            ]
 
     monkeypatch.setattr(benchmark, "logger", FakeLogger())
     monkeypatch.setattr(benchmark, "_build_ocr_backend", lambda _: FakeBatchBackend())
@@ -698,7 +718,10 @@ async def test_predict_texts_logs_first_batch_output_once(monkeypatch) -> None:
         total_pages=2,
     )
 
-    assert predictions == ["page-3", "page-1"]
+    assert predictions == [
+        {"text": "page-3", "metadata": {"page_width": 3}},
+        {"text": "page-1", "metadata": {"page_width": 1}},
+    ]
     assert logged_messages == [
         "First benchmark OCR output for backend=hf model=kristaller486/dots.ocr-1.5:\npage-3"
     ]
@@ -717,14 +740,15 @@ async def test_predict_texts_logs_first_submitted_output_once_for_non_batch_back
         def info(self, message: str, *args: object) -> None:
             logged_messages.append(message % args if args else message)
 
-    class FakeOCRResult:
-        def __init__(self, text: str) -> None:
-            self.text = text
-
     class FakeOCRBackend:
         async def ocr(self, page):  # noqa: ANN001
             await asyncio.sleep(page.width / 1000)
-            return FakeOCRResult(text=f"page-{page.width}")
+            return OCRResult(
+                text=f"page-{page.width}",
+                provider_name="fake",
+                model_name="fake-model",
+                metadata={"page_width": page.width},
+            )
 
     monkeypatch.setattr(benchmark, "logger", FakeLogger())
     monkeypatch.setattr(benchmark, "_build_ocr_backend", lambda _: FakeOCRBackend())
@@ -743,5 +767,9 @@ async def test_predict_texts_logs_first_submitted_output_once_for_non_batch_back
         total_pages=3,
     )
 
-    assert predictions == ["page-3", "page-1", "page-2"]
+    assert predictions == [
+        {"text": "page-3", "metadata": {"page_width": 3}},
+        {"text": "page-1", "metadata": {"page_width": 1}},
+        {"text": "page-2", "metadata": {"page_width": 2}},
+    ]
     assert logged_messages == ["First benchmark OCR output for backend=azure model=<default>:\npage-3"]

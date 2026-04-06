@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Sequence
 import json
 from pathlib import Path
 from typing import Any
 
 from churro_ocr._internal.logging import logger
 from tooling.evaluation.evaluate_page import batch_evaluate
-from tooling.evaluation.types import EvaluationExample, PageEvaluationResult
+from tooling.evaluation.types import (
+    BenchmarkOutputRow,
+    BenchmarkPrediction,
+    EvaluationExample,
+    PageEvaluationResult,
+)
 
 
 def _get_llm_total_cost() -> float:
@@ -39,7 +45,7 @@ def to_rounded_percentage(metrics: dict[str, Any]) -> dict[str, Any]:
 
 
 def calculate_language_and_type_metrics(
-    outputs: list[PageEvaluationResult],
+    outputs: Sequence[PageEvaluationResult],
     main_metric: str = "normalized_levenshtein_similarity",
 ) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
     """Compute averages grouped by language, document type, and both."""
@@ -70,28 +76,49 @@ def calculate_language_and_type_metrics(
     return averaged_language, averaged_type, averaged_language_type
 
 
+def _normalize_prediction(prediction: str | BenchmarkPrediction) -> BenchmarkPrediction:
+    """Coerce legacy string predictions into the structured benchmark format."""
+    if isinstance(prediction, str):
+        return {"text": prediction, "metadata": {}}
+    return {
+        "text": str(prediction["text"]),
+        "metadata": dict(prediction["metadata"]),
+    }
+
+
 def _build_output_rows(
-    dataset: list[EvaluationExample],
-    per_example_outputs: list[PageEvaluationResult],
-) -> list[PageEvaluationResult]:
+    dataset: Sequence[EvaluationExample],
+    per_example_outputs: Sequence[PageEvaluationResult],
+    predictions: Sequence[BenchmarkPrediction],
+) -> list[BenchmarkOutputRow]:
     """Attach stable example ids to per-example outputs before writing them."""
     return [
-        {"example_id": str(example["example_id"]), **evaluation_output}
-        for evaluation_output, example in zip(per_example_outputs, dataset, strict=False)
+        {
+            "example_id": str(example["example_id"]),
+            "metadata": dict(prediction["metadata"]),
+            **evaluation_output,
+        }
+        for evaluation_output, example, prediction in zip(
+            per_example_outputs,
+            dataset,
+            predictions,
+            strict=False,
+        )
     ]
 
 
 def compute_metrics(
     dataset: list[EvaluationExample],
-    predicted_texts: list[str],
+    predictions: list[str] | list[BenchmarkPrediction],
     output_prefix: str | Path,
     elapsed_time: float,
     main_metric: str = "normalized_levenshtein_similarity",
 ) -> dict[str, Any]:
     """Compute aggregate metrics and write benchmark output files."""
-    sanitized_predictions = [prediction or "" for prediction in predicted_texts]
+    normalized_predictions = [_normalize_prediction(prediction) for prediction in predictions]
+    sanitized_predictions = [prediction["text"] or "" for prediction in normalized_predictions]
     aggregate_metrics, per_example_outputs = batch_evaluate(dataset, sanitized_predictions)
-    outputs = _build_output_rows(dataset, per_example_outputs)
+    outputs = _build_output_rows(dataset, per_example_outputs, normalized_predictions)
 
     output_dir = Path(output_prefix)
     output_dir.mkdir(parents=True, exist_ok=True)
