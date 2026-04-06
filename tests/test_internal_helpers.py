@@ -16,8 +16,11 @@ from churro_ocr._internal import logging as logging_module
 from churro_ocr._internal.image import image_to_base64, load_image
 from churro_ocr._internal.litellm import LiteLLMTransport, complete_text
 from churro_ocr.errors import ConfigurationError, ProviderError
+from churro_ocr.page_detection import DocumentPage
+from churro_ocr.providers._shared import render_ocr_prompt
 from churro_ocr.providers.hf import _load_hf_causal_runtime, _load_hf_runtime
 from churro_ocr.providers.specs import LiteLLMTransportConfig
+from churro_ocr.templates import HFChatTemplate
 
 
 def _make_fake_litellm_module(*, acompletion: object, completion_cost: object | None = None) -> ModuleType:
@@ -91,6 +94,42 @@ def test_prepare_messages_from_conversation_converts_images_and_preserves_unknow
         {"type": "text", "text": "prompt"},
         {"type": "audio", "audio": "raw"},
     ]
+
+
+def test_render_ocr_prompt_supports_transformers_v5_chat_template_contract() -> None:
+    captured: dict[str, object] = {}
+
+    class FakeProcessor:
+        def apply_chat_template(
+            self,
+            conversation: list[dict[str, object]],
+            *,
+            add_generation_prompt: bool,
+            tokenize: bool = True,
+            return_dict: bool = True,
+        ) -> object:
+            captured["conversation"] = conversation
+            captured["add_generation_prompt"] = add_generation_prompt
+            captured["tokenize"] = tokenize
+            captured["return_dict"] = return_dict
+            if not tokenize:
+                return "<rendered>"
+            return {"input_ids": [1, 2, 3]} if return_dict else [1, 2, 3]
+
+    page = DocumentPage.from_image(Image.new("RGB", (16, 16), color="white"))
+
+    rendered, conversation = render_ocr_prompt(
+        FakeProcessor(),
+        HFChatTemplate(user_prompt="prompt"),
+        page,
+        add_generation_prompt=True,
+    )
+
+    assert rendered == "<rendered>"
+    assert conversation == captured["conversation"]
+    assert captured["add_generation_prompt"] is True
+    assert captured["tokenize"] is False
+    assert captured["return_dict"] is True
 
 
 @pytest.mark.asyncio

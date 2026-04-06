@@ -47,7 +47,7 @@ def test_license_audit_fails_for_missing_base_dependency(monkeypatch: pytest.Mon
 
 def test_local_runtime_packaging_policy_rejects_direct_torch_runtime_pin() -> None:
     metadata_message = _metadata_message(
-        'transformers[torch]<5,>=4.57.0; extra == "hf"',
+        'transformers[torch]>=5,<6; extra == "hf"',
         'torchvision; extra == "all"',
     )
 

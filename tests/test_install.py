@@ -25,7 +25,7 @@ def test_install_runtime_dependencies_installs_hf_and_torch_with_uv(
         lambda _: _FakeDistribution(
             requires=[
                 'qwen-vl-utils; extra == "hf"',
-                'transformers>=4.57.0,<5; extra == "hf"',
+                'transformers>=5,<6; extra == "hf"',
             ]
         ),
     )
@@ -51,7 +51,7 @@ def test_install_runtime_dependencies_installs_hf_and_torch_with_uv(
             sys.executable,
             "--upgrade",
             "qwen-vl-utils",
-            "transformers>=4.57.0,<5",
+            "transformers>=5,<6",
         ],
         [
             "/usr/bin/uv",
