@@ -13,6 +13,7 @@ from PIL import Image
 
 from churro_ocr._internal.image import image_to_base64
 from churro_ocr._internal.install import install_command_hint
+from churro_ocr._internal.retry import retry_api_call
 from churro_ocr.errors import ConfigurationError, ProviderError
 from churro_ocr.providers.specs import LiteLLMTransportConfig
 from churro_ocr.templates import OCRConversation
@@ -186,7 +187,11 @@ class LiteLLMTransport:
             kwargs.update(self._config.completion_kwargs)
 
         try:
-            response = await acompletion(**kwargs)
+            response = await retry_api_call(
+                lambda: acompletion(**kwargs),
+                operation_name="LiteLLM request",
+                context=f"for model '{model}'",
+            )
         except Exception as exc:  # pragma: no cover - provider-specific failure path
             raise ProviderError(f"LiteLLM request failed for model '{model}': {exc}") from exc
         self._record_response_cost(model=model, response=response)

@@ -12,6 +12,7 @@ from PIL import Image
 
 import churro_ocr._internal.litellm as litellm_module
 import churro_ocr._internal.prompt_logging as prompt_logging_module
+import churro_ocr._internal.retry as retry_module
 from churro_ocr._internal import logging as logging_module
 from churro_ocr._internal.image import image_to_base64, load_image
 from churro_ocr._internal.litellm import LiteLLMTransport, complete_text
@@ -262,7 +263,10 @@ def test_configure_disk_cache_enables_and_updates_cache(monkeypatch: pytest.Monk
 async def test_transport_complete_text_raises_provider_error_on_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    calls = {"acompletion": 0}
+
     async def _failing_acompletion(**_: object) -> object:
+        calls["acompletion"] += 1
         raise RuntimeError("boom")
 
     fake_module = _make_fake_litellm_module(acompletion=_failing_acompletion)
@@ -275,6 +279,49 @@ async def test_transport_complete_text_raises_provider_error_on_failure(
             model="example/model",
             messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
         )
+    assert calls == {"acompletion": 1}
+
+
+@pytest.mark.asyncio
+async def test_transport_complete_text_retries_transient_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"acompletion": 0}
+    sleep_calls: list[float] = []
+
+    class FakeLiteLLMError(Exception):
+        def __init__(self, status_code: int, headers: dict[str, str] | None = None) -> None:
+            self.status_code = status_code
+            self.headers = headers or {}
+            self.raw_response = SimpleNamespace(headers=self.headers)
+            super().__init__(f"Status {status_code}")
+
+    async def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    async def _flaky_acompletion(**_: object) -> object:
+        calls["acompletion"] += 1
+        if calls["acompletion"] == 1:
+            raise FakeLiteLLMError(429, headers={"retry-after": "3"})
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+            _hidden_params={},
+        )
+
+    fake_module = _make_fake_litellm_module(acompletion=_flaky_acompletion)
+    monkeypatch.setitem(sys.modules, "litellm", fake_module)
+    monkeypatch.setattr(litellm_module, "_INITIALIZED", False)
+    monkeypatch.setattr(retry_module, "retry_sleep", _fake_sleep)
+
+    transport = LiteLLMTransport()
+    result = await transport.complete_text(
+        model="example/model",
+        messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+    )
+
+    assert result == "ok"
+    assert calls == {"acompletion": 2}
+    assert sleep_calls == [3.0]
 
 
 @pytest.mark.asyncio

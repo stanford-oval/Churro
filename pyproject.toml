@@ -20,6 +20,7 @@ dependencies = [
     "loguru>=0.7.2,<1",
     "Pillow>=10.4.0,<12",
     "rich>=13.9.2,<14",
+    "tenacity>=9.1.2,<10",
     "typer>=0.12.3,<1",
 ]
 

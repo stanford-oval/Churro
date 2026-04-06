@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 from PIL import Image
 
+import churro_ocr._internal.retry as retry_module
 from churro_ocr._internal.litellm import LiteLLMTransport
 from churro_ocr.errors import ProviderError
 from churro_ocr.page_detection import DocumentPage
@@ -305,6 +306,93 @@ async def test_azure_ocr_backend_reuses_client(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
+async def test_azure_ocr_backend_retries_transient_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"client_inits": 0, "requests": 0}
+    sleep_calls: list[float] = []
+    image = Image.new("RGB", (10, 10), color="white")
+    encoded = base64.b64encode(b"image-bytes").decode("ascii")
+
+    class FakeAzureError(Exception):
+        def __init__(self, status_code: int, headers: dict[str, str] | None = None) -> None:
+            self.status_code = status_code
+            self.headers = headers or {}
+            self.response = SimpleNamespace(headers=self.headers)
+            super().__init__(f"Status {status_code}")
+
+    class FakePoller:
+        async def result(self) -> SimpleNamespace:
+            return SimpleNamespace(content="azure text")
+
+    class FakeClient:
+        def __init__(self, *, endpoint: str, credential: Any) -> None:
+            calls["client_inits"] += 1
+            assert endpoint == "https://example.test"
+            assert credential.key == "secret"
+
+        async def begin_analyze_document(
+            self,
+            *,
+            model_id: str,
+            body: Any,
+            content_type: str,
+        ) -> FakePoller:
+            calls["requests"] += 1
+            assert model_id == "prebuilt-layout"
+            assert body.read() == b"image-bytes"
+            assert content_type == "application/octet-stream"
+            if calls["requests"] < 3:
+                raise FakeAzureError(503)
+            return FakePoller()
+
+    class FakeAzureKeyCredential:
+        def __init__(self, key: str) -> None:
+            self.key = key
+
+    async def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    azure_document_module = ModuleType("azure.ai.documentintelligence.aio")
+    cast("Any", azure_document_module).DocumentIntelligenceClient = FakeClient
+    azure_credentials_module = ModuleType("azure.core.credentials")
+    cast("Any", azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
+    monkeypatch.setitem(sys.modules, "azure.ai.documentintelligence.aio", azure_document_module)
+    monkeypatch.setitem(sys.modules, "azure.core.credentials", azure_credentials_module)
+    monkeypatch.setattr(retry_module, "retry_sleep", _fake_sleep)
+    monkeypatch.setattr(
+        "churro_ocr.providers.ocr.image_to_base64",
+        lambda actual_image, format_name: (
+            (
+                "image/jpeg",
+                encoded,
+            )
+            if actual_image.size == image.size and actual_image.mode == "RGB" and format_name == "JPEG"
+            else ("", "")
+        ),
+    )
+
+    backend = cast(
+        "AzureDocumentIntelligenceOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="azure",
+                options=AzureDocumentIntelligenceOptions(
+                    endpoint="https://example.test",
+                    api_key="secret",
+                ),
+            )
+        ),
+    )
+
+    result = await backend.ocr(DocumentPage(page_index=0, image=image, source_index=0))
+
+    assert result.text == "azure text"
+    assert calls == {"client_inits": 1, "requests": 3}
+    assert sleep_calls == [1.0, 2.0]
+
+
+@pytest.mark.asyncio
 async def test_mistral_ocr_backend_reuses_client(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = {"client_inits": 0, "requests": 0}
     image = Image.new("RGB", (10, 10), color="white")
@@ -410,7 +498,7 @@ async def test_mistral_ocr_backend_retries_transient_errors(
             else ("", "")
         ),
     )
-    monkeypatch.setattr("churro_ocr.providers.ocr.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr(retry_module, "retry_sleep", _fake_sleep)
 
     backend = cast(
         "MistralOCRBackend",
@@ -483,7 +571,7 @@ async def test_mistral_ocr_backend_retries_request_timeouts(
             else ("", "")
         ),
     )
-    monkeypatch.setattr("churro_ocr.providers.ocr.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr(retry_module, "retry_sleep", _fake_sleep)
     monkeypatch.setattr("churro_ocr.providers.ocr.asyncio.wait_for", _fake_wait_for)
 
     backend = cast(
@@ -553,7 +641,7 @@ async def test_mistral_ocr_backend_does_not_retry_non_transient_errors(
             else ("", "")
         ),
     )
-    monkeypatch.setattr("churro_ocr.providers.ocr.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr(retry_module, "retry_sleep", _fake_sleep)
 
     backend = cast(
         "MistralOCRBackend",
@@ -1300,6 +1388,83 @@ async def test_azure_page_detector_returns_full_image_when_service_returns_no_pa
     assert candidates[0].bbox == (0.0, 0.0, 120.0, 80.0)
     assert candidates[0].polygon == ()
     assert calls["closes"] == 1
+
+
+@pytest.mark.asyncio
+async def test_azure_page_detector_retries_transient_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"client_inits": 0, "requests": 0, "closes": 0}
+    sleep_calls: list[float] = []
+
+    class FakeAzureError(Exception):
+        def __init__(self, status_code: int, headers: dict[str, str] | None = None) -> None:
+            self.status_code = status_code
+            self.headers = headers or {}
+            self.response = SimpleNamespace(headers=self.headers)
+            super().__init__(f"Status {status_code}")
+
+    class FakePoller:
+        async def result(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                pages=[
+                    SimpleNamespace(
+                        polygon=[0, 0, 100, 0, 100, 200, 0, 200, 0, 0],
+                        width=100,
+                        height=200,
+                        page_number=1,
+                        unit="pixel",
+                        angle=None,
+                    )
+                ]
+            )
+
+    class FakeClient:
+        def __init__(self, *, endpoint: str, credential: Any) -> None:
+            calls["client_inits"] += 1
+            assert endpoint == "https://example.test"
+            assert credential.key == "secret"
+
+        async def begin_analyze_document(
+            self,
+            *,
+            model_id: str,
+            body: Any,
+            content_type: str,
+        ) -> FakePoller:
+            calls["requests"] += 1
+            assert model_id == "prebuilt-layout"
+            assert body.read()
+            assert content_type == "application/octet-stream"
+            if calls["requests"] == 1:
+                raise FakeAzureError(429, headers={"retry-after": "4"})
+            return FakePoller()
+
+        async def close(self) -> None:
+            calls["closes"] += 1
+
+    class FakeAzureKeyCredential:
+        def __init__(self, key: str) -> None:
+            self.key = key
+
+    async def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    azure_document_module = ModuleType("azure.ai.documentintelligence.aio")
+    cast(Any, azure_document_module).DocumentIntelligenceClient = FakeClient
+    azure_credentials_module = ModuleType("azure.core.credentials")
+    cast(Any, azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
+    monkeypatch.setitem(sys.modules, "azure.ai.documentintelligence.aio", azure_document_module)
+    monkeypatch.setitem(sys.modules, "azure.core.credentials", azure_credentials_module)
+    monkeypatch.setattr(retry_module, "retry_sleep", _fake_sleep)
+
+    detector = AzurePageDetector(endpoint="https://example.test", api_key="secret")
+    candidates = await detector.detect(Image.new("RGB", (100, 200), color="white"))
+
+    assert len(candidates) == 1
+    assert candidates[0].bbox == (0.0, 0.0, 100.0, 200.0)
+    assert calls == {"client_inits": 1, "requests": 2, "closes": 1}
+    assert sleep_calls == [4.0]
 
 
 def test_azure_page_detector_type_is_public() -> None:
