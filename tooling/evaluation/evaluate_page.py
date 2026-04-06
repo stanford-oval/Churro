@@ -91,6 +91,8 @@ def _compute_text_metrics_core(
         has_repetition_flag = has_long_repetition(predicted_text)
 
         if is_empty != 1.0:
+            if bleu_metric is None:
+                initialize_metrics()
             assert bleu_metric is not None
             bleu_result = bleu_metric.compute(
                 predictions=[predicted_text],
@@ -216,7 +218,7 @@ def batch_evaluate(
         return aggregate_results(results)
 
     processes = min(8, max(1, multiprocessing.cpu_count()))
-    with multiprocessing.Pool(processes=processes) as pool:
+    with multiprocessing.Pool(processes=processes, initializer=initialize_metrics) as pool:
         results = list(
             tqdm(
                 pool.imap(evaluate_page, zip(dataset, predicted_texts, strict=False)),

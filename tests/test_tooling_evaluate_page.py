@@ -97,3 +97,21 @@ def test_calculate_metrics_strips_output_tags_before_normalization(
     result = evaluate_page_module.calculate_metrics((example, predicted_text))
 
     assert result["normalized_predicted_text"] == expected
+
+
+def test_calculate_metrics_from_text_lazily_initializes_bleu_metric(monkeypatch) -> None:
+    init_calls = 0
+    fake_metric = SimpleNamespace(compute=lambda *_args, **_kwargs: {"bleu": 0.25})
+
+    def fake_initialize_metrics() -> None:
+        nonlocal init_calls
+        init_calls += 1
+        monkeypatch.setattr(evaluate_page_module, "bleu_metric", fake_metric)
+
+    monkeypatch.setattr(evaluate_page_module, "bleu_metric", None)
+    monkeypatch.setattr(evaluate_page_module, "initialize_metrics", fake_initialize_metrics)
+
+    result = evaluate_page_module.calculate_metrics_from_text("pred", "gold", "English", "Latin")
+
+    assert init_calls == 1
+    assert result["bleu"] == 0.25
