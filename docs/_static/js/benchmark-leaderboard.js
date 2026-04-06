@@ -10,6 +10,10 @@
     { key: "handwritten", label: "Handwritten", numeric: true },
     { key: "total", label: "Total", numeric: true },
   ];
+  const NUMERIC_COLUMNS = new Set(
+    COLUMN_DEFINITIONS.filter((column) => column.numeric).map((column) => column.key),
+  );
+  const DEFAULT_SORT_STATE = { key: "total", direction: "desc" };
 
   function contentRoot() {
     return document.documentElement.dataset.content_root || "";
@@ -32,15 +36,42 @@
     return SCORE_FORMATTER.format(value);
   }
 
+  function createIconFrame(row) {
+    const iconFrame = document.createElement("span");
+    iconFrame.className = "benchmark-model-icon-frame";
+
+    if (!row.iconPath) {
+      const placeholder = document.createElement("span");
+      placeholder.className = "benchmark-model-icon-placeholder";
+      placeholder.setAttribute("aria-hidden", "true");
+      iconFrame.append(placeholder);
+      return iconFrame;
+    }
+
+    const icon = document.createElement("img");
+    icon.className = "benchmark-model-icon";
+    if (row.iconInvertDark) {
+      icon.classList.add("benchmark-model-icon--invert-dark");
+    }
+    icon.alt = `${row.modelName} icon`;
+    icon.src = resolvePath(row.iconPath);
+    iconFrame.append(icon);
+
+    return iconFrame;
+  }
+
   function compareRows(left, right, sortState) {
     const { key, direction } = sortState;
     const multiplier = direction === "asc" ? 1 : -1;
     const leftValue = left[key];
     const rightValue = right[key];
 
-    if (typeof leftValue === "number" && typeof rightValue === "number") {
-      if (leftValue !== rightValue) {
-        return (leftValue - rightValue) * multiplier;
+    if (NUMERIC_COLUMNS.has(key)) {
+      const leftNumber = Number(leftValue);
+      const rightNumber = Number(rightValue);
+
+      if (!Number.isNaN(leftNumber) && !Number.isNaN(rightNumber) && leftNumber !== rightNumber) {
+        return (leftNumber - rightNumber) * multiplier;
       }
       return left.modelName.localeCompare(right.modelName);
     }
@@ -48,17 +79,11 @@
     return String(leftValue || "").localeCompare(String(rightValue || "")) * multiplier;
   }
 
-  function createModelCell(row, logoPath) {
+  function createModelCell(row) {
     const wrapper = document.createElement("div");
     wrapper.className = "benchmark-model";
 
-    if (row.hasIcon) {
-      const icon = document.createElement("img");
-      icon.className = "benchmark-model-icon";
-      icon.alt = `${row.modelName} icon`;
-      icon.src = logoPath;
-      wrapper.append(icon);
-    }
+    wrapper.append(createIconFrame(row));
 
     const textBlock = document.createElement("div");
     textBlock.className = "benchmark-model-text";
@@ -104,7 +129,7 @@
     return button;
   }
 
-  function renderLeaderboard(container, rows, sortState, logoPath) {
+  function renderLeaderboard(container, rows, sortState) {
     container.replaceChildren();
 
     const sortedRows = [...rows].sort((left, right) => compareRows(left, right, sortState));
@@ -130,7 +155,7 @@
         sortState.key = key;
         sortState.direction = key === "modelName" ? "asc" : "desc";
       }
-      renderLeaderboard(container, rows, sortState, logoPath);
+      renderLeaderboard(container, rows, sortState);
     };
 
     for (const column of COLUMN_DEFINITIONS) {
@@ -147,7 +172,7 @@
 
     sortedRows.forEach((row, index) => {
       const tr = document.createElement("tr");
-      if (row.hasIcon) {
+      if (row.iconPath) {
         tr.classList.add("is-featured");
       }
 
@@ -157,7 +182,7 @@
       tr.append(rankCell);
 
       const modelCell = document.createElement("td");
-      modelCell.append(createModelCell(row, logoPath));
+      modelCell.append(createModelCell(row));
       tr.append(modelCell);
 
       for (const key of ["printed", "handwritten", "total"]) {
@@ -184,8 +209,6 @@
   }
 
   async function initializeLeaderboard(container) {
-    const logoPath = resolvePath("_static/img/churro.png");
-
     try {
       const response = await fetch(resolvePath("_static/data/benchmark_results.json"));
       if (!response.ok) {
@@ -193,8 +216,8 @@
       }
 
       const rows = await response.json();
-      const sortState = { key: "total", direction: "desc" };
-      renderLeaderboard(container, rows, sortState, logoPath);
+      const sortState = { ...DEFAULT_SORT_STATE };
+      renderLeaderboard(container, rows, sortState);
     } catch (error) {
       renderError(container, "Unable to load the benchmark leaderboard data.");
       console.error("[benchmark-leaderboard] failed to initialize", error);
