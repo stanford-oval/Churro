@@ -41,6 +41,54 @@ DEFAULT_MARKDOWN_OCR_USER_PROMPT = (
     "tables, and line breaks when they are visible."
 )
 
+CHANDRA_OCR_LAYOUT_PROMPT = (
+    "OCR this image to HTML, arranged as layout blocks. Each layout block should be a div "
+    "with the data-bbox attribute representing the bounding box of the block in x0 y0 x1 y1 "
+    "format. Bboxes are normalized 0-1000. The data-label attribute is the label for the block.\n\n"
+    "Use the following labels:\n"
+    "- Caption\n"
+    "- Footnote\n"
+    "- Equation-Block\n"
+    "- List-Group\n"
+    "- Page-Header\n"
+    "- Page-Footer\n"
+    "- Image\n"
+    "- Section-Header\n"
+    "- Table\n"
+    "- Text\n"
+    "- Complex-Block\n"
+    "- Code-Block\n"
+    "- Form\n"
+    "- Table-Of-Contents\n"
+    "- Figure\n"
+    "- Chemical-Block\n"
+    "- Diagram\n"
+    "- Bibliography\n"
+    "- Blank-Page\n\n"
+    "Only use these tags ['math', 'br', 'i', 'b', 'u', 'del', 'sup', 'sub', 'table', 'tr', "
+    "'td', 'p', 'th', 'div', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'ul', 'ol', 'li', 'input', "
+    "'a', 'span', 'img', 'hr', 'tbody', 'small', 'caption', 'strong', 'thead', 'big', 'code', "
+    "'chem'], and these attributes ['class', 'colspan', 'rowspan', 'display', 'checked', "
+    "'type', 'border', 'value', 'style', 'href', 'alt', 'align', 'data-bbox', 'data-label'].\n\n"
+    "Guidelines:\n"
+    "* Inline math: Surround math with <math>...</math> tags. Math expressions should be rendered "
+    "in KaTeX-compatible LaTeX. Use display for block math.\n"
+    "* Tables: Use colspan and rowspan attributes to match table structure.\n"
+    "* Formatting: Maintain consistent formatting with the image, including spacing, indentation, "
+    "subscripts/superscripts, and special characters.\n"
+    "* Images: Include a description of any images in the alt attribute of an <img> tag. Do not "
+    "fill out the src property. Describe in detail inside the div tag. Also convert charts to high "
+    "fidelity data, and convert diagrams to mermaid.\n"
+    "* Forms: Mark checkboxes and radio buttons properly.\n"
+    "* Text: join lines together properly into paragraphs using <p>...</p> tags. Use <br> tags for "
+    "line breaks within paragraphs, but only when absolutely necessary to maintain meaning.\n"
+    "* Chemistry: Use <chem>...</chem> tags for chemical formulas with reactive SMILES.\n"
+    "* Lists: Preserve indents and proper list markers.\n"
+    "* Use the simplest possible HTML structure that accurately represents the content of the block.\n"
+    "* Make sure the text is accurate and easy for a human to read and interpret. Reading order "
+    "should be correct and natural."
+)
+
 OLMOCR_V4_YAML_PROMPT = (
     "Attached is one page of a document that you must process. "
     "Just return the plain text representation of this document as if you were reading it naturally.\n"
@@ -105,8 +153,8 @@ def _extract_yaml_front_matter(text: str) -> tuple[dict[str, object], str]:
     return front_matter, body
 
 
-def _strip_olmocr_markdown_to_plain_text(text: str) -> str:
-    """Best-effort plain-text conversion for olmOCR markdown/HTML output."""
+def _strip_rich_ocr_markup_to_plain_text(text: str) -> str:
+    """Best-effort plain-text conversion for OCR markdown/HTML output."""
     cleaned = text.strip()
     if not cleaned:
         return ""
@@ -115,20 +163,25 @@ def _strip_olmocr_markdown_to_plain_text(text: str) -> str:
     cleaned = re.sub(r"\[([^\]]+)]\([^)]+\)", r"\1", cleaned)
 
     html_replacements = (
+        (r"(?is)<\s*input\b[^>]*\bchecked(?:=(?:\"[^\"]*\"|'[^']*'|[^\s>]+))?[^>]*>", "[x]"),
+        (r"(?is)<\s*input\b[^>]*>", "[ ]"),
         (r"(?i)<\s*br\s*/?\s*>", "\n"),
-        (r"(?i)</\s*(?:p|div|h[1-6]|ul|ol|table|tr|li|pre)\s*>", "\n"),
+        (r"(?i)<\s*hr\s*/?\s*>", "\n"),
+        (r"(?i)</\s*(?:p|div|h[1-6]|ul|ol|table|tr|li|pre|caption)\s*>", "\n"),
         (r"(?i)</\s*(?:td|th)\s*>", " | "),
         (r"(?i)<\s*li\b[^>]*>", ""),
         (
             r"(?i)</?\s*(?:table|thead|tbody|tfoot|tr|td|th|p|div|span|h[1-6]|ul|ol|"
-            r"strong|em|b|i|u|sup|sub|code|pre)\b[^>]*>",
+            r"strong|em|b|i|u|sup|sub|code|pre|a|math|chem|caption|small|big)\b[^>]*>",
             "",
         ),
+        (r"(?i)<\s*img\b[^>]*>", ""),
     )
     for pattern, replacement in html_replacements:
         cleaned = re.sub(pattern, replacement, cleaned)
 
     cleaned = html.unescape(cleaned)
+    cleaned = re.sub(r"(?is)</?[a-z][^>]*>", "", cleaned)
     cleaned = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", cleaned)
     cleaned = re.sub(r"(?m)^\s*[-+*]\s+", "", cleaned)
     cleaned = re.sub(r"(?m)^\s*>\s?", "", cleaned)
@@ -157,7 +210,15 @@ def _strip_olmocr_markdown_to_plain_text(text: str) -> str:
 def parse_olmocr_response(text: str) -> tuple[str, dict[str, Any]]:
     """Extract plain text and metadata from an olmOCR YAML-front-matter response."""
     front_matter, markdown_body = _extract_yaml_front_matter(text)
-    return _strip_olmocr_markdown_to_plain_text(markdown_body), {
+    return _strip_rich_ocr_markup_to_plain_text(markdown_body), {
         "front_matter": front_matter,
         "raw_markdown": markdown_body,
+    }
+
+
+def parse_chandra_response(text: str) -> tuple[str, dict[str, Any]]:
+    """Extract plain text and metadata from a Chandra HTML-layout response."""
+    raw_html = text.strip()
+    return _strip_rich_ocr_markup_to_plain_text(raw_html), {
+        "raw_html": raw_html,
     }

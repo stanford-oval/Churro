@@ -12,10 +12,13 @@ from PIL import Image
 from churro_ocr._internal.image import ensure_rgb, prepare_ocr_image, resize_image_to_fit
 from churro_ocr.prompts import (
     DEFAULT_OCR_OUTPUT_TAG,
+    parse_chandra_response,
     parse_olmocr_response,
     strip_ocr_output_tag,
 )
 from churro_ocr.templates import (
+    CHANDRA_OCR_2_MODEL_ID,
+    CHANDRA_OCR_2_OCR_TEMPLATE,
     CHURRO_3B_MODEL_ID,
     CHURRO_3B_XML_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
@@ -38,7 +41,11 @@ TextPostprocessorResult = str | tuple[str, dict[str, Any]]
 TextPostprocessor = Callable[[str], TextPostprocessorResult]
 VisionInputBuilder = Callable[[OCRConversation], object]
 DEFAULT_OCR_MAX_TOKENS = 20_000
+CHANDRA_OCR_MAX_TOKENS = 12_384
 OLMOCR_MAX_TOKENS = 8_000
+CHANDRA_MAX_IMAGE_SIZE = (3_072, 2_048)
+CHANDRA_MIN_IMAGE_SIZE = (1_792, 28)
+CHANDRA_IMAGE_GRID_SIZE = 28
 OLMOCR_TARGET_LONGEST_IMAGE_DIM = 1_288
 
 
@@ -83,6 +90,56 @@ def olmocr_image_preprocessor(image: Image.Image) -> Image.Image:
 def olmocr_text_postprocessor(text: str) -> TextPostprocessorResult:
     """Extract plain text and metadata from olmOCR YAML/markdown output."""
     return parse_olmocr_response(text)
+
+
+def chandra_image_preprocessor(image: Image.Image) -> Image.Image:
+    """Resize an image using Chandra OCR 2's pixel-budget and 28px-grid scaling."""
+    width, height = image.size
+    if width <= 0 or height <= 0:
+        return ensure_rgb(image)
+
+    max_pixels = CHANDRA_MAX_IMAGE_SIZE[0] * CHANDRA_MAX_IMAGE_SIZE[1]
+    min_pixels = CHANDRA_MIN_IMAGE_SIZE[0] * CHANDRA_MIN_IMAGE_SIZE[1]
+    current_pixels = width * height
+    scale = 1.0
+    if current_pixels > max_pixels:
+        scale = (max_pixels / current_pixels) ** 0.5
+    elif current_pixels < min_pixels:
+        scale = (min_pixels / current_pixels) ** 0.5
+
+    original_aspect_ratio = width / height
+    width_blocks = max(1, round((width * scale) / CHANDRA_IMAGE_GRID_SIZE))
+    height_blocks = max(1, round((height * scale) / CHANDRA_IMAGE_GRID_SIZE))
+
+    while (width_blocks * height_blocks * CHANDRA_IMAGE_GRID_SIZE**2) > max_pixels:
+        if width_blocks == 1 and height_blocks == 1:
+            break
+        if width_blocks == 1:
+            height_blocks -= 1
+            continue
+        if height_blocks == 1:
+            width_blocks -= 1
+            continue
+
+        width_loss = abs(((width_blocks - 1) / height_blocks) - original_aspect_ratio)
+        height_loss = abs((width_blocks / (height_blocks - 1)) - original_aspect_ratio)
+        if width_loss < height_loss:
+            width_blocks -= 1
+        else:
+            height_blocks -= 1
+
+    new_size = (
+        width_blocks * CHANDRA_IMAGE_GRID_SIZE,
+        height_blocks * CHANDRA_IMAGE_GRID_SIZE,
+    )
+    if new_size == (width, height):
+        return ensure_rgb(image)
+    return ensure_rgb(image.resize(new_size, resample=Image.Resampling.LANCZOS))
+
+
+def chandra_text_postprocessor(text: str) -> TextPostprocessorResult:
+    """Extract plain text and metadata from Chandra OCR 2 HTML-layout output."""
+    return parse_chandra_response(text)
 
 
 @dataclass(slots=True, frozen=True)
@@ -223,6 +280,30 @@ def churro_3b_profile() -> OCRModelProfile:
     )
 
 
+def chandra_ocr_2_profile() -> OCRModelProfile:
+    """Return the built-in ``datalab-to/chandra-ocr-2`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=CHANDRA_OCR_2_MODEL_ID,
+        template=CHANDRA_OCR_2_OCR_TEMPLATE,
+        image_preprocessor=chandra_image_preprocessor,
+        text_postprocessor=chandra_text_postprocessor,
+        display_name="chandra-ocr-2",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": CHANDRA_OCR_MAX_TOKENS,
+                "temperature": 0.0,
+                "top_p": 0.1,
+            }
+        ),
+        huggingface=HuggingFaceOptions(
+            generation_kwargs={
+                "max_new_tokens": CHANDRA_OCR_MAX_TOKENS,
+            },
+            backend_variant="chandra-ocr-2",
+        ),
+    )
+
+
 def dots_ocr_1_5_profile() -> OCRModelProfile:
     """Return the built-in ``kristaller486/dots.ocr-1.5`` OCR profile.
 
@@ -282,12 +363,14 @@ def olmocr_2_7b_1025_fp8_profile() -> OCRModelProfile:
 def _profile_registry() -> dict[str, OCRModelProfile]:
     default_profile = default_ocr_profile()
     churro_profile = churro_3b_profile()
+    chandra_profile = chandra_ocr_2_profile()
     dots_profile = dots_ocr_1_5_profile()
     olmocr_profile = olmocr_2_7b_1025_profile()
     olmocr_fp8_profile = olmocr_2_7b_1025_fp8_profile()
     return {
         default_profile.profile_name: default_profile,
         churro_profile.profile_name: churro_profile,
+        chandra_profile.profile_name: chandra_profile,
         dots_profile.profile_name: dots_profile,
         olmocr_profile.profile_name: olmocr_profile,
         olmocr_fp8_profile.profile_name: olmocr_fp8_profile,
@@ -324,6 +407,9 @@ def resolve_ocr_profile(
 __all__ = [
     "AzureDocumentIntelligenceOptions",
     "DEFAULT_OCR_MAX_TOKENS",
+    "chandra_image_preprocessor",
+    "chandra_ocr_2_profile",
+    "chandra_text_postprocessor",
     "default_ocr_image_preprocessor",
     "default_ocr_profile",
     "default_ocr_text_postprocessor",

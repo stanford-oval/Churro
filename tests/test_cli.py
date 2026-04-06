@@ -16,6 +16,8 @@ from churro_ocr.ocr import OCRResult
 from churro_ocr.page_detection import DocumentPage, PageDetectionResult
 from churro_ocr.prompts import DEFAULT_OCR_OUTPUT_TAG
 from churro_ocr.templates import (
+    CHANDRA_OCR_2_MODEL_ID,
+    CHANDRA_OCR_2_OCR_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
     DOTS_OCR_1_5_OCR_TEMPLATE,
     OLMOCR_2_7B_1025_MODEL_ID,
@@ -238,6 +240,44 @@ def test_build_ocr_backend_aligns_templates_for_olmocr() -> None:
     assert openai_backend.transport.config.completion_kwargs == {
         "max_tokens": 8_000,
         "temperature": 0.1,
+    }
+
+
+def test_build_ocr_backend_aligns_templates_for_chandra() -> None:
+    litellm_backend = cli_module._build_ocr_backend(
+        backend="litellm",
+        model=CHANDRA_OCR_2_MODEL_ID,
+        endpoint=None,
+        api_key=None,
+        base_url=None,
+        api_version=None,
+    )
+    hf_backend = cli_module._build_ocr_backend(
+        backend="hf",
+        model=CHANDRA_OCR_2_MODEL_ID,
+        endpoint=None,
+        api_key=None,
+        base_url=None,
+        api_version=None,
+    )
+    openai_backend = cli_module._build_ocr_backend(
+        backend="openai-compatible",
+        model=CHANDRA_OCR_2_MODEL_ID,
+        endpoint=None,
+        api_key=None,
+        base_url="http://127.0.0.1:8000/v1",
+        api_version=None,
+    )
+
+    assert litellm_backend.template == CHANDRA_OCR_2_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "chandra-ocr-2"
+    assert hf_backend.model_name == "chandra-ocr-2"
+    assert openai_backend.model_name == "chandra-ocr-2"
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": 12_384,
+        "temperature": 0.0,
+        "top_p": 0.1,
     }
 
 

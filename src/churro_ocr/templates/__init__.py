@@ -9,6 +9,8 @@ from churro_ocr.templates.base import (
 )
 from churro_ocr.templates.hf import HFChatTemplate
 from churro_ocr.templates.presets import (
+    CHANDRA_OCR_2_MODEL_ID,
+    CHANDRA_OCR_2_OCR_TEMPLATE,
     CHURRO_3B_MODEL_ID,
     CHURRO_3B_XML_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
@@ -24,6 +26,8 @@ __all__ = [
     "build_ocr_conversation",
     "CHURRO_3B_MODEL_ID",
     "CHURRO_3B_XML_TEMPLATE",
+    "CHANDRA_OCR_2_MODEL_ID",
+    "CHANDRA_OCR_2_OCR_TEMPLATE",
     "DEFAULT_OCR_TEMPLATE",
     "DOTS_OCR_1_5_MODEL_ID",
     "DOTS_OCR_1_5_OCR_PROMPT",

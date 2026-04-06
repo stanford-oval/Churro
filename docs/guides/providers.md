@@ -32,6 +32,7 @@ This page is the source of truth for matching providers to runtime targets.
 | --- | --- | --- |
 | hosted OCR | `litellm` + `vertex_ai/gemini-2.5-flash` | easiest hosted path with the standard builder interface |
 | local OCR | `hf` + `stanford-oval/churro-3B` | first-party local model support in-process |
+| layout-heavy local OCR | `hf` + `datalab-to/chandra-ocr-2` | built-in profile matches Chandra's layout-oriented prompt, scaling, and generation defaults |
 | higher-throughput local serving | `openai-compatible` + your own OpenAI-style server | good when you already run a served local backend such as vLLM |
 
 ## Hosted Providers
@@ -144,6 +145,8 @@ backend = build_ocr_backend(
 )
 ```
 
+Built-in model-specific profiles are resolved automatically for known models such as `stanford-oval/churro-3B`, `datalab-to/chandra-ocr-2`, `kristaller486/dots.ocr-1.5`, and the supported `olmOCR` checkpoints.
+
 ## `OCRBackendSpec` Reference
 
 | Field | Meaning |
@@ -204,6 +207,7 @@ Useful public template exports:
 | `HFChatTemplate` | `churro_ocr.templates` | Build a Hugging Face chat-style multimodal prompt. |
 | `DEFAULT_OCR_TEMPLATE` | `churro_ocr.templates` | Generic OCR prompt template used by the default model profile. |
 | `CHURRO_3B_XML_TEMPLATE` | `churro_ocr.templates` | Built-in template for `stanford-oval/churro-3B`. |
+| `CHANDRA_OCR_2_OCR_TEMPLATE` | `churro_ocr.templates` | Built-in template for `datalab-to/chandra-ocr-2`. |
 | `DOTS_OCR_1_5_OCR_TEMPLATE` | `churro_ocr.templates` | Built-in template for `kristaller486/dots.ocr-1.5`. |
 | `OCRPromptTemplate` | `churro_ocr.templates` | Base protocol for custom profile integration. |
 
@@ -214,6 +218,8 @@ Useful public prompt exports:
 | `DEFAULT_OCR_SYSTEM_PROMPT` | `churro_ocr.prompts` | Default system instruction for generic OCR prompting. |
 | `DEFAULT_OCR_USER_PROMPT` | `churro_ocr.prompts` | Default user prompt for plain OCR output. |
 | `DEFAULT_MARKDOWN_OCR_USER_PROMPT` | `churro_ocr.prompts` | Default user prompt when markdown-style OCR output is preferred. |
+| `CHANDRA_OCR_LAYOUT_PROMPT` | `churro_ocr.prompts` | Upstream Chandra OCR 2 layout-block HTML prompt. |
 | `DEFAULT_OCR_OUTPUT_TAG` | `churro_ocr.prompts` | Shared tag name used by the default OCR postprocessor. |
 | `DEFAULT_BOUNDARY_DETECTION_PROMPT` | `churro_ocr.prompts` | Default prompt used by LLM-based page and text-block boundary detection helpers. |
+| `parse_chandra_response(...)` | `churro_ocr.prompts` | Convert Chandra HTML-layout output to plain text and preserve raw HTML metadata. |
 | `strip_ocr_output_tag(...)` | `churro_ocr.prompts` | Remove the default OCR wrapper tag from model output. |

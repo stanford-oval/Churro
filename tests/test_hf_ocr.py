@@ -12,15 +12,24 @@ import churro_ocr.providers.hf as hf_module
 from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRClient
 from churro_ocr.page_detection import DocumentPage
-from churro_ocr.prompts import DEFAULT_OCR_OUTPUT_TAG, OLMOCR_V4_YAML_PROMPT, parse_olmocr_response
+from churro_ocr.prompts import (
+    CHANDRA_OCR_LAYOUT_PROMPT,
+    DEFAULT_OCR_OUTPUT_TAG,
+    OLMOCR_V4_YAML_PROMPT,
+    parse_chandra_response,
+    parse_olmocr_response,
+)
 from churro_ocr.providers import OCRBackendSpec, build_ocr_backend
 from churro_ocr.providers.hf import (
+    ChandraOCR2OCRBackend,
     Churro3BOCRBackend,
     DotsOCR15OCRBackend,
     HuggingFaceVisionOCRBackend,
 )
 from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
 from churro_ocr.templates import (
+    CHANDRA_OCR_2_MODEL_ID,
+    CHANDRA_OCR_2_OCR_TEMPLATE,
     CHURRO_3B_XML_TEMPLATE,
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_PROMPT,
@@ -28,6 +37,7 @@ from churro_ocr.templates import (
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
     HFChatTemplate,
+    OCRConversation,
 )
 
 
@@ -57,6 +67,16 @@ def test_olmocr_template_builds_prompt_before_image() -> None:
     assert conversation[0]["content"][1]["type"] == "image"
 
 
+def test_chandra_template_builds_image_before_prompt() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = CHANDRA_OCR_2_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "user"
+    assert conversation[0]["content"][0]["type"] == "image"
+    assert conversation[0]["content"][1]["text"] == CHANDRA_OCR_LAYOUT_PROMPT
+
+
 def test_parse_olmocr_response_extracts_plain_text_and_metadata() -> None:
     text, metadata = parse_olmocr_response(
         "---\n"
@@ -83,6 +103,51 @@ def test_parse_olmocr_response_extracts_plain_text_and_metadata() -> None:
     assert "Heading" in cast("str", metadata["raw_markdown"])
 
 
+def test_parse_chandra_response_extracts_plain_text_and_metadata() -> None:
+    text, metadata = parse_chandra_response(
+        '<div data-bbox="0 0 1000 100" data-label="Section-Header"><h1>Title</h1></div>\n'
+        '<div data-bbox="0 100 1000 300" data-label="Text"><p>Paragraph with <a '
+        'href="https://example.test">reference</a>.</p></div>\n'
+        '<div data-bbox="0 300 1000 500" data-label="Form"><p><input type="checkbox" checked> '
+        "Checked item</p></div>\n"
+        '<div data-bbox="0 500 1000 700" data-label="Table"><table><tr><th>Year</th>'
+        "<th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table></div>"
+    )
+
+    assert text == "Title\n\nParagraph with reference.\n\n[x] Checked item\n\nYear | Value\n1900 | 42"
+    assert metadata == {
+        "raw_html": (
+            '<div data-bbox="0 0 1000 100" data-label="Section-Header"><h1>Title</h1></div>\n'
+            '<div data-bbox="0 100 1000 300" data-label="Text"><p>Paragraph with <a '
+            'href="https://example.test">reference</a>.</p></div>\n'
+            '<div data-bbox="0 300 1000 500" data-label="Form"><p><input type="checkbox" checked> '
+            "Checked item</p></div>\n"
+            '<div data-bbox="0 500 1000 700" data-label="Table"><table><tr><th>Year</th>'
+            "<th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table></div>"
+        ),
+    }
+
+
+def test_build_ocr_backend_uses_chandra_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "ChandraOCR2OCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=CHANDRA_OCR_2_MODEL_ID,
+            )
+        ),
+    )
+
+    assert isinstance(backend, ChandraOCR2OCRBackend)
+    assert backend.template == CHANDRA_OCR_2_OCR_TEMPLATE
+    assert backend.model_name == "chandra-ocr-2"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 12_384,
+    }
+    assert backend.image_preprocessor(Image.new("RGB", (5_000, 3_000), color="white")).size == (3_248, 1_932)
+
+
 def test_build_ocr_backend_uses_olmocr_profile_defaults_for_hf() -> None:
     backend = cast(
         "HuggingFaceVisionOCRBackend",
@@ -102,6 +167,158 @@ def test_build_ocr_backend_uses_olmocr_profile_defaults_for_hf() -> None:
         "do_sample": True,
     }
     assert backend.image_preprocessor(Image.new("RGB", (5_000, 3_000), color="white")).size == (1_288, 772)
+
+
+@pytest.mark.asyncio
+async def test_chandra_huggingface_backend_matches_upstream_chat_template_and_eos_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeAttentionMask:
+        def sum(self, dim: int) -> SimpleNamespace:
+            captured["attention_mask_sum_dim"] = dim
+            return SimpleNamespace(tolist=lambda: [3])
+
+    class FakeBatch(dict[str, object]):
+        def to(self, device: object) -> FakeBatch:
+            captured["device"] = device
+            return self
+
+    class FakeTokenizer:
+        def __init__(self) -> None:
+            self.padding_side = "right"
+
+        def convert_tokens_to_ids(self, token: str) -> int:
+            captured["stop_token_lookup"] = token
+            return 77
+
+    class FakeProcessor:
+        def __init__(self) -> None:
+            self.tokenizer = FakeTokenizer()
+
+        def apply_chat_template(
+            self,
+            conversation: object,
+            *,
+            add_generation_prompt: bool,
+            tokenize: bool = True,
+            return_dict: bool = True,
+            return_tensors: str | None = None,
+            padding: bool | None = None,
+        ) -> object:
+            captured["add_generation_prompt"] = add_generation_prompt
+            captured["tokenize"] = tokenize
+            captured["return_dict"] = return_dict
+            if not tokenize:
+                captured["render_conversation"] = conversation
+                return "<rendered>"
+            captured["tokenized_conversations"] = conversation
+            captured["return_tensors"] = return_tensors
+            captured["padding"] = padding
+            return FakeBatch(
+                {
+                    "input_ids": SimpleNamespace(shape=(1, 3)),
+                    "attention_mask": FakeAttentionMask(),
+                }
+            )
+
+        def batch_decode(
+            self,
+            generated_ids: object,
+            *,
+            skip_special_tokens: bool,
+            clean_up_tokenization_spaces: bool,
+        ) -> list[str]:
+            captured["generated_ids"] = generated_ids
+            captured["skip_special_tokens"] = skip_special_tokens
+            captured["clean_up_tokenization_spaces"] = clean_up_tokenization_spaces
+            return [
+                '<div data-bbox="0 0 1000 1000" data-label="Text"><p>Decoded '
+                '<a href="https://example.test">output</a>.</p></div>'
+            ]
+
+    class FakeProcessorCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeProcessor:
+            captured["processor_model_id"] = model_id
+            captured["processor_from_pretrained_kwargs"] = kwargs
+            return FakeProcessor()
+
+    class FakeModel:
+        device = "fake-device"
+        dtype = None
+        generation_config = SimpleNamespace(eos_token_id=11)
+
+        def eval(self) -> FakeModel:
+            captured["eval_called"] = True
+            return self
+
+        def generate(self, **kwargs: object) -> list[list[int | str]]:
+            captured["generate_kwargs"] = kwargs
+            return [[0, 1, 2, "completion"]]
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeModel:
+            captured["model_model_id"] = model_id
+            captured["model_from_pretrained_kwargs"] = kwargs
+            return FakeModel()
+
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_hf_runtime",
+        lambda: SimpleNamespace(
+            processor_cls=FakeProcessorCls,
+            model_cls=FakeModelCls,
+            process_vision_info=None,
+        ),
+    )
+
+    backend = cast(
+        "ChandraOCR2OCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=CHANDRA_OCR_2_MODEL_ID,
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (5_000, 3_000), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == "Decoded output."
+    assert result.metadata == {
+        "raw_html": (
+            '<div data-bbox="0 0 1000 1000" data-label="Text"><p>Decoded '
+            '<a href="https://example.test">output</a>.</p></div>'
+        ),
+    }
+    assert captured["processor_model_id"] == CHANDRA_OCR_2_MODEL_ID
+    assert captured["model_model_id"] == CHANDRA_OCR_2_MODEL_ID
+    assert captured["eval_called"] is True
+    assert captured["render_conversation"][0]["role"] == "user"
+    render_content = cast("list[dict[str, object]]", captured["render_conversation"][0]["content"])
+    assert render_content[0]["type"] == "image"
+    render_image = cast("Image.Image", render_content[0]["image"])
+    assert render_image.size == (3_248, 1_932)
+    assert render_image.mode == "RGB"
+    assert render_content[1] == {"type": "text", "text": CHANDRA_OCR_LAYOUT_PROMPT}
+    tokenized_conversation = cast("list[OCRConversation]", captured["tokenized_conversations"])
+    assert tokenized_conversation[0][0]["role"] == "user"
+    assert captured["tokenize"] is True
+    assert captured["return_dict"] is True
+    assert captured["return_tensors"] == "pt"
+    assert captured["padding"] is True
+    assert captured["device"] == "fake-device"
+    assert captured["attention_mask_sum_dim"] == 1
+    assert captured["stop_token_lookup"] == "<|im_end|>"
+    assert captured["generate_kwargs"]["max_new_tokens"] == 12_384
+    assert captured["generate_kwargs"]["eos_token_id"] == [11, 77]
+    assert captured["model_from_pretrained_kwargs"]["device_map"] == "auto"
+    assert "dtype" in cast("dict[str, object]", captured["model_from_pretrained_kwargs"])
+    assert captured["skip_special_tokens"] is True
+    assert captured["clean_up_tokenization_spaces"] is False
 
 
 @pytest.mark.asyncio

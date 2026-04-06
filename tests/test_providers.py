@@ -13,6 +13,7 @@ from churro_ocr._internal.litellm import LiteLLMTransport
 from churro_ocr.errors import ProviderError
 from churro_ocr.page_detection import DocumentPage
 from churro_ocr.prompts import (
+    CHANDRA_OCR_LAYOUT_PROMPT,
     DEFAULT_BOUNDARY_DETECTION_PROMPT,
     DEFAULT_OCR_OUTPUT_TAG,
     OLMOCR_V4_YAML_PROMPT,
@@ -44,6 +45,8 @@ from churro_ocr.providers.page_detection import (
 )
 from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
 from churro_ocr.templates import (
+    CHANDRA_OCR_2_MODEL_ID,
+    CHANDRA_OCR_2_OCR_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
     OLMOCR_2_7B_1025_FP8_MODEL_ID,
     OLMOCR_2_7B_1025_MODEL_ID,
@@ -377,6 +380,28 @@ def test_build_ocr_backend_uses_olmocr_profile_defaults_for_openai_compatible() 
     assert backend.image_preprocessor(Image.new("RGB", (5_000, 3_000), color="white")).size == (1_288, 772)
 
 
+def test_build_ocr_backend_uses_chandra_profile_defaults_for_openai_compatible() -> None:
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=CHANDRA_OCR_2_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+
+    assert backend.template == CHANDRA_OCR_2_OCR_TEMPLATE
+    assert backend.model_name == "chandra-ocr-2"
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 12_384,
+        "temperature": 0.0,
+        "top_p": 0.1,
+    }
+    assert backend.image_preprocessor(Image.new("RGB", (5_000, 3_000), color="white")).size == (3_248, 1_932)
+
+
 def test_build_ocr_backend_resolves_olmocr_fp8_profile_defaults_for_openai_compatible() -> None:
     backend = cast(
         "OpenAICompatibleOCRBackend",
@@ -492,6 +517,91 @@ async def test_openai_compatible_backend_uses_olmocr_prompt_and_plain_text_postp
     prompt_image = cast("Image.Image", user_content[1]["image"])
     assert prompt_image.size == (1_288, 772)
     assert prompt_image.mode == "RGB"
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_backend_uses_chandra_prompt_and_plain_text_postprocessing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_prepare_messages_from_conversation(
+        self: LiteLLMTransport,
+        conversation: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        captured["conversation"] = conversation
+        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+
+    async def _fake_complete_text(
+        self: LiteLLMTransport,
+        *,
+        model: str,
+        messages: list[dict[str, object]],
+        timeout_seconds: int = 600,
+        output_json: bool = False,
+    ) -> str:
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["timeout_seconds"] = timeout_seconds
+        captured["output_json"] = output_json
+        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        return (
+            '<div data-bbox="0 0 1000 100" data-label="Section-Header"><h1>Ledger</h1></div>\n'
+            '<div data-bbox="0 100 1000 300" data-label="Text"><p>Paragraph with <a '
+            'href="https://example.test">note</a>.</p></div>\n'
+            '<div data-bbox="0 300 1000 500" data-label="Table"><table><tr><th>Year</th>'
+            "<th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table></div>"
+        )
+
+    monkeypatch.setattr(
+        LiteLLMTransport,
+        "prepare_messages_from_conversation",
+        _fake_prepare_messages_from_conversation,
+    )
+    monkeypatch.setattr(LiteLLMTransport, "complete_text", _fake_complete_text)
+
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=CHANDRA_OCR_2_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (5_000, 3_000), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == "Ledger\n\nParagraph with note.\n\nYear | Value\n1900 | 42"
+    assert result.metadata == {
+        "raw_html": (
+            '<div data-bbox="0 0 1000 100" data-label="Section-Header"><h1>Ledger</h1></div>\n'
+            '<div data-bbox="0 100 1000 300" data-label="Text"><p>Paragraph with <a '
+            'href="https://example.test">note</a>.</p></div>\n'
+            '<div data-bbox="0 300 1000 500" data-label="Table"><table><tr><th>Year</th>'
+            "<th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table></div>"
+        ),
+    }
+    assert captured["model"] == f"openai/{CHANDRA_OCR_2_MODEL_ID}"
+    assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+    assert captured["timeout_seconds"] == 600
+    assert captured["output_json"] is False
+    assert captured["completion_kwargs"] == {
+        "max_tokens": 12_384,
+        "temperature": 0.0,
+        "top_p": 0.1,
+    }
+    conversation = cast("list[dict[str, object]]", captured["conversation"])
+    assert conversation[0]["role"] == "user"
+    user_content = cast("list[dict[str, object]]", conversation[0]["content"])
+    assert user_content[0]["type"] == "image"
+    prompt_image = cast("Image.Image", user_content[0]["image"])
+    assert prompt_image.size == (3_248, 1_932)
+    assert prompt_image.mode == "RGB"
+    assert user_content[1] == {"type": "text", "text": CHANDRA_OCR_LAYOUT_PROMPT}
 
 
 @pytest.mark.asyncio
