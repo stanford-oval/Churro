@@ -1,10 +1,9 @@
 # Benchmarking
 
-This page is for reproducing CHURRO-DS benchmark runs from a repo checkout.
+For the official leaderboard results, see the [Benchmark Leaderboard](leaderboard.md).
 
-Run these commands from the repo root after `pixi install`.
+This page describes how to benchmark your own model on [CHURRO-DS](https://huggingface.co/datasets/stanford-oval/churro-dataset). Please open a pull request if you would like to add your model to the official leaderboard.
 
-For the current committed benchmark snapshot, see the [Benchmark Leaderboard](leaderboard.md). Contributor setup, test commands, and package checks live in [Contributing](contributing.md).
 
 ## Smallest Useful Run
 
@@ -18,6 +17,7 @@ pixi run python -m tooling.benchmarking.benchmark \
 ```
 
 By default, results are written under `workdir/results/<split>/`.
+The evaluation pipeline strips the default OCR wrapper tag, flattens supported XML-like OCR output, normalizes whitespace and punctuation, and applies additional Arabic normalization for languages with Arabic script (Arabic and Persian).
 
 ## Common Flags
 
@@ -30,27 +30,26 @@ By default, results are written under `workdir/results/<split>/`.
 
 ## Output Files
 
-Each benchmark run writes one result directory. The important files are:
+Each benchmark run writes one result directory. The directory contains two JSON files:
 
 - `outputs.json`: one row per evaluated page with the raw predicted text, gold text, and page-level metrics
 - `all_metrics.json`: aggregate metrics grouped across the full run, by main language, by document type, and by the language/type combination
 
-`outputs.json` stores page-level metric values as raw fractions. `all_metrics.json` converts aggregate values to percentages and rounds them to one decimal place. The evaluation pipeline strips the default OCR wrapper tag, flattens supported XML-like OCR output, normalizes whitespace and punctuation, and applies additional Arabic normalization for Arabic and Persian examples.
 
 ## Filtering And Slicing
 
-Subset filters are applied before offset and limit:
+You can run benchmarks on subsets of the data by combining `--language`, `--document-type`, `--offset`, and `--input-size`. The filters are applied in the following order:
 
 - `--language` filters on `main_language`
 - `--document-type` filters on `document_type`
 - `--offset` skips rows after filtering
 - `--input-size` limits rows after filtering and offset
 
-That means `--language Arabic --offset 100 --input-size 50` selects rows 101 to 150 from the Arabic-only subset, not from the full split.
+That means for example `--language Arabic --offset 100 --input-size 50` selects rows 101 to 150 from the Arabic-only subset, not from the full split.
 
 ## Example Commands
 
-If you want to benchmark a vLLM-served model, run vLLM separately and point `--backend openai-compatible` at its OpenAI-compatible endpoint. See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html).
+If you want to benchmark a model using vLLM, run a vLLM server separately and point `--backend openai-compatible` at its OpenAI-compatible endpoint. See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html).
 
 | Model | Model ID | Backend | Full command |
 | --- | --- | --- | --- |
