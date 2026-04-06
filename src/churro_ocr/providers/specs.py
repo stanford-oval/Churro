@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-import re
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from PIL import Image
@@ -68,9 +68,7 @@ def validate_mistral_ocr_model(
     if model is None:
         raise ConfigurationError(f"{context} requires `model` to be one of: {supported_models}.")
     if model not in MISTRAL_OCR_MODEL_IDS:
-        raise ConfigurationError(
-            f"{context} only supports `model` values {supported_models}; got {model!r}."
-        )
+        raise ConfigurationError(f"{context} only supports `model` values {supported_models}; got {model!r}.")
     return cast(MistralOCRModel, model)
 
 
