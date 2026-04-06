@@ -27,6 +27,14 @@ def sample_image_path(write_image_file) -> Path:
         ),
         (["--backend", "azure"], ("--endpoint and --api-key are required for backend=azure",)),
         (["--backend", "mistral"], ("--api-key is required for backend=mistral",)),
+        (
+            ["--backend", "mistral", "--api-key", "secret"],
+            ("--model is required for backend=mistral", "mistral-ocr-2505", "mistral-ocr-2512"),
+        ),
+        (
+            ["--backend", "mistral", "--api-key", "secret", "--model", "mistral-ocr-latest"],
+            ("must be one of", "mistral-ocr-2505", "mistral-ocr-2512"),
+        ),
         (["--backend", "hf"], ("--model is required for backend=hf",)),
     ],
 )

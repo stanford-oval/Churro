@@ -103,6 +103,31 @@ def test_validate_options_requires_model_for_hf() -> None:
     assert benchmark._validate_options(options) == 1
 
 
+def test_validate_options_requires_pinned_model_for_mistral() -> None:
+    missing_model = benchmark.BenchmarkOptions(
+        backend="mistral",
+        model=None,
+        dataset_split="dev",
+        api_key="secret",
+    )
+    alias_model = benchmark.BenchmarkOptions(
+        backend="mistral",
+        model="mistral-ocr-latest",
+        dataset_split="dev",
+        api_key="secret",
+    )
+    pinned_model = benchmark.BenchmarkOptions(
+        backend="mistral",
+        model="mistral-ocr-2512",
+        dataset_split="dev",
+        api_key="secret",
+    )
+
+    assert benchmark._validate_options(missing_model) == 1
+    assert benchmark._validate_options(alias_model) == 1
+    assert benchmark._validate_options(pinned_model) == 0
+
+
 def test_validate_options_allows_openai_compatible_without_api_key() -> None:
     options = benchmark.BenchmarkOptions(
         backend="openai-compatible",

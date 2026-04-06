@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import typer
 from PIL import Image
 
 import churro_ocr.cli as cli_module
@@ -138,6 +139,31 @@ def test_build_ocr_backend_aligns_templates_for_generic_models() -> None:
     assert f"</{DEFAULT_OCR_OUTPUT_TAG}>" in litellm_backend.template.system_message
     assert f"<{DEFAULT_OCR_OUTPUT_TAG}>" in litellm_backend.template.user_prompt
     assert f"</{DEFAULT_OCR_OUTPUT_TAG}>" in litellm_backend.template.user_prompt
+
+
+def test_build_ocr_backend_requires_pinned_mistral_model() -> None:
+    with pytest.raises(typer.BadParameter, match="mistral-ocr-2505, mistral-ocr-2512"):
+        cli_module._build_ocr_backend(
+            backend="mistral",
+            model="mistral-ocr-latest",
+            endpoint=None,
+            api_key="secret",
+            base_url=None,
+            api_version=None,
+        )
+
+
+def test_build_ocr_backend_accepts_pinned_mistral_model() -> None:
+    mistral_backend = cli_module._build_ocr_backend(
+        backend="mistral",
+        model="mistral-ocr-2512",
+        endpoint=None,
+        api_key="secret",
+        base_url=None,
+        api_version=None,
+    )
+
+    assert mistral_backend.model == "mistral-ocr-2512"
 
 
 def test_build_ocr_backend_aligns_templates_for_dots() -> None:

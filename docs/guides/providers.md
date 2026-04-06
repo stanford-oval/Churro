@@ -97,7 +97,7 @@ from churro_ocr.providers import MistralOptions, OCRBackendSpec, build_ocr_backe
 backend = build_ocr_backend(
     OCRBackendSpec(
         provider="mistral",
-        model="mistral-ocr-latest",
+        model="mistral-ocr-2512",
         options=MistralOptions(api_key="<mistral-api-key>"),
     )
 )
@@ -152,7 +152,7 @@ Built-in model-specific profiles are resolved automatically for known models suc
 | Field | Meaning |
 | --- | --- |
 | `provider` | One of `litellm`, `openai-compatible`, `azure`, `mistral`, or `hf`. |
-| `model` | Required for `litellm`, `openai-compatible`, and `hf`. Optional for `azure`. Defaults to `mistral-ocr-latest` when omitted for `mistral`. |
+| `model` | Required for `litellm`, `openai-compatible`, `mistral`, and `hf`. Optional for `azure`. For `mistral`, use one of `mistral-ocr-2505` or `mistral-ocr-2512`. |
 | `profile` | `None`, a built-in profile name, or a custom `OCRModelProfile`. |
 | `transport` | Shared request transport config for LiteLLM-based providers. |
 | `options` | Provider-specific dataclass matching `provider`. |
@@ -165,7 +165,7 @@ Built-in model-specific profiles are resolved automatically for known models suc
 | `OpenAICompatibleOptions` | `openai-compatible` | None | Use `model_prefix` when your local server expects a provider prefix. |
 | `HuggingFaceOptions` | `hf` | None | Carries runtime, processor, generation, and template options. |
 | `AzureDocumentIntelligenceOptions` | `azure` | `endpoint`, `api_key` | `model` is optional for Azure OCR in `OCRBackendSpec`. |
-| `MistralOptions` | `mistral` | `api_key` | `model` defaults to `mistral-ocr-latest` when omitted. |
+| `MistralOptions` | `mistral` | `api_key` | `model` is required and must be `mistral-ocr-2505` or `mistral-ocr-2512`. |
 
 ## Advanced Customization
 

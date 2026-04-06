@@ -24,10 +24,15 @@ from churro_ocr.providers import (
     OpenAICompatibleOptions,
     build_ocr_backend,
 )
+from churro_ocr.providers.specs import MISTRAL_OCR_MODEL_IDS, validate_mistral_ocr_model
 
 app = typer.Typer(help="churro-ocr library-first CLI")
 
 _INSTALL_TARGET_METAVAR = "{" + "|".join(INSTALL_TARGETS) + "}"
+_MISTRAL_MODEL_OPTION_ERROR = (
+    "--model is required for backend=mistral and must be one of: "
+    + ", ".join(MISTRAL_OCR_MODEL_IDS)
+)
 
 
 def _build_ocr_backend(
@@ -84,10 +89,14 @@ def _build_ocr_backend(
     if backend == "mistral":
         if not api_key:
             raise typer.BadParameter("--api-key is required for backend=mistral")
+        try:
+            mistral_model = validate_mistral_ocr_model(model)
+        except ConfigurationError as exc:
+            raise typer.BadParameter(_MISTRAL_MODEL_OPTION_ERROR) from exc
         return build_ocr_backend(
             OCRBackendSpec(
                 provider="mistral",
-                model=model or "mistral-ocr-latest",
+                model=mistral_model,
                 options=MistralOptions(api_key=api_key),
             )
         )

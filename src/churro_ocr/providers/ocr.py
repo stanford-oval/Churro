@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 from dataclasses import dataclass, field
 from io import BytesIO
 from threading import Lock
@@ -24,12 +25,20 @@ from churro_ocr.providers.specs import (
     TextPostprocessor,
     default_ocr_image_preprocessor,
     identity_text_postprocessor,
+    validate_mistral_ocr_model,
 )
 from churro_ocr.templates import (
     DEFAULT_OCR_TEMPLATE,
     OCRPromptTemplateLike,
     build_ocr_conversation,
 )
+
+logger = logging.getLogger(__name__)
+_MISTRAL_TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504, 520, 521, 522, 524})
+_MISTRAL_MAX_ATTEMPTS = 6
+_MISTRAL_INITIAL_BACKOFF_SECONDS = 1.0
+_MISTRAL_MAX_BACKOFF_SECONDS = 16.0
+_MISTRAL_REQUEST_TIMEOUT_SECONDS = 60.0
 
 
 def _with_default_ocr_completion_kwargs(config: LiteLLMTransportConfig) -> LiteLLMTransportConfig:
@@ -44,6 +53,30 @@ def _with_default_ocr_completion_kwargs(config: LiteLLMTransportConfig) -> LiteL
         image_detail=config.image_detail,
         completion_kwargs=completion_kwargs,
         cache_dir=config.cache_dir,
+    )
+
+
+def _is_retryable_mistral_error(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code in _MISTRAL_TRANSIENT_STATUS_CODES
+    return exc.__class__.__module__.startswith("httpx") or isinstance(exc, TimeoutError)
+
+
+def _get_mistral_retry_delay_seconds(exc: Exception, attempt: int) -> float:
+    headers = getattr(exc, "headers", None)
+    if headers is None:
+        raw_response = getattr(exc, "raw_response", None)
+        headers = getattr(raw_response, "headers", None)
+    retry_after = headers.get("retry-after") if hasattr(headers, "get") else None
+    if retry_after is not None:
+        try:
+            return max(0.0, float(retry_after))
+        except (TypeError, ValueError):
+            pass
+    return min(
+        _MISTRAL_INITIAL_BACKOFF_SECONDS * (2 ** (attempt - 1)),
+        _MISTRAL_MAX_BACKOFF_SECONDS,
     )
 
 
@@ -241,14 +274,14 @@ class MistralOCRBackend(OCRBackend):
     """Mistral OCR backend.
 
     :param api_key: Mistral API key used for OCR requests.
-    :param model: Mistral OCR model identifier.
+    :param model: Pinned Mistral OCR model identifier.
     :param model_name: Optional human-readable model name for result metadata.
     :param image_preprocessor: Image preprocessor applied before OCR.
     :param text_postprocessor: Text postprocessor applied after OCR.
     """
 
     api_key: str
-    model: str = "mistral-ocr-latest"
+    model: str
     model_name: str | None = None
     image_preprocessor: ImagePreprocessor = default_ocr_image_preprocessor
     text_postprocessor: TextPostprocessor = identity_text_postprocessor
@@ -256,6 +289,10 @@ class MistralOCRBackend(OCRBackend):
     _client_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
     _has_logged_prompt: bool = field(default=False, init=False, repr=False)
     _prompt_log_lock: Lock = field(default_factory=Lock, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Reject unsupported Mistral OCR aliases and unpinned model ids."""
+        validate_mistral_ocr_model(self.model, context="Mistral OCR backend")
 
     async def _get_client(self) -> Any:
         client = self._client
@@ -302,10 +339,34 @@ class MistralOCRBackend(OCRBackend):
             set_logged=lambda: setattr(self, "_has_logged_prompt", True),
         )
         client = await self._get_client()
-        response = await client.ocr.process_async(
-            model=self.model,
-            document={"type": "image_url", "image_url": image_url},
-        )
+        document = {"type": "image_url", "image_url": image_url}
+        response: Any | None = None
+        for attempt in range(1, _MISTRAL_MAX_ATTEMPTS + 1):
+            try:
+                response = await asyncio.wait_for(
+                    client.ocr.process_async(
+                        model=self.model,
+                        document=document,
+                    ),
+                    timeout=_MISTRAL_REQUEST_TIMEOUT_SECONDS,
+                )
+                break
+            except Exception as exc:
+                if attempt >= _MISTRAL_MAX_ATTEMPTS or not _is_retryable_mistral_error(exc):
+                    raise
+                delay_seconds = _get_mistral_retry_delay_seconds(exc, attempt)
+                logger.warning(
+                    "Transient Mistral OCR failure for model %s "
+                    "(status=%s, attempt=%s/%s); retrying in %.1fs.",
+                    self.model,
+                    getattr(exc, "status_code", "unknown"),
+                    attempt,
+                    _MISTRAL_MAX_ATTEMPTS,
+                    delay_seconds,
+                )
+                await asyncio.sleep(delay_seconds)
+        if response is None:  # pragma: no cover - loop exits early via exception
+            raise ProviderError("Mistral OCR request failed before a response was returned.")
         if not response.pages:
             raise ProviderError("Mistral OCR returned no pages.")
         return build_ocr_result(

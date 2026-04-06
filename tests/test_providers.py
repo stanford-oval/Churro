@@ -312,7 +312,7 @@ async def test_mistral_ocr_backend_reuses_client(monkeypatch: pytest.MonkeyPatch
     class FakeOCRNamespace:
         async def process_async(self, *, model: str, document: dict[str, str]) -> SimpleNamespace:
             calls["requests"] += 1
-            assert model == "mistral-ocr-latest"
+            assert model == "mistral-ocr-2512"
             assert document == {
                 "type": "image_url",
                 "image_url": "data:image/jpeg;base64,encoded-image",
@@ -345,6 +345,7 @@ async def test_mistral_ocr_backend_reuses_client(monkeypatch: pytest.MonkeyPatch
         build_ocr_backend(
             OCRBackendSpec(
                 provider="mistral",
+                model="mistral-ocr-2512",
                 options=MistralOptions(api_key="secret"),
             )
         ),
@@ -357,6 +358,220 @@ async def test_mistral_ocr_backend_reuses_client(monkeypatch: pytest.MonkeyPatch
     assert first.text == "mistral text"
     assert second.text == "mistral text"
     assert calls == {"client_inits": 1, "requests": 2}
+
+
+@pytest.mark.asyncio
+async def test_mistral_ocr_backend_retries_transient_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"client_inits": 0, "requests": 0}
+    image = Image.new("RGB", (10, 10), color="white")
+    sleep_calls: list[float] = []
+
+    class FakeMistralError(Exception):
+        def __init__(self, status_code: int, headers: dict[str, str] | None = None) -> None:
+            self.status_code = status_code
+            self.headers = headers or {}
+            self.raw_response = SimpleNamespace(headers=self.headers)
+            super().__init__(f"Status {status_code}")
+
+    class FakeOCRNamespace:
+        async def process_async(self, *, model: str, document: dict[str, str]) -> SimpleNamespace:
+            calls["requests"] += 1
+            assert model == "mistral-ocr-2512"
+            assert document == {
+                "type": "image_url",
+                "image_url": "data:image/jpeg;base64,encoded-image",
+            }
+            if calls["requests"] < 3:
+                raise FakeMistralError(520)
+            return SimpleNamespace(pages=[SimpleNamespace(markdown="mistral text")])
+
+    class FakeMistralClient:
+        def __init__(self, *, api_key: str) -> None:
+            calls["client_inits"] += 1
+            assert api_key == "secret"
+            self.ocr = FakeOCRNamespace()
+
+    async def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    mistral_module = ModuleType("mistralai")
+    cast("Any", mistral_module).Mistral = FakeMistralClient
+    monkeypatch.setitem(sys.modules, "mistralai", mistral_module)
+    monkeypatch.setattr(
+        "churro_ocr.providers.ocr.image_to_base64",
+        lambda actual_image, format_name: (
+            (
+                "image/jpeg",
+                "encoded-image",
+            )
+            if actual_image.size == image.size and actual_image.mode == "RGB" and format_name == "JPEG"
+            else ("", "")
+        ),
+    )
+    monkeypatch.setattr("churro_ocr.providers.ocr.asyncio.sleep", _fake_sleep)
+
+    backend = cast(
+        "MistralOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="mistral",
+                model="mistral-ocr-2512",
+                options=MistralOptions(api_key="secret"),
+            )
+        ),
+    )
+    page = DocumentPage(page_index=0, image=image, source_index=0)
+
+    result = await backend.ocr(page)
+
+    assert result.text == "mistral text"
+    assert calls == {"client_inits": 1, "requests": 3}
+    assert sleep_calls == [1.0, 2.0]
+
+
+@pytest.mark.asyncio
+async def test_mistral_ocr_backend_retries_request_timeouts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"client_inits": 0, "requests": 0, "wait_for": 0}
+    image = Image.new("RGB", (10, 10), color="white")
+    sleep_calls: list[float] = []
+
+    class FakeOCRNamespace:
+        async def process_async(self, *, model: str, document: dict[str, str]) -> SimpleNamespace:
+            calls["requests"] += 1
+            assert model == "mistral-ocr-2512"
+            assert document == {
+                "type": "image_url",
+                "image_url": "data:image/jpeg;base64,encoded-image",
+            }
+            return SimpleNamespace(pages=[SimpleNamespace(markdown="mistral text")])
+
+    class FakeMistralClient:
+        def __init__(self, *, api_key: str) -> None:
+            calls["client_inits"] += 1
+            assert api_key == "secret"
+            self.ocr = FakeOCRNamespace()
+
+    async def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    async def _fake_wait_for(awaitable: Any, **kwargs: float) -> Any:
+        calls["wait_for"] += 1
+        timeout = kwargs["timeout"]
+        assert timeout == 60.0
+        if calls["wait_for"] == 1:
+            close = getattr(awaitable, "close", None)
+            if callable(close):
+                close()
+            raise TimeoutError
+        return await awaitable
+
+    mistral_module = ModuleType("mistralai")
+    cast("Any", mistral_module).Mistral = FakeMistralClient
+    monkeypatch.setitem(sys.modules, "mistralai", mistral_module)
+    monkeypatch.setattr(
+        "churro_ocr.providers.ocr.image_to_base64",
+        lambda actual_image, format_name: (
+            (
+                "image/jpeg",
+                "encoded-image",
+            )
+            if actual_image.size == image.size and actual_image.mode == "RGB" and format_name == "JPEG"
+            else ("", "")
+        ),
+    )
+    monkeypatch.setattr("churro_ocr.providers.ocr.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr("churro_ocr.providers.ocr.asyncio.wait_for", _fake_wait_for)
+
+    backend = cast(
+        "MistralOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="mistral",
+                model="mistral-ocr-2512",
+                options=MistralOptions(api_key="secret"),
+            )
+        ),
+    )
+    page = DocumentPage(page_index=0, image=image, source_index=0)
+
+    result = await backend.ocr(page)
+
+    assert result.text == "mistral text"
+    assert calls == {"client_inits": 1, "requests": 1, "wait_for": 2}
+    assert sleep_calls == [1.0]
+
+
+@pytest.mark.asyncio
+async def test_mistral_ocr_backend_does_not_retry_non_transient_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"client_inits": 0, "requests": 0}
+    image = Image.new("RGB", (10, 10), color="white")
+    sleep_calls: list[float] = []
+
+    class FakeMistralError(Exception):
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+            self.headers: dict[str, str] = {}
+            self.raw_response = SimpleNamespace(headers=self.headers)
+            super().__init__(f"Status {status_code}")
+
+    class FakeOCRNamespace:
+        async def process_async(self, *, model: str, document: dict[str, str]) -> SimpleNamespace:
+            calls["requests"] += 1
+            assert model == "mistral-ocr-2505"
+            assert document == {
+                "type": "image_url",
+                "image_url": "data:image/jpeg;base64,encoded-image",
+            }
+            raise FakeMistralError(400)
+
+    class FakeMistralClient:
+        def __init__(self, *, api_key: str) -> None:
+            calls["client_inits"] += 1
+            assert api_key == "secret"
+            self.ocr = FakeOCRNamespace()
+
+    async def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    mistral_module = ModuleType("mistralai")
+    cast("Any", mistral_module).Mistral = FakeMistralClient
+    monkeypatch.setitem(sys.modules, "mistralai", mistral_module)
+    monkeypatch.setattr(
+        "churro_ocr.providers.ocr.image_to_base64",
+        lambda actual_image, format_name: (
+            (
+                "image/jpeg",
+                "encoded-image",
+            )
+            if actual_image.size == image.size and actual_image.mode == "RGB" and format_name == "JPEG"
+            else ("", "")
+        ),
+    )
+    monkeypatch.setattr("churro_ocr.providers.ocr.asyncio.sleep", _fake_sleep)
+
+    backend = cast(
+        "MistralOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="mistral",
+                model="mistral-ocr-2505",
+                options=MistralOptions(api_key="secret"),
+            )
+        ),
+    )
+    page = DocumentPage(page_index=0, image=image, source_index=0)
+
+    with pytest.raises(FakeMistralError, match="Status 400"):
+        await backend.ocr(page)
+
+    assert calls == {"client_inits": 1, "requests": 1}
+    assert sleep_calls == []
 
 
 def test_build_ocr_backend_uses_olmocr_profile_defaults_for_openai_compatible() -> None:

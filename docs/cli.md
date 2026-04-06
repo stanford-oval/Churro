@@ -88,7 +88,7 @@ churro-ocr extract-pages \
 | `litellm` | `--model` | Uses LiteLLM credentials and routing. `--base-url`, `--api-key`, and `--api-version` are optional transport overrides. |
 | `openai-compatible` | `--model`, `--base-url` | For local or self-hosted OpenAI-style servers. `--api-key` is optional. |
 | `azure` | `--endpoint`, `--api-key` | `--model` is optional. |
-| `mistral` | `--api-key` | `--model` defaults to `mistral-ocr-latest`. |
+| `mistral` | `--api-key`, `--model` | `--model` must be either `mistral-ocr-2505` or `mistral-ocr-2512`. |
 | `hf` | `--model` | Local Transformers OCR. |
 
 ### `extract-pages` Detectors

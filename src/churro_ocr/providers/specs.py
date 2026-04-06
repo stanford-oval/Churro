@@ -6,11 +6,12 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from PIL import Image
 
 from churro_ocr._internal.image import ensure_rgb, prepare_ocr_image, resize_image_to_fit
+from churro_ocr.errors import ConfigurationError
 from churro_ocr.prompts import (
     DEFAULT_OCR_OUTPUT_TAG,
     parse_chandra_response,
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
 
 
 OCRProvider = Literal["litellm", "openai-compatible", "azure", "mistral", "hf"]
+MistralOCRModel = Literal["mistral-ocr-2505", "mistral-ocr-2512"]
 ImagePreprocessor = Callable[[Image.Image], Image.Image]
 TextPostprocessorResult = str | tuple[str, dict[str, Any]]
 TextPostprocessor = Callable[[str], TextPostprocessorResult]
@@ -50,6 +52,26 @@ CHANDRA_MAX_IMAGE_SIZE = (3_072, 2_048)
 CHANDRA_MIN_IMAGE_SIZE = (1_792, 28)
 CHANDRA_IMAGE_GRID_SIZE = 28
 OLMOCR_TARGET_LONGEST_IMAGE_DIM = 1_288
+MISTRAL_OCR_MODEL_IDS: tuple[MistralOCRModel, ...] = (
+    "mistral-ocr-2505",
+    "mistral-ocr-2512",
+)
+
+
+def validate_mistral_ocr_model(
+    model: str | None,
+    *,
+    context: str = "OCR provider 'mistral'",
+) -> MistralOCRModel:
+    """Return a supported pinned Mistral OCR model id or raise a configuration error."""
+    supported_models = ", ".join(MISTRAL_OCR_MODEL_IDS)
+    if model is None:
+        raise ConfigurationError(f"{context} requires `model` to be one of: {supported_models}.")
+    if model not in MISTRAL_OCR_MODEL_IDS:
+        raise ConfigurationError(
+            f"{context} only supports `model` values {supported_models}; got {model!r}."
+        )
+    return cast(MistralOCRModel, model)
 
 
 def identity_text_postprocessor(text: str) -> str:
@@ -499,6 +521,8 @@ __all__ = [
     "lfm2_5_vl_1_6b_profile",
     "ImagePreprocessor",
     "LiteLLMTransportConfig",
+    "MistralOCRModel",
+    "MISTRAL_OCR_MODEL_IDS",
     "MistralOptions",
     "olmocr_image_preprocessor",
     "olmocr_text_postprocessor",
@@ -508,5 +532,6 @@ __all__ = [
     "OpenAICompatibleOptions",
     "resolve_ocr_profile",
     "TextPostprocessor",
+    "validate_mistral_ocr_model",
     "VisionInputBuilder",
 ]

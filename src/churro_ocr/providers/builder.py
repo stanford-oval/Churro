@@ -27,6 +27,7 @@ from churro_ocr.providers.specs import (
     OCRModelProfile,
     OpenAICompatibleOptions,
     resolve_ocr_profile,
+    validate_mistral_ocr_model,
 )
 
 
@@ -204,7 +205,7 @@ def _build_mistral_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -> OC
     options = _ensure_options_type(spec.options, MistralOptions, provider=spec.provider)
     if options is None or not options.api_key:
         raise ConfigurationError("OCR provider 'mistral' requires MistralOptions(api_key=...).")
-    model = spec.model or "mistral-ocr-latest"
+    model = validate_mistral_ocr_model(spec.model)
     return MistralOCRBackend(
         api_key=options.api_key,
         model=model,

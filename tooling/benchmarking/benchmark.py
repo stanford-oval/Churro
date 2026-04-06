@@ -22,6 +22,7 @@ if _REPO_SRC_PATH_STR in sys.path:
 sys.path.insert(0, _REPO_SRC_PATH_STR)
 
 from churro_ocr._internal.logging import logger
+from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import BatchOCRBackend, OCRBackend, OCRBackendLike
 from churro_ocr.page_detection import DocumentPage
 from churro_ocr.providers import (
@@ -33,6 +34,7 @@ from churro_ocr.providers import (
     OCRBackendSpec,
     OpenAICompatibleOptions,
 )
+from churro_ocr.providers.specs import MISTRAL_OCR_MODEL_IDS, validate_mistral_ocr_model
 from tooling.benchmarking.dataset import (
     DatasetSelection,
     DatasetSubset,
@@ -150,9 +152,18 @@ def _validate_options(options: BenchmarkOptions) -> int:
     if options.backend == "azure" and (not options.endpoint or not options.api_key):
         logger.error("--endpoint and --api-key are required for backend=azure.")
         return 1
-    if options.backend == "mistral" and not options.api_key:
-        logger.error("--api-key is required for backend=mistral.")
-        return 1
+    if options.backend == "mistral":
+        if not options.api_key:
+            logger.error("--api-key is required for backend=mistral.")
+            return 1
+        try:
+            validate_mistral_ocr_model(options.model)
+        except ConfigurationError:
+            logger.error(
+                "--model is required for backend=mistral and must be one of: %s.",
+                ", ".join(MISTRAL_OCR_MODEL_IDS),
+            )
+            return 1
     return 0
 
 
@@ -247,10 +258,12 @@ def _build_ocr_backend(options: BenchmarkOptions) -> OCRBackendLike:
             )
         )
     assert options.api_key is not None
+    assert options.model is not None
+    mistral_model = validate_mistral_ocr_model(options.model)
     return build_ocr_backend(
         OCRBackendSpec(
             provider="mistral",
-            model=options.model or "mistral-ocr-latest",
+            model=mistral_model,
             options=MistralOptions(api_key=options.api_key),
         )
     )

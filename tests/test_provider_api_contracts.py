@@ -70,6 +70,24 @@ def test_provider_dir_lists_lazy_exports() -> None:
         ),
         (
             OCRBackendSpec(
+                provider="mistral",
+                options=MistralOptions(api_key="secret"),
+            ),
+            "OCR provider 'mistral' requires `model` to be one of: mistral-ocr-2505, mistral-ocr-2512.",
+        ),
+        (
+            OCRBackendSpec(
+                provider="mistral",
+                model="mistral-ocr-latest",
+                options=MistralOptions(api_key="secret"),
+            ),
+            (
+                "OCR provider 'mistral' only supports `model` values mistral-ocr-2505, "
+                "mistral-ocr-2512; got 'mistral-ocr-latest'."
+            ),
+        ),
+        (
+            OCRBackendSpec(
                 provider="hf",
                 model="example/model",
                 options=cast("Any", OpenAICompatibleOptions()),
@@ -135,6 +153,7 @@ def test_build_ocr_backend_accepts_provider_specific_options() -> None:
     mistral_backend = build_ocr_backend(
         OCRBackendSpec(
             provider="mistral",
+            model="mistral-ocr-2512",
             options=MistralOptions(api_key="secret"),
         )
     )
@@ -143,4 +162,4 @@ def test_build_ocr_backend_accepts_provider_specific_options() -> None:
     assert isinstance(mistral_backend, MistralOCRBackend)
     assert azure_backend.model_id == "layout-model"
     assert azure_backend.model_name == "layout-model"
-    assert mistral_backend.model == "mistral-ocr-latest"
+    assert mistral_backend.model == "mistral-ocr-2512"
