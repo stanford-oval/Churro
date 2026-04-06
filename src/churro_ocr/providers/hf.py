@@ -35,6 +35,8 @@ from churro_ocr.templates import (
     CHURRO_3B_XML_TEMPLATE,
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    LFM2_5_VL_1_6B_MODEL_ID,
+    LFM2_5_VL_1_6B_OCR_TEMPLATE,
     OCRConversation,
     OCRPromptTemplateLike,
 )
@@ -662,9 +664,141 @@ class DotsOCR15OCRBackend(HuggingFaceVisionOCRBackend):
         return self._model
 
 
+@dataclass(slots=True)
+class LFM25VLOCRBackend(HuggingFaceVisionOCRBackend):
+    """Preset OCR backend for ``LiquidAI/LFM2.5-VL-1.6B``."""
+
+    model_id: str = LFM2_5_VL_1_6B_MODEL_ID
+    template: OCRPromptTemplateLike = LFM2_5_VL_1_6B_OCR_TEMPLATE
+    model_name: str | None = "LFM2.5-VL-1.6B"
+    _has_tied_lm_head: bool = field(default=False, init=False, repr=False)
+
+    def _get_processor(self, runtime: _HFRuntime) -> Any:
+        processor = super()._get_processor(runtime)
+        tokenizer = getattr(processor, "tokenizer", None)
+        if tokenizer is not None and getattr(tokenizer, "padding_side", None) != "left":
+            tokenizer.padding_side = "left"
+        return processor
+
+    def _get_model(self, runtime: _HFRuntime) -> Any:
+        model = super()._get_model(runtime)
+        if self._has_tied_lm_head:
+            return model
+
+        with self._init_lock:
+            if self._has_tied_lm_head:
+                return model
+            lm_head = getattr(model, "lm_head", None)
+            get_input_embeddings = getattr(model, "get_input_embeddings", None)
+            if lm_head is None or not callable(get_input_embeddings):
+                self._has_tied_lm_head = True
+                return model
+            input_embeddings = get_input_embeddings()
+            weight = getattr(input_embeddings, "weight", None)
+            if weight is not None:
+                lm_head.weight = weight
+            self._has_tied_lm_head = True
+        return model
+
+    def _build_lfm_batch(
+        self,
+        processor: Any,
+        conversations: OCRConversation | list[OCRConversation],
+        *,
+        padding: bool,
+    ) -> Any:
+        processor_apply = getattr(processor, "apply_chat_template", None)
+        if not callable(processor_apply):
+            raise ConfigurationError(
+                "Liquid LFM2.5-VL requires `processor.apply_chat_template(...)` support."
+            )
+        return processor_apply(
+            conversations,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+            padding=padding,
+        )
+
+    def _ocr_sync(self, page: DocumentPage) -> OCRResult:
+        prepared_page = preprocess_backend_page(
+            page,
+            image_preprocessor=self.image_preprocessor,
+        )
+        runtime = self._load_runtime()
+        processor = self._get_processor(runtime)
+        model = self._get_model(runtime)
+
+        rendered, conversation = render_ocr_prompt(
+            processor,
+            self.template,
+            prepared_page,
+            add_generation_prompt=True,
+        )
+        self._log_prompt_payload(
+            rendered_prompt=rendered,
+            conversation=conversation,
+            batch_size=1,
+        )
+        batch = self._build_lfm_batch(processor, conversation, padding=False)
+        batch = _move_batch_to_model(batch, model)
+        generated_ids = model.generate(**batch, **self.generation_kwargs)
+        text = _decode_completion_texts(processor, batch, generated_ids)[0]
+        return build_ocr_result(
+            text,
+            provider_name=self.provider_name,
+            model_name=self.model_name or self.model_id,
+            text_postprocessor=self.text_postprocessor,
+        )
+
+    def _ocr_batch_sync(self, pages: list[DocumentPage]) -> list[OCRResult]:
+        if not pages:
+            return []
+
+        runtime = self._load_runtime()
+        processor = self._get_processor(runtime)
+        model = self._get_model(runtime)
+        conversations: list[OCRConversation] = []
+
+        for page in pages:
+            prepared_page = preprocess_backend_page(
+                page,
+                image_preprocessor=self.image_preprocessor,
+            )
+            rendered, conversation = render_ocr_prompt(
+                processor,
+                self.template,
+                prepared_page,
+                add_generation_prompt=True,
+            )
+            conversations.append(conversation)
+            if not self._has_logged_prompt:
+                self._log_prompt_payload(
+                    rendered_prompt=rendered,
+                    conversation=conversation,
+                    batch_size=len(pages),
+                )
+
+        batch = self._build_lfm_batch(processor, conversations, padding=True)
+        batch = _move_batch_to_model(batch, model)
+        generated_ids = model.generate(**batch, **self.generation_kwargs)
+        texts = _decode_completion_texts(processor, batch, generated_ids)
+        return [
+            build_ocr_result(
+                text,
+                provider_name=self.provider_name,
+                model_name=self.model_name or self.model_id,
+                text_postprocessor=self.text_postprocessor,
+            )
+            for text in texts
+        ]
+
+
 __all__ = [
     "ChandraOCR2OCRBackend",
     "Churro3BOCRBackend",
     "DotsOCR15OCRBackend",
     "HuggingFaceVisionOCRBackend",
+    "LFM25VLOCRBackend",
 ]

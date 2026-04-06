@@ -15,6 +15,7 @@ CHANDRA_OCR_2_MODEL_ID = "datalab-to/chandra-ocr-2"
 DOTS_OCR_1_5_MODEL_ID = "kristaller486/dots.ocr-1.5"
 OLMOCR_2_7B_1025_MODEL_ID = "allenai/olmOCR-2-7B-1025"
 OLMOCR_2_7B_1025_FP8_MODEL_ID = "allenai/olmOCR-2-7B-1025-FP8"
+LFM2_5_VL_1_6B_MODEL_ID = "LiquidAI/LFM2.5-VL-1.6B"
 DEFAULT_OCR_TEMPLATE = HFChatTemplate(
     system_message=DEFAULT_OCR_SYSTEM_PROMPT,
     user_prompt=DEFAULT_OCR_USER_PROMPT,
@@ -38,6 +39,10 @@ OLMOCR_2_7B_1025_OCR_TEMPLATE = HFChatTemplate(
     user_prompt=OLMOCR_V4_YAML_PROMPT,
     user_prompt_first=True,
 )
+LFM2_5_VL_1_6B_OCR_TEMPLATE = HFChatTemplate(
+    system_message=None,
+    user_prompt="Transcribe all visible text from this historical document page in reading order.",
+)
 
 
 __all__ = [
@@ -52,4 +57,6 @@ __all__ = [
     "OLMOCR_2_7B_1025_FP8_MODEL_ID",
     "OLMOCR_2_7B_1025_MODEL_ID",
     "OLMOCR_2_7B_1025_OCR_TEMPLATE",
+    "LFM2_5_VL_1_6B_MODEL_ID",
+    "LFM2_5_VL_1_6B_OCR_TEMPLATE",
 ]

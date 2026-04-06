@@ -9,6 +9,7 @@ from churro_ocr.providers.hf import (
     ChandraOCR2OCRBackend,
     DotsOCR15OCRBackend,
     HuggingFaceVisionOCRBackend,
+    LFM25VLOCRBackend,
     _default_dots_ocr_1_5_model_kwargs,
 )
 from churro_ocr.providers.ocr import (
@@ -166,6 +167,8 @@ def _build_huggingface_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -
         model_kwargs = _merge_mapping(_default_dots_ocr_1_5_model_kwargs(), model_kwargs)
     elif options.backend_variant == "chandra-ocr-2":
         backend_cls = ChandraOCR2OCRBackend
+    elif options.backend_variant == "lfm2.5-vl":
+        backend_cls = LFM25VLOCRBackend
     return backend_cls(
         model_id=spec.model,
         template=profile.template,

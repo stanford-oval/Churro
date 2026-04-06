@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import TYPE_CHECKING, Any, Literal
 
 from PIL import Image
@@ -24,6 +25,8 @@ from churro_ocr.templates import (
     DEFAULT_OCR_TEMPLATE,
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    LFM2_5_VL_1_6B_MODEL_ID,
+    LFM2_5_VL_1_6B_OCR_TEMPLATE,
     OLMOCR_2_7B_1025_FP8_MODEL_ID,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
@@ -76,6 +79,56 @@ def default_ocr_text_postprocessor(text: str) -> str:
     return strip_ocr_output_tag(text, output_tag=DEFAULT_OCR_OUTPUT_TAG)
 
 
+_CHAT_ROLE_PREFIXES = {
+    "assistant",
+    "assistant:",
+    "user",
+    "user:",
+    "system",
+    "system:",
+    "<assistant>",
+    "<user>",
+    "<system>",
+    "<|assistant|>",
+    "<|user|>",
+    "<|system|>",
+}
+
+
+def _strip_leading_chat_scaffold(text: str, *, prompts: Sequence[str]) -> str:
+    """Remove echoed prompts and leading chat role markers from model output."""
+    cleaned = text.strip()
+    if not cleaned:
+        return ""
+
+    normalized_prompts = tuple(prompt.strip() for prompt in prompts if prompt and prompt.strip())
+    for _ in range(8):
+        previous = cleaned
+        lowered = cleaned.casefold()
+        stripped_prompt = False
+        for prompt in normalized_prompts:
+            if lowered.startswith(prompt.casefold()):
+                cleaned = cleaned[len(prompt) :].lstrip()
+                stripped_prompt = True
+                break
+        if stripped_prompt:
+            continue
+
+        lines = cleaned.splitlines()
+        if not lines:
+            return ""
+        first_line = lines[0].strip()
+        if first_line.casefold() in _CHAT_ROLE_PREFIXES:
+            cleaned = "\n".join(lines[1:]).lstrip()
+            continue
+        if re.fullmatch(r"<\|?(?:assistant|user|system)\|?>", first_line, flags=re.IGNORECASE):
+            cleaned = "\n".join(lines[1:]).lstrip()
+            continue
+        if cleaned == previous:
+            break
+    return cleaned.strip()
+
+
 def olmocr_image_preprocessor(image: Image.Image) -> Image.Image:
     """Resize an image to olmOCR's expected 1288px longest side and normalize to RGB."""
     return ensure_rgb(
@@ -90,6 +143,13 @@ def olmocr_image_preprocessor(image: Image.Image) -> Image.Image:
 def olmocr_text_postprocessor(text: str) -> TextPostprocessorResult:
     """Extract plain text and metadata from olmOCR YAML/markdown output."""
     return parse_olmocr_response(text)
+
+
+def lfm2_5_vl_text_postprocessor(text: str) -> str:
+    """Strip Liquid LFM2.5-VL chat scaffold and OCR wrapper tags."""
+    prompt = getattr(LFM2_5_VL_1_6B_OCR_TEMPLATE, "user_prompt", None)
+    cleaned = _strip_leading_chat_scaffold(text, prompts=[prompt] if isinstance(prompt, str) else [])
+    return strip_ocr_output_tag(cleaned, output_tag=DEFAULT_OCR_OUTPUT_TAG)
 
 
 def chandra_image_preprocessor(image: Image.Image) -> Image.Image:
@@ -344,6 +404,24 @@ def _olmocr_profile(*, profile_name: str, display_name: str) -> OCRModelProfile:
     )
 
 
+def lfm2_5_vl_1_6b_profile() -> OCRModelProfile:
+    """Return the built-in ``LiquidAI/LFM2.5-VL-1.6B`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=LFM2_5_VL_1_6B_MODEL_ID,
+        template=LFM2_5_VL_1_6B_OCR_TEMPLATE,
+        text_postprocessor=lfm2_5_vl_text_postprocessor,
+        display_name="LFM2.5-VL-1.6B",
+        huggingface=HuggingFaceOptions(
+            generation_kwargs={
+                "max_new_tokens": 512,
+                "do_sample": False,
+                "repetition_penalty": 1.05,
+            },
+            backend_variant="lfm2.5-vl",
+        ),
+    )
+
+
 def olmocr_2_7b_1025_profile() -> OCRModelProfile:
     """Return the built-in ``allenai/olmOCR-2-7B-1025`` OCR profile."""
     return _olmocr_profile(
@@ -365,6 +443,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
     churro_profile = churro_3b_profile()
     chandra_profile = chandra_ocr_2_profile()
     dots_profile = dots_ocr_1_5_profile()
+    lfm2_5_vl_profile = lfm2_5_vl_1_6b_profile()
     olmocr_profile = olmocr_2_7b_1025_profile()
     olmocr_fp8_profile = olmocr_2_7b_1025_fp8_profile()
     return {
@@ -372,6 +451,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
         churro_profile.profile_name: churro_profile,
         chandra_profile.profile_name: chandra_profile,
         dots_profile.profile_name: dots_profile,
+        lfm2_5_vl_profile.profile_name: lfm2_5_vl_profile,
         olmocr_profile.profile_name: olmocr_profile,
         olmocr_fp8_profile.profile_name: olmocr_fp8_profile,
     }
@@ -415,6 +495,8 @@ __all__ = [
     "default_ocr_text_postprocessor",
     "HuggingFaceOptions",
     "identity_text_postprocessor",
+    "lfm2_5_vl_text_postprocessor",
+    "lfm2_5_vl_1_6b_profile",
     "ImagePreprocessor",
     "LiteLLMTransportConfig",
     "MistralOptions",
