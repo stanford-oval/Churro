@@ -244,16 +244,14 @@ def test_build_ocr_backend_aligns_templates_for_olmocr() -> None:
 def test_install_command_invokes_runtime_installer(
     monkeypatch: pytest.MonkeyPatch,
     cli_runner,
-    tmp_path: Path,
 ) -> None:
     captured: dict[str, object] = {}
 
     def _fake_install_runtime_dependencies(**kwargs: object) -> SimpleNamespace:
         captured.update(kwargs)
         return SimpleNamespace(
-            target="vllm",
+            target="local",
             notes=("runtime ready",),
-            vllm_runtime_dir=tmp_path / "vllm-runtime",
         )
 
     monkeypatch.setattr(
@@ -265,7 +263,7 @@ def test_install_command_invokes_runtime_installer(
         app,
         [
             "install",
-            "vllm",
+            "local",
             "--torch-backend",
             "cu126",
         ],
@@ -273,11 +271,10 @@ def test_install_command_invokes_runtime_installer(
 
     assert result.exit_code == 0
     assert captured == {
-        "target": "vllm",
+        "target": "local",
         "torch_backend": "cu126",
-        "vllm_runtime_dir": None,
     }
-    assert "Installed runtime target: vllm" in result.output
+    assert "Installed runtime target: local" in result.output
     assert "runtime ready" in result.output
 
 
@@ -299,47 +296,6 @@ def test_install_command_surfaces_configuration_errors(
     assert "missing uv" in result.output
 
 
-def test_serve_vllm_command_forwards_extra_args(
-    monkeypatch: pytest.MonkeyPatch,
-    cli_runner,
-    tmp_path: Path,
-) -> None:
-    captured: dict[str, object] = {}
-
-    def _fake_serve_vllm_runtime(**kwargs: object) -> int:
-        captured.update(kwargs)
-        return 0
-
-    monkeypatch.setattr(
-        "churro_ocr.cli.serve_vllm_runtime",
-        _fake_serve_vllm_runtime,
-    )
-
-    result = cli_runner.invoke(
-        app,
-        [
-            "serve-vllm",
-            "--model",
-            "stanford-oval/churro-3B",
-            "--host",
-            "0.0.0.0",
-            "--port",
-            "9000",
-            "--tensor-parallel-size",
-            "2",
-        ],
-    )
-
-    assert result.exit_code == 0
-    assert captured == {
-        "model": "stanford-oval/churro-3B",
-        "host": "0.0.0.0",
-        "port": 9000,
-        "runtime_dir": None,
-        "extra_args": ("--tensor-parallel-size", "2"),
-    }
-
-
 def test_module_entrypoint_help() -> None:
     result = subprocess.run(
         [sys.executable, "-m", "churro_ocr", "--help"],
@@ -352,7 +308,6 @@ def test_module_entrypoint_help() -> None:
     assert "transcribe" in result.stdout
     assert "extract-pages" in result.stdout
     assert "install" in result.stdout
-    assert "serve-vllm" in result.stdout
 
 
 def test_console_script_help() -> None:
@@ -370,4 +325,3 @@ def test_console_script_help() -> None:
     assert "transcribe" in result.stdout
     assert "extract-pages" in result.stdout
     assert "install" in result.stdout
-    assert "serve-vllm" in result.stdout

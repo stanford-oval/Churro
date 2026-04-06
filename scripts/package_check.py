@@ -35,7 +35,6 @@ EXPECTED_EXTRAS = {
     "local",
     "mistral",
     "pdf",
-    "vllm",
 }
 FORBIDDEN_ARTIFACT_SEGMENTS = ("/tests/", "/tooling/", "/scripts/")
 FORBIDDEN_ARTIFACT_SUFFIXES = ("PYPI_AUDIT.md",)
@@ -146,13 +145,10 @@ def _iter_requirements_for_extra(metadata_message: Message, extra: str) -> list[
 
 def _assert_local_runtime_packaging_policy(metadata_message: Message) -> None:
     disallowed_runtime_reqs: list[str] = []
-    for extra in ("hf", "all"):
+    for extra in EXPECTED_EXTRAS:
         for requirement in _iter_requirements_for_extra(metadata_message, extra):
             normalized_name = requirement.name.replace("_", "-").lower()
-            if extra == "all" and normalized_name == "vllm":
-                disallowed_runtime_reqs.append(f"{extra}:{requirement}")
-                continue
-            if normalized_name in {"torch", "torchvision"}:
+            if normalized_name in {"torch", "torchvision", "vllm"}:
                 disallowed_runtime_reqs.append(f"{extra}:{requirement}")
                 continue
             if normalized_name == "transformers" and "torch" in requirement.extras:
@@ -160,7 +156,7 @@ def _assert_local_runtime_packaging_policy(metadata_message: Message) -> None:
     if disallowed_runtime_reqs:
         formatted = ", ".join(sorted(disallowed_runtime_reqs))
         raise RuntimeError(
-            "PyPI extras for active-environment runtimes must not pin a local PyTorch or vLLM runtime. "
+            "PyPI extras for active-environment runtimes must not pin local PyTorch or vLLM runtimes. "
             f"Found disallowed requirements: {formatted}."
         )
 

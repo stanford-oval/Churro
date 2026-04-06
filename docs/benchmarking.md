@@ -50,7 +50,7 @@ That means `--language Arabic --offset 100 --input-size 50` selects rows 101 to 
 
 ## Example Commands
 
-Start a dedicated local vLLM server separately with `churro-ocr install vllm` and `churro-ocr serve-vllm --model ...`, then point the benchmark runner at `http://127.0.0.1:8000/v1`.
+If you want to benchmark a vLLM-served model, run vLLM separately and point `--backend openai-compatible` at its OpenAI-compatible endpoint. See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html).
 
 | Model | Model ID | Backend | Full command |
 | --- | --- | --- | --- |

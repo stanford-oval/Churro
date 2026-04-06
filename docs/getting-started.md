@@ -26,7 +26,7 @@ Then install the runtime for the backend you plan to use:
 ```bash
 uv run churro-ocr install llm
 uv run churro-ocr install hf
-uv run churro-ocr install vllm
+uv run churro-ocr install local
 ```
 
 If you installed the CLI with `uv tool install churro-ocr`, drop the `uv run` prefix.

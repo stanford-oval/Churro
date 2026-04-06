@@ -32,7 +32,7 @@ def test_license_audit_skips_missing_optional_extra_dependency(monkeypatch: pyte
 
     monkeypatch.setattr(package_check.metadata, "distribution", _always_missing)
 
-    package_check._audit_dependency_licenses(_metadata_message('vllm<1,>=0.18; extra == "vllm"'))
+    package_check._audit_dependency_licenses(_metadata_message('mistralai<2,>=1.6.0; extra == "mistral"'))
 
 
 def test_license_audit_fails_for_missing_base_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -51,12 +51,5 @@ def test_local_runtime_packaging_policy_rejects_direct_torch_runtime_pin() -> No
         'torchvision; extra == "all"',
     )
 
-    with pytest.raises(RuntimeError, match="must not pin a local PyTorch or vLLM runtime"):
-        package_check._assert_local_runtime_packaging_policy(metadata_message)
-
-
-def test_local_runtime_packaging_policy_rejects_vllm_in_all_extra() -> None:
-    metadata_message = _metadata_message('vllm<1,>=0.18; extra == "all"')
-
-    with pytest.raises(RuntimeError, match="must not pin a local PyTorch or vLLM runtime"):
+    with pytest.raises(RuntimeError, match="must not pin local PyTorch"):
         package_check._assert_local_runtime_packaging_policy(metadata_message)

@@ -32,7 +32,7 @@ This page is the source of truth for matching providers to runtime targets.
 | --- | --- | --- |
 | hosted OCR | `litellm` + `vertex_ai/gemini-2.5-flash` | easiest hosted path with the standard builder interface |
 | local OCR | `hf` + `stanford-oval/churro-3B` | first-party local model support in-process |
-| higher-throughput local serving | `openai-compatible` + `serve-vllm` + `stanford-oval/churro-3B` | recommended path when you want a dedicated served local backend |
+| higher-throughput local serving | `openai-compatible` + your own OpenAI-style server | good when you already run a served local backend such as vLLM |
 
 ## Hosted Providers
 
@@ -126,12 +126,7 @@ backend = build_ocr_backend(
 )
 ```
 
-This is also the recommended way to talk to a dedicated vLLM server:
-
-```bash
-uv run churro-ocr install vllm
-uv run churro-ocr serve-vllm --model stanford-oval/churro-3B
-```
+If you want to use vLLM, serve it separately and point this backend at that server's OpenAI-compatible endpoint. See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html).
 
 ### Hugging Face
 

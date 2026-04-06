@@ -145,12 +145,12 @@ def test_parse_args_accepts_subset_filters() -> None:
     assert options.document_type == "print"
 
 
-def test_parse_args_rejects_removed_vllm_backend() -> None:
+def test_parse_args_rejects_unsupported_backend() -> None:
     with pytest.raises(SystemExit):
         benchmark.parse_args(
             [
                 "--backend",
-                "vllm",
+                "unsupported",
                 "--dataset-split",
                 "dev",
                 "--model",

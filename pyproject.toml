@@ -35,9 +35,6 @@ hf = [
     "qwen-vl-utils",
     "transformers>=4.57.0,<5",
 ]
-vllm = [
-    "vllm>=0.18,<1",
-]
 mistral = [
     "mistralai>=1.6.0,<2",
 ]

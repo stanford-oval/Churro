@@ -92,7 +92,7 @@ def test_transcribe_cli_allows_openai_compatible_backend_without_api_key(
     assert spec.transport.api_key is None
 
 
-@pytest.mark.parametrize("backend", ["unsupported", "vllm"])
+@pytest.mark.parametrize("backend", ["unsupported"])
 def test_transcribe_cli_rejects_unsupported_backend(
     sample_image_path: Path,
     backend: str,

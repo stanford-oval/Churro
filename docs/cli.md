@@ -12,7 +12,6 @@ for backend-specific runtime setup.
 | Command | Use it when |
 | --- | --- |
 | `install` | you want Churro to install an optional runtime into the active UV environment |
-| `serve-vllm` | you want to start the dedicated Churro-managed vLLM runtime |
 | `transcribe` | you want OCR text for one image |
 | `extract-pages` | you want page crops from an image or PDF |
 
@@ -23,15 +22,6 @@ for backend-specific runtime setup.
 ```bash
 churro-ocr install hf
 ```
-
-### Install And Serve The Recommended vLLM Runtime
-
-```bash
-churro-ocr install vllm
-churro-ocr serve-vllm --model stanford-oval/churro-3B
-```
-
-Any extra flags after the command are forwarded to `vllm serve`.
 
 ## `transcribe` Examples
 
@@ -53,6 +43,8 @@ churro-ocr transcribe \
   --model local-model \
   --base-url http://127.0.0.1:8000/v1
 ```
+
+For vLLM, serve the model separately with its OpenAI-compatible server and then use this same `openai-compatible` route. See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html).
 
 ## `extract-pages` Examples
 
