@@ -161,6 +161,24 @@
     "handwritten": 41.5165,
     "total": 54.5547
   },
+   {
+    "modelName": "olmOCR 2",
+    "modelId": "allenai/olmOCR-2-7B-1025",
+    "modelUrl": "https://huggingface.co/allenai/olmOCR-2-7B-1025",
+    "hasIcon": false,
+    "printed": 71.1,
+    "handwritten": 44.6,
+    "total": 56.8
+  },
+  {
+    "modelName": "LiquidAI LFM2.5 VL (1.6B)",
+    "modelId": "LiquidAI/LFM2.5-VL-1.6B",
+    "modelUrl": "https://huggingface.co/LiquidAI/LFM2.5-VL-1.6B",
+    "hasIcon": false,
+    "printed": 40.2,
+    "handwritten": 25.5,
+    "total": 32.3
+  },
   {
     "modelName": "Qwen 2.5 VL (3B)",
     "modelId": "Qwen/Qwen2.5-VL-3B-Instruct",
@@ -225,13 +243,22 @@
     "total": 45.5566
   },
   {
-    "modelName": "Mistral OCR",
-    "modelId": null,
+    "modelName": "Mistral OCR 2",
+    "modelId": "mistral-ocr-2505",
     "modelUrl": null,
     "hasIcon": false,
-    "printed": 64.0418,
-    "handwritten": 29.4388,
-    "total": 45.4094
+    "printed": 64.3,
+    "handwritten": 30.4,
+    "total": 46.0
+  },
+    {
+    "modelName": "Mistral OCR 3",
+    "modelId": "mistral-ocr-2512",
+    "modelUrl": null,
+    "hasIcon": false,
+    "printed": 71.5,
+    "handwritten": 47.6,
+    "total": 58.6
   },
   {
     "modelName": "GPT-5",
