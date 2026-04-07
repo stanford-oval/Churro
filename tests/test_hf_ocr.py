@@ -23,6 +23,7 @@ from churro_ocr.providers import OCRBackendSpec, build_ocr_backend
 from churro_ocr.providers.hf import (
     ChandraOCR2OCRBackend,
     Churro3BOCRBackend,
+    DotsMOCROCRBackend,
     DotsOCR15OCRBackend,
     HuggingFaceVisionOCRBackend,
     LFM25VLOCRBackend,
@@ -33,6 +34,9 @@ from churro_ocr.templates import (
     CHANDRA_OCR_2_MODEL_ID,
     CHANDRA_OCR_2_OCR_TEMPLATE,
     CHURRO_3B_XML_TEMPLATE,
+    DOTS_MOCR_MODEL_ID,
+    DOTS_MOCR_OCR_PROMPT,
+    DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_PROMPT,
     DOTS_OCR_1_5_OCR_TEMPLATE,
@@ -231,6 +235,29 @@ def test_build_ocr_backend_uses_paddleocr_vl_profile_defaults_for_hf() -> None:
         "max_new_tokens": 4_096,
         "do_sample": False,
     }
+
+
+def test_build_ocr_backend_uses_dots_mocr_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "DotsMOCROCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=DOTS_MOCR_MODEL_ID,
+            )
+        ),
+    )
+
+    assert isinstance(backend, DotsMOCROCRBackend)
+    assert backend.template == DOTS_MOCR_OCR_TEMPLATE
+    assert backend.model_name == "dots.mocr"
+    assert backend.generation_kwargs == {"max_new_tokens": DEFAULT_OCR_MAX_TOKENS}
+    assert backend.trust_remote_code is True
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs["dtype"] in {"auto", "float32"}
+    if backend.model_kwargs["dtype"] == "auto" and "device_map" in backend.model_kwargs:
+        assert backend.model_kwargs["device_map"] == "auto"
+        assert "max_memory" in backend.model_kwargs
 
 
 @pytest.mark.asyncio
@@ -973,6 +1000,31 @@ def test_dots_ocr_15_backend_uses_expected_defaults() -> None:
         assert backend.model_kwargs["device_map"] == "auto"
         assert "max_memory" in backend.model_kwargs
     assert backend.generation_kwargs == {"max_new_tokens": DEFAULT_OCR_MAX_TOKENS}
+
+
+def test_dots_mocr_backend_uses_expected_defaults() -> None:
+    backend = DotsMOCROCRBackend()
+
+    assert backend.model_id == DOTS_MOCR_MODEL_ID
+    assert backend.template == DOTS_MOCR_OCR_TEMPLATE
+    assert backend.model_name == "dots.mocr"
+    assert backend.trust_remote_code is True
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs["dtype"] in {"auto", "float32"}
+    if backend.model_kwargs["dtype"] == "auto" and "device_map" in backend.model_kwargs:
+        assert backend.model_kwargs["device_map"] == "auto"
+        assert "max_memory" in backend.model_kwargs
+    assert backend.generation_kwargs == {"max_new_tokens": DEFAULT_OCR_MAX_TOKENS}
+
+
+def test_dots_mocr_template_matches_upstream_prompt() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = DOTS_MOCR_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "user"
+    assert conversation[0]["content"][0]["type"] == "image"
+    assert conversation[0]["content"][1]["text"] == DOTS_MOCR_OCR_PROMPT
 
 
 @pytest.mark.asyncio

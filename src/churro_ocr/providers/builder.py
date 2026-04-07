@@ -7,6 +7,7 @@ from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRBackend
 from churro_ocr.providers.hf import (
     ChandraOCR2OCRBackend,
+    DotsMOCROCRBackend,
     DotsOCR15OCRBackend,
     HuggingFaceVisionOCRBackend,
     LFM25VLOCRBackend,
@@ -164,8 +165,10 @@ def _build_huggingface_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -
     )
     backend_cls: type[HuggingFaceVisionOCRBackend] = HuggingFaceVisionOCRBackend
     model_kwargs = dict(options.model_kwargs)
-    if options.backend_variant == "dots-ocr-1.5":
+    if options.backend_variant in {"dots-ocr-1.5", "dots-mocr"}:
         backend_cls = DotsOCR15OCRBackend
+        if options.backend_variant == "dots-mocr":
+            backend_cls = DotsMOCROCRBackend
         model_kwargs = _merge_mapping(_default_dots_ocr_1_5_model_kwargs(), model_kwargs)
     elif options.backend_variant == "chandra-ocr-2":
         backend_cls = ChandraOCR2OCRBackend

@@ -34,6 +34,8 @@ from churro_ocr.templates import (
     CHANDRA_OCR_2_OCR_TEMPLATE,
     CHURRO_3B_MODEL_ID,
     CHURRO_3B_XML_TEMPLATE,
+    DOTS_MOCR_MODEL_ID,
+    DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_TEMPLATE,
     LFM2_5_VL_1_6B_MODEL_ID,
@@ -757,6 +759,15 @@ class DotsOCR15OCRBackend(HuggingFaceVisionOCRBackend):
 
 
 @dataclass(slots=True)
+class DotsMOCROCRBackend(DotsOCR15OCRBackend):
+    """Preset OCR backend for ``rednote-hilab/dots.mocr``."""
+
+    model_id: str = DOTS_MOCR_MODEL_ID
+    template: OCRPromptTemplateLike = DOTS_MOCR_OCR_TEMPLATE
+    model_name: str | None = "dots.mocr"
+
+
+@dataclass(slots=True)
 class PaddleOCRVL15OCRBackend(HuggingFaceVisionOCRBackend):
     """Preset OCR backend for ``PaddlePaddle/PaddleOCR-VL-1.5``."""
 
@@ -1013,6 +1024,7 @@ class LFM25VLOCRBackend(HuggingFaceVisionOCRBackend):
 __all__ = [
     "ChandraOCR2OCRBackend",
     "Churro3BOCRBackend",
+    "DotsMOCROCRBackend",
     "DotsOCR15OCRBackend",
     "HuggingFaceVisionOCRBackend",
     "LFM25VLOCRBackend",

@@ -49,6 +49,7 @@ from churro_ocr.templates import (
     CHANDRA_OCR_2_MODEL_ID,
     CHANDRA_OCR_2_OCR_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
+    DOTS_MOCR_OCR_TEMPLATE,
     OLMOCR_2_7B_1025_FP8_MODEL_ID,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
@@ -790,6 +791,26 @@ def test_build_ocr_backend_uses_paddleocr_vl_profile_defaults_for_openai_compati
     assert backend.model_name == "PaddleOCR-VL-1.5"
     assert backend.transport.config.completion_kwargs == {
         "max_tokens": 4_096,
+        "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_uses_dots_mocr_profile_defaults_for_openai_compatible() -> None:
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model="rednote-hilab/dots.mocr",
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+
+    assert backend.template == DOTS_MOCR_OCR_TEMPLATE
+    assert backend.model_name == "dots.mocr"
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": DEFAULT_OCR_MAX_TOKENS,
         "temperature": 0.0,
     }
 

@@ -145,7 +145,7 @@ backend = build_ocr_backend(
 )
 ```
 
-Built-in model-specific profiles are resolved automatically for known models such as `stanford-oval/churro-3B`, `datalab-to/chandra-ocr-2`, `kristaller486/dots.ocr-1.5`, and the supported `olmOCR` checkpoints.
+Built-in model-specific profiles are resolved automatically for known models such as `stanford-oval/churro-3B`, `datalab-to/chandra-ocr-2`, `kristaller486/dots.ocr-1.5`, `rednote-hilab/dots.mocr`, and the supported `olmOCR` checkpoints.
 
 ## `OCRBackendSpec` Reference
 
@@ -209,6 +209,7 @@ Useful public template exports:
 | `CHURRO_3B_XML_TEMPLATE` | `churro_ocr.templates` | Built-in template for `stanford-oval/churro-3B`. |
 | `CHANDRA_OCR_2_OCR_TEMPLATE` | `churro_ocr.templates` | Built-in template for `datalab-to/chandra-ocr-2`. |
 | `DOTS_OCR_1_5_OCR_TEMPLATE` | `churro_ocr.templates` | Built-in template for `kristaller486/dots.ocr-1.5`. |
+| `DOTS_MOCR_OCR_TEMPLATE` | `churro_ocr.templates` | Built-in template for `rednote-hilab/dots.mocr`. |
 | `OCRPromptTemplate` | `churro_ocr.templates` | Base protocol for custom profile integration. |
 
 Useful public prompt exports:

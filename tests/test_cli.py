@@ -16,10 +16,12 @@ from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRResult
 from churro_ocr.page_detection import DocumentPage, PageDetectionResult
 from churro_ocr.prompts import DEFAULT_OCR_OUTPUT_TAG
+from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
 from churro_ocr.templates import (
     CHANDRA_OCR_2_MODEL_ID,
     CHANDRA_OCR_2_OCR_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
+    DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_OCR_TEMPLATE,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
@@ -205,6 +207,47 @@ def test_build_ocr_backend_aligns_templates_for_dots() -> None:
     }
     assert openai_backend.transport.config.completion_kwargs == {
         "max_tokens": 2_048,
+        "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_aligns_templates_for_dots_mocr() -> None:
+    litellm_backend = cli_module._build_ocr_backend(
+        backend="litellm",
+        model="rednote-hilab/dots.mocr",
+        endpoint=None,
+        api_key=None,
+        base_url=None,
+        api_version=None,
+    )
+    hf_backend = cli_module._build_ocr_backend(
+        backend="hf",
+        model="rednote-hilab/dots.mocr",
+        endpoint=None,
+        api_key=None,
+        base_url=None,
+        api_version=None,
+    )
+    openai_backend = cli_module._build_ocr_backend(
+        backend="openai-compatible",
+        model="rednote-hilab/dots.mocr",
+        endpoint=None,
+        api_key=None,
+        base_url="http://127.0.0.1:8000/v1",
+        api_version=None,
+    )
+
+    assert litellm_backend.template == DOTS_MOCR_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "dots.mocr"
+    assert hf_backend.model_name == "dots.mocr"
+    assert openai_backend.model_name == "dots.mocr"
+    assert litellm_backend.transport.config.completion_kwargs == {
+        "max_tokens": DEFAULT_OCR_MAX_TOKENS,
+        "temperature": 0.0,
+    }
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": DEFAULT_OCR_MAX_TOKENS,
         "temperature": 0.0,
     }
 

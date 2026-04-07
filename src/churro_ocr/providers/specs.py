@@ -24,6 +24,8 @@ from churro_ocr.templates import (
     CHURRO_3B_MODEL_ID,
     CHURRO_3B_XML_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
+    DOTS_MOCR_MODEL_ID,
+    DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_TEMPLATE,
     LFM2_5_VL_1_6B_MODEL_ID,
@@ -416,6 +418,26 @@ def dots_ocr_1_5_profile() -> OCRModelProfile:
     )
 
 
+def dots_mocr_profile() -> OCRModelProfile:
+    """Return the built-in ``rednote-hilab/dots.mocr`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=DOTS_MOCR_MODEL_ID,
+        template=DOTS_MOCR_OCR_TEMPLATE,
+        text_postprocessor=identity_text_postprocessor,
+        display_name="dots.mocr",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": DEFAULT_OCR_MAX_TOKENS,
+                "temperature": 0.0,
+            }
+        ),
+        huggingface=HuggingFaceOptions(
+            trust_remote_code=True,
+            backend_variant="dots-mocr",
+        ),
+    )
+
+
 def paddleocr_vl_1_5_profile() -> OCRModelProfile:
     """Return the built-in ``PaddlePaddle/PaddleOCR-VL-1.5`` OCR profile."""
     return OCRModelProfile(
@@ -500,6 +522,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
     default_profile = default_ocr_profile()
     churro_profile = churro_3b_profile()
     chandra_profile = chandra_ocr_2_profile()
+    dots_mocr = dots_mocr_profile()
     dots_profile = dots_ocr_1_5_profile()
     lfm2_5_vl_profile = lfm2_5_vl_1_6b_profile()
     olmocr_profile = olmocr_2_7b_1025_profile()
@@ -509,6 +532,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
         default_profile.profile_name: default_profile,
         churro_profile.profile_name: churro_profile,
         chandra_profile.profile_name: chandra_profile,
+        dots_mocr.profile_name: dots_mocr,
         dots_profile.profile_name: dots_profile,
         lfm2_5_vl_profile.profile_name: lfm2_5_vl_profile,
         olmocr_profile.profile_name: olmocr_profile,

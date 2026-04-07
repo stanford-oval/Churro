@@ -13,6 +13,7 @@ from churro_ocr.templates.hf import HFChatTemplate
 CHURRO_3B_MODEL_ID = "stanford-oval/churro-3B"
 CHANDRA_OCR_2_MODEL_ID = "datalab-to/chandra-ocr-2"
 DOTS_OCR_1_5_MODEL_ID = "kristaller486/dots.ocr-1.5"
+DOTS_MOCR_MODEL_ID = "rednote-hilab/dots.mocr"
 PADDLEOCR_VL_1_5_MODEL_ID = "PaddlePaddle/PaddleOCR-VL-1.5"
 OLMOCR_2_7B_1025_MODEL_ID = "allenai/olmOCR-2-7B-1025"
 OLMOCR_2_7B_1025_FP8_MODEL_ID = "allenai/olmOCR-2-7B-1025-FP8"
@@ -34,6 +35,11 @@ DOTS_OCR_1_5_OCR_PROMPT = "Extract the text content from this image."
 DOTS_OCR_1_5_OCR_TEMPLATE = HFChatTemplate(
     system_message=None,
     user_prompt=DOTS_OCR_1_5_OCR_PROMPT,
+)
+DOTS_MOCR_OCR_PROMPT = DOTS_OCR_1_5_OCR_PROMPT
+DOTS_MOCR_OCR_TEMPLATE = HFChatTemplate(
+    system_message=None,
+    user_prompt=DOTS_MOCR_OCR_PROMPT,
 )
 PADDLEOCR_VL_1_5_OCR_PROMPT = "OCR:"
 PADDLEOCR_VL_1_5_OCR_TEMPLATE = HFChatTemplate(
@@ -57,6 +63,9 @@ __all__ = [
     "CHANDRA_OCR_2_MODEL_ID",
     "CHANDRA_OCR_2_OCR_TEMPLATE",
     "DEFAULT_OCR_TEMPLATE",
+    "DOTS_MOCR_MODEL_ID",
+    "DOTS_MOCR_OCR_PROMPT",
+    "DOTS_MOCR_OCR_TEMPLATE",
     "DOTS_OCR_1_5_MODEL_ID",
     "DOTS_OCR_1_5_OCR_PROMPT",
     "DOTS_OCR_1_5_OCR_TEMPLATE",
