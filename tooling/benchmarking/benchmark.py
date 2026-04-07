@@ -51,6 +51,8 @@ from tooling.evaluation.types import (
 CHURRO_DATASET_ID = "stanford-oval/churro-dataset"
 VALID_DATASET_SPLITS = {"dev", "test"}
 VALID_OCR_BACKENDS = {"litellm", "openai-compatible", "azure", "mistral", "hf"}
+PROGRESS_BAR_SMOOTHING = 0.05
+PROGRESS_BAR_MININTERVAL_SECONDS = 1.0
 BENCHMARK_DATASET_COLUMNS = (
     "image",
     "cleaned_transcription",
@@ -107,7 +109,7 @@ def build_parser(*, add_help: bool = True) -> argparse.ArgumentParser:
     parser.add_argument("--input-size", type=int, default=0)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, default=None)
-    parser.add_argument("--max-concurrency", type=int, default=32)
+    parser.add_argument("--max-concurrency", type=int, default=16)
     parser.add_argument("--endpoint", default=None)
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--base-url", default=None)
@@ -198,9 +200,21 @@ def _default_litellm_cache_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "workdir" / "cache" / "litellm"
 
 
+def _create_progress_bar(*, total: int | None, desc: str, unit: str) -> tqdm[object]:
+    """Return a tqdm progress bar tuned for steadier ETA updates."""
+    return tqdm(
+        total=total,
+        desc=desc,
+        unit=unit,
+        mininterval=PROGRESS_BAR_MININTERVAL_SECONDS,
+        smoothing=PROGRESS_BAR_SMOOTHING,
+    )
+
+
 def _build_evaluation_example(example: BenchmarkDatasetExample) -> EvaluationExample:
     """Keep only the fields needed for evaluation after OCR completes."""
     return to_evaluation_example(example)
+
 
 def _selected_dataset_examples(
     dataset_stream: Iterable[BenchmarkDatasetExample],
@@ -299,7 +313,7 @@ async def _predict_texts(
         predictions: list[BenchmarkPrediction] = []
         submitted_pages = 0
 
-        with tqdm(total=total_pages, desc="OCR", unit="page") as progress:
+        with _create_progress_bar(total=total_pages, desc="OCR", unit="page") as progress:
             while True:
                 batch_examples: list[BenchmarkDatasetExample] = []
                 pages: list[DocumentPage] = []
@@ -373,7 +387,7 @@ async def _predict_texts(
         while not stop_event.wait(wait_poll_seconds):
             _update_progress_status(progress, force_refresh=True)
 
-    with tqdm(total=total_pages, desc="OCR", unit="page") as progress:
+    with _create_progress_bar(total=total_pages, desc="OCR", unit="page") as progress:
         heartbeat_stop_event = threading.Event()
         heartbeat_thread = threading.Thread(
             target=_progress_heartbeat,

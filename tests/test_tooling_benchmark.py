@@ -12,7 +12,11 @@ from churro_ocr.ocr import OCRResult
 from churro_ocr.providers.hf import HuggingFaceVisionOCRBackend
 from churro_ocr.providers.ocr import LiteLLMVisionOCRBackend
 from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
-from churro_ocr.templates import CHURRO_3B_XML_TEMPLATE, DOTS_OCR_1_5_OCR_TEMPLATE
+from churro_ocr.templates import (
+    CHURRO_3B_XML_TEMPLATE,
+    DOTS_OCR_1_5_OCR_TEMPLATE,
+    PADDLEOCR_VL_1_5_OCR_TEMPLATE,
+)
 from tooling.benchmarking import benchmark
 from tooling.evaluation.types import BenchmarkDatasetExample
 
@@ -267,6 +271,50 @@ def test_build_ocr_backend_uses_dots_preset_for_openai_compatible() -> None:
     assert backend.template == DOTS_OCR_1_5_OCR_TEMPLATE
     assert backend.transport.config.completion_kwargs == {
         "max_tokens": 2_048,
+        "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_uses_paddleocr_vl_preset_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="hf",
+                dataset_split="dev",
+                model="PaddlePaddle/PaddleOCR-VL-1.5",
+            )
+        ),
+    )
+
+    assert backend.model_name == "PaddleOCR-VL-1.5"
+    assert backend.processor_kwargs == {}
+    assert backend.trust_remote_code is False
+    assert backend.model_kwargs == {"device_map": "auto", "torch_dtype": "auto"}
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+
+
+def test_build_ocr_backend_uses_paddleocr_vl_preset_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="PaddlePaddle/PaddleOCR-VL-1.5",
+                base_url="http://127.0.0.1:8000/v1",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.model_name == "PaddleOCR-VL-1.5"
+    assert backend.template == PADDLEOCR_VL_1_5_OCR_TEMPLATE
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
         "temperature": 0.0,
     }
 
@@ -539,10 +587,20 @@ async def test_predict_texts_updates_progress_and_preserves_order(monkeypatch) -
     ]
 
     class FakeProgressBar:
-        def __init__(self, *, total: int | None, desc: str, unit: str) -> None:
+        def __init__(
+            self,
+            *,
+            total: int | None,
+            desc: str,
+            unit: str,
+            mininterval: float,
+            smoothing: float,
+        ) -> None:
             self.total = total
             self.desc = desc
             self.unit = unit
+            self.mininterval = mininterval
+            self.smoothing = smoothing
             self.updates: list[int] = []
             self.postfixes: list[dict[str, int]] = []
             self.refresh_count = 0
@@ -570,8 +628,21 @@ async def test_predict_texts_updates_progress_and_preserves_order(monkeypatch) -
 
     progress_bars: list[FakeProgressBar] = []
 
-    def fake_tqdm(*, total: int | None, desc: str, unit: str) -> FakeProgressBar:
-        progress_bar = FakeProgressBar(total=total, desc=desc, unit=unit)
+    def fake_tqdm(
+        *,
+        total: int | None,
+        desc: str,
+        unit: str,
+        mininterval: float,
+        smoothing: float,
+    ) -> FakeProgressBar:
+        progress_bar = FakeProgressBar(
+            total=total,
+            desc=desc,
+            unit=unit,
+            mininterval=mininterval,
+            smoothing=smoothing,
+        )
         progress_bars.append(progress_bar)
         return progress_bar
 
@@ -612,6 +683,8 @@ async def test_predict_texts_updates_progress_and_preserves_order(monkeypatch) -
     assert progress_bars[0].total == 3
     assert progress_bars[0].desc == "OCR"
     assert progress_bars[0].unit == "page"
+    assert progress_bars[0].mininterval == benchmark.PROGRESS_BAR_MININTERVAL_SECONDS
+    assert progress_bars[0].smoothing == benchmark.PROGRESS_BAR_SMOOTHING
     assert progress_bars[0].updates == [1, 1, 1]
     assert progress_bars[0].postfixes[-1] == {
         "submitted": 3,

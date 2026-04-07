@@ -240,6 +240,15 @@
     "total": 47.7215
   },
   {
+    "modelName": "PaddleOCR-VL 1.5",
+    "modelId": "PaddlePaddle/PaddleOCR-VL-1.5",
+    "modelUrl": "https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.5",
+    "iconPath": null,
+    "printed": 62.6,
+    "handwritten": 33.6,
+    "total": 47.0
+  },
+  {
     "modelName": "O3",
     "modelId": "o3-2025-04-16",
     "modelUrl": "https://platform.openai.com/docs/models/o3",
@@ -397,6 +406,15 @@
     "printed": 29.3383,
     "handwritten": 15.2615,
     "total": 21.7585
+  },
+  {
+    "modelName": "dots.ocr 1.5",
+    "modelId": "kristaller486/dots.ocr-1.5",
+    "modelUrl": "https://huggingface.co/kristaller486/dots.ocr-1.5",
+    "iconPath": null,
+    "printed": 22.2,
+    "handwritten": 10.4,
+    "total": 15.9
   },
   {
     "modelName": "Phi 4 Multimodal",
