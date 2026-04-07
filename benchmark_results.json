@@ -36,6 +36,15 @@
     "total": 71.5803
   },
   {
+    "modelName": "dots.mocr",
+    "modelId": "rednote-hilab/dots.mocr",
+    "modelUrl": "https://huggingface.co/rednote-hilab/dots.mocr",
+    "iconPath": null,
+    "printed": 81.2,
+    "handwritten": 55.0,
+    "total": 67.1
+  },
+  {
     "modelName": "Gemini 2.5 Flash",
     "modelId": "gemini-2.5-flash",
     "modelUrl": "https://ai.google.dev/gemini-api/docs/models",
