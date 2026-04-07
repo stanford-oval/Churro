@@ -23,6 +23,8 @@ from churro_ocr.templates import (
     DOTS_OCR_1_5_OCR_TEMPLATE,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
+    PADDLEOCR_VL_1_5_MODEL_ID,
+    PADDLEOCR_VL_1_5_OCR_TEMPLATE,
 )
 
 
@@ -203,6 +205,47 @@ def test_build_ocr_backend_aligns_templates_for_dots() -> None:
     }
     assert openai_backend.transport.config.completion_kwargs == {
         "max_tokens": 2_048,
+        "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_aligns_templates_for_paddleocr_vl() -> None:
+    litellm_backend = cli_module._build_ocr_backend(
+        backend="litellm",
+        model=PADDLEOCR_VL_1_5_MODEL_ID,
+        endpoint=None,
+        api_key=None,
+        base_url=None,
+        api_version=None,
+    )
+    hf_backend = cli_module._build_ocr_backend(
+        backend="hf",
+        model=PADDLEOCR_VL_1_5_MODEL_ID,
+        endpoint=None,
+        api_key=None,
+        base_url=None,
+        api_version=None,
+    )
+    openai_backend = cli_module._build_ocr_backend(
+        backend="openai-compatible",
+        model=PADDLEOCR_VL_1_5_MODEL_ID,
+        endpoint=None,
+        api_key=None,
+        base_url="http://127.0.0.1:8000/v1",
+        api_version=None,
+    )
+
+    assert litellm_backend.template == PADDLEOCR_VL_1_5_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "PaddleOCR-VL-1.5"
+    assert hf_backend.model_name == "PaddleOCR-VL-1.5"
+    assert openai_backend.model_name == "PaddleOCR-VL-1.5"
+    assert litellm_backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+    }
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
         "temperature": 0.0,
     }
 

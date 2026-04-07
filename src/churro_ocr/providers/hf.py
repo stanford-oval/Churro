@@ -38,6 +38,8 @@ from churro_ocr.templates import (
     DOTS_OCR_1_5_OCR_TEMPLATE,
     LFM2_5_VL_1_6B_MODEL_ID,
     LFM2_5_VL_1_6B_OCR_TEMPLATE,
+    PADDLEOCR_VL_1_5_MODEL_ID,
+    PADDLEOCR_VL_1_5_OCR_TEMPLATE,
     OCRConversation,
     OCRPromptTemplateLike,
 )
@@ -289,6 +291,24 @@ def _decode_completion_texts(processor: Any, batch: Any, generated_ids: Any) -> 
         skip_special_tokens=True,
         clean_up_tokenization_spaces=False,
     )
+
+
+def _paddleocr_vl_processor_kwargs(*, processor: Any, padding: bool) -> dict[str, object]:
+    processor_kwargs: dict[str, object] = {
+        "text_kwargs": {
+            "padding": padding,
+            "return_mm_token_type_ids": True,
+        }
+    }
+    image_processor = getattr(processor, "image_processor", None)
+    images_kwargs: dict[str, int] = {}
+    for key in ("min_pixels", "max_pixels"):
+        value = getattr(image_processor, key, None)
+        if isinstance(value, int):
+            images_kwargs[key] = value
+    if images_kwargs:
+        processor_kwargs["images_kwargs"] = images_kwargs
+    return processor_kwargs
 
 
 @dataclass(slots=True)
@@ -737,6 +757,129 @@ class DotsOCR15OCRBackend(HuggingFaceVisionOCRBackend):
 
 
 @dataclass(slots=True)
+class PaddleOCRVL15OCRBackend(HuggingFaceVisionOCRBackend):
+    """Preset OCR backend for ``PaddlePaddle/PaddleOCR-VL-1.5``."""
+
+    model_id: str = PADDLEOCR_VL_1_5_MODEL_ID
+    template: OCRPromptTemplateLike = PADDLEOCR_VL_1_5_OCR_TEMPLATE
+    model_name: str | None = "PaddleOCR-VL-1.5"
+    generation_kwargs: dict[str, object] = field(
+        default_factory=lambda: {"max_new_tokens": 4_096, "do_sample": False}
+    )
+
+    def _get_processor(self, runtime: _HFRuntime) -> Any:
+        processor = super()._get_processor(runtime)
+        tokenizer = getattr(processor, "tokenizer", None)
+        if tokenizer is not None and getattr(tokenizer, "padding_side", None) != "left":
+            tokenizer.padding_side = "left"
+        return processor
+
+    def _get_model(self, runtime: _HFRuntime) -> Any:
+        model = super()._get_model(runtime)
+        eval_method = getattr(model, "eval", None)
+        if callable(eval_method):
+            eval_method()
+        return model
+
+    def _build_paddleocr_vl_batch(
+        self,
+        processor: Any,
+        conversations: OCRConversation | list[OCRConversation],
+        *,
+        padding: bool,
+    ) -> Any:
+        processor_apply = getattr(processor, "apply_chat_template", None)
+        if not callable(processor_apply):
+            raise ConfigurationError(
+                "PaddleOCR-VL-1.5 requires `processor.apply_chat_template(...)` support."
+            )
+        return processor_apply(
+            conversations,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+            processor_kwargs=_paddleocr_vl_processor_kwargs(
+                processor=processor,
+                padding=padding,
+            ),
+        )
+
+    def _ocr_sync(self, page: DocumentPage) -> OCRResult:
+        prepared_page = preprocess_backend_page(
+            page,
+            image_preprocessor=self.image_preprocessor,
+        )
+        runtime = self._load_runtime()
+        processor = self._get_processor(runtime)
+        model = self._get_model(runtime)
+
+        rendered, conversation = render_ocr_prompt(
+            processor,
+            self.template,
+            prepared_page,
+            add_generation_prompt=True,
+        )
+        self._log_prompt_payload(
+            rendered_prompt=rendered,
+            conversation=conversation,
+            batch_size=1,
+        )
+        batch = self._build_paddleocr_vl_batch(processor, conversation, padding=False)
+        batch = _move_batch_to_model(batch, model)
+        generated_ids = model.generate(**batch, **self.generation_kwargs)
+        text = _decode_completion_texts(processor, batch, generated_ids)[0]
+        return build_ocr_result(
+            text,
+            provider_name=self.provider_name,
+            model_name=self.model_name or self.model_id,
+            text_postprocessor=self.text_postprocessor,
+        )
+
+    def _ocr_batch_sync(self, pages: list[DocumentPage]) -> list[OCRResult]:
+        if not pages:
+            return []
+
+        runtime = self._load_runtime()
+        processor = self._get_processor(runtime)
+        model = self._get_model(runtime)
+        conversations: list[OCRConversation] = []
+
+        for page in pages:
+            prepared_page = preprocess_backend_page(
+                page,
+                image_preprocessor=self.image_preprocessor,
+            )
+            rendered, conversation = render_ocr_prompt(
+                processor,
+                self.template,
+                prepared_page,
+                add_generation_prompt=True,
+            )
+            conversations.append(conversation)
+            if not self._has_logged_prompt:
+                self._log_prompt_payload(
+                    rendered_prompt=rendered,
+                    conversation=conversation,
+                    batch_size=len(pages),
+                )
+
+        batch = self._build_paddleocr_vl_batch(processor, conversations, padding=True)
+        batch = _move_batch_to_model(batch, model)
+        generated_ids = model.generate(**batch, **self.generation_kwargs)
+        texts = _decode_completion_texts(processor, batch, generated_ids)
+        return [
+            build_ocr_result(
+                text,
+                provider_name=self.provider_name,
+                model_name=self.model_name or self.model_id,
+                text_postprocessor=self.text_postprocessor,
+            )
+            for text in texts
+        ]
+
+
+@dataclass(slots=True)
 class LFM25VLOCRBackend(HuggingFaceVisionOCRBackend):
     """Preset OCR backend for ``LiquidAI/LFM2.5-VL-1.6B``."""
 
@@ -873,4 +1016,5 @@ __all__ = [
     "DotsOCR15OCRBackend",
     "HuggingFaceVisionOCRBackend",
     "LFM25VLOCRBackend",
+    "PaddleOCRVL15OCRBackend",
 ]

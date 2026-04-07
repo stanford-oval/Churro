@@ -13,6 +13,7 @@ from churro_ocr.templates.hf import HFChatTemplate
 CHURRO_3B_MODEL_ID = "stanford-oval/churro-3B"
 CHANDRA_OCR_2_MODEL_ID = "datalab-to/chandra-ocr-2"
 DOTS_OCR_1_5_MODEL_ID = "kristaller486/dots.ocr-1.5"
+PADDLEOCR_VL_1_5_MODEL_ID = "PaddlePaddle/PaddleOCR-VL-1.5"
 OLMOCR_2_7B_1025_MODEL_ID = "allenai/olmOCR-2-7B-1025"
 OLMOCR_2_7B_1025_FP8_MODEL_ID = "allenai/olmOCR-2-7B-1025-FP8"
 LFM2_5_VL_1_6B_MODEL_ID = "LiquidAI/LFM2.5-VL-1.6B"
@@ -34,6 +35,11 @@ DOTS_OCR_1_5_OCR_TEMPLATE = HFChatTemplate(
     system_message=None,
     user_prompt=DOTS_OCR_1_5_OCR_PROMPT,
 )
+PADDLEOCR_VL_1_5_OCR_PROMPT = "OCR:"
+PADDLEOCR_VL_1_5_OCR_TEMPLATE = HFChatTemplate(
+    system_message=None,
+    user_prompt=PADDLEOCR_VL_1_5_OCR_PROMPT,
+)
 OLMOCR_2_7B_1025_OCR_TEMPLATE = HFChatTemplate(
     system_message=None,
     user_prompt=OLMOCR_V4_YAML_PROMPT,
@@ -54,6 +60,9 @@ __all__ = [
     "DOTS_OCR_1_5_MODEL_ID",
     "DOTS_OCR_1_5_OCR_PROMPT",
     "DOTS_OCR_1_5_OCR_TEMPLATE",
+    "PADDLEOCR_VL_1_5_MODEL_ID",
+    "PADDLEOCR_VL_1_5_OCR_PROMPT",
+    "PADDLEOCR_VL_1_5_OCR_TEMPLATE",
     "OLMOCR_2_7B_1025_FP8_MODEL_ID",
     "OLMOCR_2_7B_1025_MODEL_ID",
     "OLMOCR_2_7B_1025_OCR_TEMPLATE",

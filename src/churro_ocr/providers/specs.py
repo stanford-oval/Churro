@@ -31,6 +31,9 @@ from churro_ocr.templates import (
     OLMOCR_2_7B_1025_FP8_MODEL_ID,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
+    PADDLEOCR_VL_1_5_MODEL_ID,
+    PADDLEOCR_VL_1_5_OCR_PROMPT,
+    PADDLEOCR_VL_1_5_OCR_TEMPLATE,
     OCRConversation,
     OCRPromptTemplateLike,
 )
@@ -48,6 +51,7 @@ VisionInputBuilder = Callable[[OCRConversation], object]
 DEFAULT_OCR_MAX_TOKENS = 20_000
 CHANDRA_OCR_MAX_TOKENS = 12_384
 OLMOCR_MAX_TOKENS = 8_000
+PADDLEOCR_VL_MAX_TOKENS = 4_096
 CHANDRA_MAX_IMAGE_SIZE = (3_072, 2_048)
 CHANDRA_MIN_IMAGE_SIZE = (1_792, 28)
 CHANDRA_IMAGE_GRID_SIZE = 28
@@ -170,6 +174,11 @@ def lfm2_5_vl_text_postprocessor(text: str) -> str:
     prompt = getattr(LFM2_5_VL_1_6B_OCR_TEMPLATE, "user_prompt", None)
     cleaned = _strip_leading_chat_scaffold(text, prompts=[prompt] if isinstance(prompt, str) else [])
     return strip_ocr_output_tag(cleaned, output_tag=DEFAULT_OCR_OUTPUT_TAG)
+
+
+def paddleocr_vl_text_postprocessor(text: str) -> str:
+    """Strip PaddleOCR-VL prompt echoes and leading chat scaffold from OCR output."""
+    return _strip_leading_chat_scaffold(text, prompts=[PADDLEOCR_VL_1_5_OCR_PROMPT])
 
 
 def chandra_image_preprocessor(image: Image.Image) -> Image.Image:
@@ -407,6 +416,29 @@ def dots_ocr_1_5_profile() -> OCRModelProfile:
     )
 
 
+def paddleocr_vl_1_5_profile() -> OCRModelProfile:
+    """Return the built-in ``PaddlePaddle/PaddleOCR-VL-1.5`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=PADDLEOCR_VL_1_5_MODEL_ID,
+        template=PADDLEOCR_VL_1_5_OCR_TEMPLATE,
+        text_postprocessor=paddleocr_vl_text_postprocessor,
+        display_name="PaddleOCR-VL-1.5",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": PADDLEOCR_VL_MAX_TOKENS,
+                "temperature": 0.0,
+            }
+        ),
+        huggingface=HuggingFaceOptions(
+            generation_kwargs={
+                "max_new_tokens": PADDLEOCR_VL_MAX_TOKENS,
+                "do_sample": False,
+            },
+            backend_variant="paddleocr-vl-1.5",
+        ),
+    )
+
+
 def _olmocr_profile(*, profile_name: str, display_name: str) -> OCRModelProfile:
     return OCRModelProfile(
         profile_name=profile_name,
@@ -472,6 +504,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
     lfm2_5_vl_profile = lfm2_5_vl_1_6b_profile()
     olmocr_profile = olmocr_2_7b_1025_profile()
     olmocr_fp8_profile = olmocr_2_7b_1025_fp8_profile()
+    paddleocr_vl_profile = paddleocr_vl_1_5_profile()
     return {
         default_profile.profile_name: default_profile,
         churro_profile.profile_name: churro_profile,
@@ -480,6 +513,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
         lfm2_5_vl_profile.profile_name: lfm2_5_vl_profile,
         olmocr_profile.profile_name: olmocr_profile,
         olmocr_fp8_profile.profile_name: olmocr_fp8_profile,
+        paddleocr_vl_profile.profile_name: paddleocr_vl_profile,
     }
 
 
@@ -530,6 +564,8 @@ __all__ = [
     "MistralOptions",
     "olmocr_image_preprocessor",
     "olmocr_text_postprocessor",
+    "paddleocr_vl_1_5_profile",
+    "paddleocr_vl_text_postprocessor",
     "OCRBackendSpec",
     "OCRModelProfile",
     "OCRProvider",

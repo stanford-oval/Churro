@@ -52,6 +52,9 @@ from churro_ocr.templates import (
     OLMOCR_2_7B_1025_FP8_MODEL_ID,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
+    PADDLEOCR_VL_1_5_MODEL_ID,
+    PADDLEOCR_VL_1_5_OCR_PROMPT,
+    PADDLEOCR_VL_1_5_OCR_TEMPLATE,
 )
 
 
@@ -771,6 +774,26 @@ def test_build_ocr_backend_resolves_olmocr_fp8_profile_defaults_for_openai_compa
     }
 
 
+def test_build_ocr_backend_uses_paddleocr_vl_profile_defaults_for_openai_compatible() -> None:
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=PADDLEOCR_VL_1_5_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+
+    assert backend.template == PADDLEOCR_VL_1_5_OCR_TEMPLATE
+    assert backend.model_name == "PaddleOCR-VL-1.5"
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+    }
+
+
 @pytest.mark.asyncio
 async def test_openai_compatible_backend_uses_olmocr_prompt_and_plain_text_postprocessing(
     monkeypatch: pytest.MonkeyPatch,
@@ -957,6 +980,78 @@ async def test_openai_compatible_backend_uses_chandra_prompt_and_plain_text_post
     assert prompt_image.size == (3_248, 1_932)
     assert prompt_image.mode == "RGB"
     assert user_content[1] == {"type": "text", "text": CHANDRA_OCR_LAYOUT_PROMPT}
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_backend_uses_paddleocr_vl_prompt_and_strips_prompt_echo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_prepare_messages_from_conversation(
+        self: LiteLLMTransport,
+        conversation: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        captured["conversation"] = conversation
+        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+
+    async def _fake_complete_text(
+        self: LiteLLMTransport,
+        *,
+        model: str,
+        messages: list[dict[str, object]],
+        timeout_seconds: int = 600,
+        output_json: bool = False,
+        allow_empty: bool = False,
+    ) -> str:
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["timeout_seconds"] = timeout_seconds
+        captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
+        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        return "OCR:\nassistant\npaddle transcription"
+
+    monkeypatch.setattr(
+        LiteLLMTransport,
+        "prepare_messages_from_conversation",
+        _fake_prepare_messages_from_conversation,
+    )
+    monkeypatch.setattr(LiteLLMTransport, "complete_text", _fake_complete_text)
+
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=PADDLEOCR_VL_1_5_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (5_000, 3_000), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == "paddle transcription"
+    assert captured["model"] == f"openai/{PADDLEOCR_VL_1_5_MODEL_ID}"
+    assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+    assert captured["timeout_seconds"] == 600
+    assert captured["output_json"] is False
+    assert captured["allow_empty"] is True
+    assert captured["completion_kwargs"] == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+    }
+    conversation = cast("list[dict[str, object]]", captured["conversation"])
+    assert conversation[0]["role"] == "user"
+    user_content = cast("list[dict[str, object]]", conversation[0]["content"])
+    assert user_content[0]["type"] == "image"
+    prompt_image = cast("Image.Image", user_content[0]["image"])
+    assert prompt_image.size == (2_500, 1_500)
+    assert prompt_image.mode == "RGB"
+    assert user_content[1] == {"type": "text", "text": PADDLEOCR_VL_1_5_OCR_PROMPT}
 
 
 @pytest.mark.asyncio
