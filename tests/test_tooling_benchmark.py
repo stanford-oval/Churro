@@ -265,7 +265,10 @@ def test_build_ocr_backend_uses_dots_preset_for_openai_compatible() -> None:
     assert backend.provider_name == "openai-compatible"
     assert backend.model_name == "dots.ocr-1.5"
     assert backend.template == DOTS_OCR_1_5_OCR_TEMPLATE
-    assert backend.transport.config.completion_kwargs == {"max_tokens": DEFAULT_OCR_MAX_TOKENS}
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 2_048,
+        "temperature": 0.0,
+    }
 
 
 def test_build_ocr_backend_uses_churro_preset_template_for_openai_compatible() -> None:

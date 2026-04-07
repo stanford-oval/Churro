@@ -394,6 +394,12 @@ def dots_ocr_1_5_profile() -> OCRModelProfile:
         template=DOTS_OCR_1_5_OCR_TEMPLATE,
         text_postprocessor=identity_text_postprocessor,
         display_name="dots.ocr-1.5",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": 2_048,
+                "temperature": 0.0,
+            }
+        ),
         huggingface=HuggingFaceOptions(
             trust_remote_code=True,
             backend_variant="dots-ocr-1.5",

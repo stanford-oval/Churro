@@ -197,6 +197,14 @@ def test_build_ocr_backend_aligns_templates_for_dots() -> None:
     assert litellm_backend.model_name == "dots.ocr-1.5"
     assert hf_backend.model_name == "dots.ocr-1.5"
     assert openai_backend.model_name == "dots.ocr-1.5"
+    assert litellm_backend.transport.config.completion_kwargs == {
+        "max_tokens": 2_048,
+        "temperature": 0.0,
+    }
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": 2_048,
+        "temperature": 0.0,
+    }
 
 
 def test_build_ocr_backend_uses_generic_defaults_for_qwen_3_5_0_8b() -> None:

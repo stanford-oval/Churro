@@ -7,6 +7,7 @@ import threading
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
+from types import MethodType
 from typing import Any, cast
 
 from churro_ocr._internal.install import install_command_hint
@@ -163,6 +164,64 @@ def _prepare_dots_ocr_model_dir(model_id: str) -> str:
     snapshot_download(repo_id=model_id, local_dir=model_dir)
     _patch_dots_ocr_vision_module(model_dir)
     return str(model_dir)
+
+
+def _patch_dots_ocr_prepare_inputs_for_generation(model: Any) -> None:
+    prepare_inputs_for_generation = getattr(model, "prepare_inputs_for_generation", None)
+    if not callable(prepare_inputs_for_generation):
+        return
+    if getattr(model, "_churro_dots_prepare_inputs_patched", False):
+        return
+
+    original_prepare_inputs = getattr(prepare_inputs_for_generation, "__func__", None)
+    base_prepare_inputs_for_generation = prepare_inputs_for_generation
+    if original_prepare_inputs is not None:
+        for candidate in type(model).__mro__[1:]:
+            candidate_prepare_inputs = candidate.__dict__.get("prepare_inputs_for_generation")
+            if candidate_prepare_inputs is None or candidate_prepare_inputs is original_prepare_inputs:
+                continue
+            base_prepare_inputs_for_generation = cast("Any", candidate_prepare_inputs).__get__(
+                model,
+                type(model),
+            )
+            break
+    if not callable(base_prepare_inputs_for_generation):
+        return
+
+    def _patched_prepare_inputs_for_generation(
+        self: Any,
+        input_ids: object,
+        past_key_values: object = None,
+        inputs_embeds: object = None,
+        pixel_values: object = None,
+        attention_mask: object = None,
+        cache_position: object = None,
+        num_logits_to_keep: object = None,
+        **kwargs: object,
+    ) -> Any:
+        model_inputs = base_prepare_inputs_for_generation(
+            input_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            cache_position=cache_position,
+            num_logits_to_keep=num_logits_to_keep,
+            **kwargs,
+        )
+
+        first_cache_position: int | None = None
+        if cache_position is not None:
+            try:
+                first_cache_position = int(cast("Any", cache_position)[0])
+            except Exception:
+                first_cache_position = None
+        if first_cache_position in (None, 0):
+            model_inputs["pixel_values"] = pixel_values
+
+        return model_inputs
+
+    model.prepare_inputs_for_generation = MethodType(_patched_prepare_inputs_for_generation, model)
+    model._churro_dots_prepare_inputs_patched = True
 
 
 def _default_dots_ocr_1_5_model_kwargs() -> dict[str, object]:
@@ -322,8 +381,10 @@ class HuggingFaceVisionOCRBackend(OCRBackend):
             batch_kwargs["videos"] = normalized_video_inputs
         batch = processor(**batch_kwargs)
         batch = _move_batch_to_model(batch, model)
-
-        generated_ids = model.generate(**batch, **self.generation_kwargs)
+        generated_ids = model.generate(
+            **self._generation_inputs(batch),
+            **self.generation_kwargs,
+        )
         text = _decode_completion_texts(processor, batch, generated_ids)[0]
         return build_ocr_result(
             text,
@@ -379,8 +440,10 @@ class HuggingFaceVisionOCRBackend(OCRBackend):
             batch_kwargs["videos"] = video_batch
         batch = processor(**batch_kwargs)
         batch = _move_batch_to_model(batch, model)
-
-        generated_ids = model.generate(**batch, **self.generation_kwargs)
+        generated_ids = model.generate(
+            **self._generation_inputs(batch),
+            **self.generation_kwargs,
+        )
         texts = _decode_completion_texts(processor, batch, generated_ids)
         return [
             build_ocr_result(
@@ -394,6 +457,9 @@ class HuggingFaceVisionOCRBackend(OCRBackend):
 
     def _load_runtime(self) -> _HFRuntime:
         return _load_hf_runtime()
+
+    def _generation_inputs(self, batch: Any) -> dict[str, object]:
+        return dict(cast("dict[str, object]", batch))
 
     def _resolve_model_source(self) -> str:
         return self.model_id
@@ -636,6 +702,11 @@ class DotsOCR15OCRBackend(HuggingFaceVisionOCRBackend):
     def _load_runtime(self) -> _HFRuntime:
         return _load_hf_causal_runtime()
 
+    def _generation_inputs(self, batch: Any) -> dict[str, object]:
+        generation_inputs = super()._generation_inputs(batch)
+        generation_inputs.pop("mm_token_type_ids", None)
+        return generation_inputs
+
     def _resolve_model_source(self) -> str:
         return _prepare_dots_ocr_model_dir(self.model_id)
 
@@ -661,6 +732,7 @@ class DotsOCR15OCRBackend(HuggingFaceVisionOCRBackend):
                         trust_remote_code=self.trust_remote_code,
                         **self.model_kwargs,
                     )
+                    _patch_dots_ocr_prepare_inputs_for_generation(self._model)
         return self._model
 
 

@@ -847,7 +847,12 @@ async def test_dots_ocr_15_backend_uses_expected_runtime_and_prompt(
 
         def __call__(self, **kwargs: object) -> FakeBatch:
             captured["processor_kwargs"] = kwargs
-            return FakeBatch({"input_ids": SimpleNamespace(shape=(1, 4))})
+            return FakeBatch(
+                {
+                    "input_ids": SimpleNamespace(shape=(1, 4)),
+                    "mm_token_type_ids": "ignored-mm-token-type-ids",
+                }
+            )
 
         def batch_decode(
             self,
