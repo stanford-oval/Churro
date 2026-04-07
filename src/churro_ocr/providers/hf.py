@@ -7,12 +7,13 @@ import threading
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import MethodType
 from typing import Any, cast
 
 from churro_ocr._internal.install import install_command_hint
 from churro_ocr._internal.prompt_logging import log_prompt_payload_once
-from churro_ocr.errors import ConfigurationError
+from churro_ocr.errors import ConfigurationError, ProviderError
 from churro_ocr.ocr import OCRBackend, OCRResult
 from churro_ocr.page_detection import DocumentPage
 from churro_ocr.providers._shared import (
@@ -34,6 +35,8 @@ from churro_ocr.templates import (
     CHANDRA_OCR_2_OCR_TEMPLATE,
     CHURRO_3B_MODEL_ID,
     CHURRO_3B_XML_TEMPLATE,
+    DEEPSEEK_OCR_2_MODEL_ID,
+    DEEPSEEK_OCR_2_OCR_TEMPLATE,
     DOTS_MOCR_MODEL_ID,
     DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_MODEL_ID,
@@ -44,6 +47,7 @@ from churro_ocr.templates import (
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
     OCRConversation,
     OCRPromptTemplateLike,
+    build_ocr_conversation,
 )
 
 _HF_EXTRA_INSTALL_HINT = install_command_hint("hf")
@@ -98,6 +102,33 @@ def _load_hf_causal_runtime() -> _HFRuntime:
         model_cls=AutoModelForCausalLM,
         process_vision_info=process_vision_info,
     )
+
+
+def _load_hf_auto_model_runtime() -> _HFRuntime:
+    _ensure_hf_torch_runtime()
+    try:
+        from transformers import AutoModel, AutoTokenizer
+    except ImportError as exc:  # pragma: no cover - optional extra path
+        raise ConfigurationError(
+            f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
+        ) from exc
+
+    return _HFRuntime(
+        processor_cls=AutoTokenizer,
+        model_cls=AutoModel,
+        process_vision_info=None,
+    )
+
+
+def _ensure_deepseek_ocr_2_cuda_runtime() -> Any:
+    _ensure_hf_torch_runtime()
+    torch = import_module("torch")
+    if not torch.cuda.is_available():
+        raise ConfigurationError(
+            "DeepSeek-OCR-2 HF backend requires a CUDA-capable PyTorch runtime because "
+            "the upstream `infer(...)` implementation moves inputs to CUDA."
+        )
+    return torch
 
 
 _DOTS_OCR_1_5_LOCAL_DIRNAME = "DotsOCR_1_5"
@@ -261,6 +292,39 @@ def _default_chandra_ocr_2_model_kwargs() -> dict[str, object]:
     if torch.cuda.is_available():
         model_kwargs["dtype"] = torch.bfloat16
     return model_kwargs
+
+
+def _deepseek_ocr_2_prompt_from_conversation(conversation: OCRConversation) -> str:
+    prompt_lines: list[str] = []
+    has_image = False
+    for message in conversation:
+        if message.get("role") == "system":
+            content_items = cast("list[dict[str, object]]", message["content"])
+            system_text = "\n".join(
+                cast("str", item["text"]).strip()
+                for item in content_items
+                if item.get("type") == "text" and isinstance(item.get("text"), str)
+            ).strip()
+            if system_text:
+                raise ConfigurationError("DeepSeek-OCR-2 does not support system prompts in the HF backend.")
+            continue
+        if message.get("role") != "user":
+            continue
+        content_items = cast("list[dict[str, object]]", message["content"])
+        for item in content_items:
+            if item.get("type") == "image":
+                has_image = True
+                continue
+            if item.get("type") == "text" and isinstance(item.get("text"), str):
+                text = cast("str", item["text"]).strip()
+                if text:
+                    prompt_lines.append(text)
+    prompt_text = "\n".join(prompt_lines).strip()
+    if not prompt_text:
+        raise ConfigurationError("DeepSeek-OCR-2 requires a non-empty OCR prompt.")
+    if has_image:
+        return f"<image>\n{prompt_text}"
+    return prompt_text
 
 
 def _move_batch_to_model(batch: Any, model: Any) -> Any:
@@ -708,6 +772,132 @@ class Churro3BOCRBackend(HuggingFaceVisionOCRBackend):
 
 
 @dataclass(slots=True)
+class DeepSeekOCR2OCRBackend(HuggingFaceVisionOCRBackend):
+    """Preset OCR backend for ``deepseek-ai/DeepSeek-OCR-2``."""
+
+    model_id: str = DEEPSEEK_OCR_2_MODEL_ID
+    template: OCRPromptTemplateLike = DEEPSEEK_OCR_2_OCR_TEMPLATE
+    model_name: str | None = "DeepSeek-OCR-2"
+    trust_remote_code: bool = True
+    model_kwargs: dict[str, object] = field(default_factory=lambda: {"use_safetensors": True})
+    generation_kwargs: dict[str, object] = field(default_factory=lambda: {"max_new_tokens": 8_192})
+    base_size: int = 1_024
+    image_size: int = 768
+    crop_mode: bool = True
+
+    def _load_runtime(self) -> _HFRuntime:
+        return _load_hf_auto_model_runtime()
+
+    def _get_model(self, runtime: _HFRuntime) -> Any:
+        torch = _ensure_deepseek_ocr_2_cuda_runtime()
+        if self._model is None:
+            with self._init_lock:
+                if self._model is None:
+                    model_kwargs = dict(self.model_kwargs)
+                    model = runtime.model_cls.from_pretrained(
+                        self._get_model_source(),
+                        trust_remote_code=self.trust_remote_code,
+                        **model_kwargs,
+                    )
+                    eval_method = getattr(model, "eval", None)
+                    if callable(eval_method):
+                        model = eval_method()
+                    cuda_method = getattr(model, "cuda", None)
+                    if callable(cuda_method) and "device_map" not in model_kwargs:
+                        model = cuda_method()
+                    to_method = getattr(model, "to", None)
+                    if (
+                        callable(to_method)
+                        and "torch_dtype" not in model_kwargs
+                        and "dtype" not in model_kwargs
+                    ):
+                        model = to_method(torch.bfloat16)
+                    self._model = model
+        return self._model
+
+    def _infer_deepseek_page(
+        self,
+        *,
+        tokenizer: Any,
+        model: Any,
+        page: DocumentPage,
+        batch_size: int,
+    ) -> OCRResult:
+        conversation = build_ocr_conversation(self.template, page)
+        rendered_prompt = _deepseek_ocr_2_prompt_from_conversation(conversation)
+        self._log_prompt_payload(
+            rendered_prompt=rendered_prompt,
+            conversation=conversation,
+            batch_size=batch_size,
+        )
+
+        infer_method = getattr(model, "infer", None)
+        if not callable(infer_method):
+            raise ConfigurationError("DeepSeek-OCR-2 requires a model object with `infer(...)` support.")
+
+        with TemporaryDirectory(prefix="churro-deepseek-ocr-2-") as output_dir:
+            image_path = Path(output_dir) / "page.png"
+            page.image.save(image_path)
+            text = infer_method(
+                tokenizer,
+                prompt=rendered_prompt,
+                image_file=str(image_path),
+                output_path=output_dir,
+                base_size=self.base_size,
+                image_size=self.image_size,
+                crop_mode=self.crop_mode,
+                save_results=False,
+                eval_mode=True,
+            )
+        if not isinstance(text, str):
+            raise ProviderError("DeepSeek-OCR-2 returned no OCR text.")
+        return build_ocr_result(
+            text,
+            provider_name=self.provider_name,
+            model_name=self.model_name or self.model_id,
+            text_postprocessor=self.text_postprocessor,
+        )
+
+    def _ocr_sync(self, page: DocumentPage) -> OCRResult:
+        prepared_page = preprocess_backend_page(
+            page,
+            image_preprocessor=self.image_preprocessor,
+        )
+        runtime = self._load_runtime()
+        tokenizer = self._get_processor(runtime)
+        model = self._get_model(runtime)
+        return self._infer_deepseek_page(
+            tokenizer=tokenizer,
+            model=model,
+            page=prepared_page,
+            batch_size=1,
+        )
+
+    def _ocr_batch_sync(self, pages: list[DocumentPage]) -> list[OCRResult]:
+        if not pages:
+            return []
+
+        runtime = self._load_runtime()
+        tokenizer = self._get_processor(runtime)
+        model = self._get_model(runtime)
+        results: list[OCRResult] = []
+        for page in pages:
+            prepared_page = preprocess_backend_page(
+                page,
+                image_preprocessor=self.image_preprocessor,
+            )
+            results.append(
+                self._infer_deepseek_page(
+                    tokenizer=tokenizer,
+                    model=model,
+                    page=prepared_page,
+                    batch_size=len(pages),
+                )
+            )
+        return results
+
+
+@dataclass(slots=True)
 class DotsOCR15OCRBackend(HuggingFaceVisionOCRBackend):
     """Preset OCR backend for ``kristaller486/dots.ocr-1.5``.
 
@@ -1024,6 +1214,7 @@ class LFM25VLOCRBackend(HuggingFaceVisionOCRBackend):
 __all__ = [
     "ChandraOCR2OCRBackend",
     "Churro3BOCRBackend",
+    "DeepSeekOCR2OCRBackend",
     "DotsMOCROCRBackend",
     "DotsOCR15OCRBackend",
     "HuggingFaceVisionOCRBackend",

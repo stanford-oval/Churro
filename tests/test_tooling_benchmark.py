@@ -14,6 +14,7 @@ from churro_ocr.providers.ocr import LiteLLMVisionOCRBackend
 from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
 from churro_ocr.templates import (
     CHURRO_3B_XML_TEMPLATE,
+    DEEPSEEK_OCR_2_OCR_TEMPLATE,
     DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_OCR_TEMPLATE,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
@@ -317,6 +318,51 @@ def test_build_ocr_backend_uses_dots_mocr_preset_for_openai_compatible() -> None
     assert backend.template == DOTS_MOCR_OCR_TEMPLATE
     assert backend.transport.config.completion_kwargs == {
         "max_tokens": DEFAULT_OCR_MAX_TOKENS,
+        "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_uses_deepseek_ocr_2_preset_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="hf",
+                dataset_split="dev",
+                model="deepseek-ai/DeepSeek-OCR-2",
+            )
+        ),
+    )
+
+    assert backend.model_name == "DeepSeek-OCR-2"
+    assert backend.processor_kwargs == {}
+    assert backend.trust_remote_code is True
+    assert backend.model_kwargs == {
+        "device_map": "auto",
+        "torch_dtype": "auto",
+        "use_safetensors": True,
+    }
+    assert backend.generation_kwargs == {"max_new_tokens": 8_192}
+
+
+def test_build_ocr_backend_uses_deepseek_ocr_2_preset_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="deepseek-ai/DeepSeek-OCR-2",
+                base_url="http://127.0.0.1:8000/v1",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.model_name == "DeepSeek-OCR-2"
+    assert backend.template == DEEPSEEK_OCR_2_OCR_TEMPLATE
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_192,
         "temperature": 0.0,
     }
 

@@ -23,6 +23,9 @@ from churro_ocr.templates import (
     CHANDRA_OCR_2_OCR_TEMPLATE,
     CHURRO_3B_MODEL_ID,
     CHURRO_3B_XML_TEMPLATE,
+    DEEPSEEK_OCR_2_MODEL_ID,
+    DEEPSEEK_OCR_2_OCR_PROMPT,
+    DEEPSEEK_OCR_2_OCR_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
     DOTS_MOCR_MODEL_ID,
     DOTS_MOCR_OCR_TEMPLATE,
@@ -52,6 +55,7 @@ TextPostprocessor = Callable[[str], TextPostprocessorResult]
 VisionInputBuilder = Callable[[OCRConversation], object]
 DEFAULT_OCR_MAX_TOKENS = 20_000
 CHANDRA_OCR_MAX_TOKENS = 12_384
+DEEPSEEK_OCR_2_MAX_TOKENS = 8_192
 OLMOCR_MAX_TOKENS = 8_000
 PADDLEOCR_VL_MAX_TOKENS = 4_096
 CHANDRA_MAX_IMAGE_SIZE = (3_072, 2_048)
@@ -116,8 +120,17 @@ _CHAT_ROLE_PREFIXES = {
     "<user>",
     "<system>",
     "<|assistant|>",
+    "<|assistant|>:",
     "<|user|>",
+    "<|user|>:",
     "<|system|>",
+    "<|system|>:",
+    "<｜assistant｜>",
+    "<｜assistant｜>:",
+    "<｜user｜>",
+    "<｜user｜>:",
+    "<｜system｜>",
+    "<｜system｜>:",
 }
 
 
@@ -176,6 +189,22 @@ def lfm2_5_vl_text_postprocessor(text: str) -> str:
     prompt = getattr(LFM2_5_VL_1_6B_OCR_TEMPLATE, "user_prompt", None)
     cleaned = _strip_leading_chat_scaffold(text, prompts=[prompt] if isinstance(prompt, str) else [])
     return strip_ocr_output_tag(cleaned, output_tag=DEFAULT_OCR_OUTPUT_TAG)
+
+
+def deepseek_ocr_2_text_postprocessor(text: str) -> str:
+    """Strip DeepSeek OCR 2 prompt echoes, chat scaffold, and trailing stop tokens."""
+    cleaned = text.strip()
+    stop_token = "<｜end▁of▁sentence｜>"
+    while cleaned.endswith(stop_token):
+        cleaned = cleaned[: -len(stop_token)].rstrip()
+    cleaned = _strip_leading_chat_scaffold(
+        cleaned,
+        prompts=[
+            f"<image>\n{DEEPSEEK_OCR_2_OCR_PROMPT}",
+            DEEPSEEK_OCR_2_OCR_PROMPT,
+        ],
+    )
+    return cleaned.strip()
 
 
 def paddleocr_vl_text_postprocessor(text: str) -> str:
@@ -395,6 +424,32 @@ def chandra_ocr_2_profile() -> OCRModelProfile:
     )
 
 
+def deepseek_ocr_2_profile() -> OCRModelProfile:
+    """Return the built-in ``deepseek-ai/DeepSeek-OCR-2`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=DEEPSEEK_OCR_2_MODEL_ID,
+        template=DEEPSEEK_OCR_2_OCR_TEMPLATE,
+        text_postprocessor=deepseek_ocr_2_text_postprocessor,
+        display_name="DeepSeek-OCR-2",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": DEEPSEEK_OCR_2_MAX_TOKENS,
+                "temperature": 0.0,
+            }
+        ),
+        huggingface=HuggingFaceOptions(
+            model_kwargs={
+                "use_safetensors": True,
+            },
+            generation_kwargs={
+                "max_new_tokens": DEEPSEEK_OCR_2_MAX_TOKENS,
+            },
+            trust_remote_code=True,
+            backend_variant="deepseek-ocr-2",
+        ),
+    )
+
+
 def dots_ocr_1_5_profile() -> OCRModelProfile:
     """Return the built-in ``kristaller486/dots.ocr-1.5`` OCR profile.
 
@@ -522,6 +577,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
     default_profile = default_ocr_profile()
     churro_profile = churro_3b_profile()
     chandra_profile = chandra_ocr_2_profile()
+    deepseek_profile = deepseek_ocr_2_profile()
     dots_mocr = dots_mocr_profile()
     dots_profile = dots_ocr_1_5_profile()
     lfm2_5_vl_profile = lfm2_5_vl_1_6b_profile()
@@ -532,6 +588,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
         default_profile.profile_name: default_profile,
         churro_profile.profile_name: churro_profile,
         chandra_profile.profile_name: chandra_profile,
+        deepseek_profile.profile_name: deepseek_profile,
         dots_mocr.profile_name: dots_mocr,
         dots_profile.profile_name: dots_profile,
         lfm2_5_vl_profile.profile_name: lfm2_5_vl_profile,
@@ -574,6 +631,8 @@ __all__ = [
     "chandra_image_preprocessor",
     "chandra_ocr_2_profile",
     "chandra_text_postprocessor",
+    "deepseek_ocr_2_profile",
+    "deepseek_ocr_2_text_postprocessor",
     "default_ocr_image_preprocessor",
     "default_ocr_profile",
     "default_ocr_text_postprocessor",

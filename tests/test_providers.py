@@ -48,6 +48,9 @@ from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
 from churro_ocr.templates import (
     CHANDRA_OCR_2_MODEL_ID,
     CHANDRA_OCR_2_OCR_TEMPLATE,
+    DEEPSEEK_OCR_2_MODEL_ID,
+    DEEPSEEK_OCR_2_OCR_PROMPT,
+    DEEPSEEK_OCR_2_OCR_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
     DOTS_MOCR_OCR_TEMPLATE,
     OLMOCR_2_7B_1025_FP8_MODEL_ID,
@@ -813,6 +816,87 @@ def test_build_ocr_backend_uses_dots_mocr_profile_defaults_for_openai_compatible
         "max_tokens": DEFAULT_OCR_MAX_TOKENS,
         "temperature": 0.0,
     }
+
+
+def test_build_ocr_backend_uses_deepseek_ocr_2_profile_defaults_for_openai_compatible() -> None:
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=DEEPSEEK_OCR_2_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+
+    assert backend.template == DEEPSEEK_OCR_2_OCR_TEMPLATE
+    assert backend.model_name == "DeepSeek-OCR-2"
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_192,
+        "temperature": 0.0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_backend_uses_deepseek_ocr_2_prompt_and_postprocessing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_prepare_messages_from_conversation(
+        self: LiteLLMTransport,
+        conversation: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        captured["conversation"] = conversation
+        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        return conversation
+
+    async def _fake_complete_text(
+        self: LiteLLMTransport,
+        *,
+        model: str,
+        messages: list[dict[str, object]],
+        timeout_seconds: int = 600,
+        output_json: bool = False,
+        allow_empty: bool = False,
+    ) -> str:
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["timeout_seconds"] = timeout_seconds
+        captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
+        return "<image>\nFree OCR.\n<｜Assistant｜>\nDecoded text<｜end▁of▁sentence｜>"
+
+    monkeypatch.setattr(
+        "churro_ocr._internal.litellm.LiteLLMTransport.prepare_messages_from_conversation",
+        _fake_prepare_messages_from_conversation,
+    )
+    monkeypatch.setattr("churro_ocr._internal.litellm.LiteLLMTransport.complete_text", _fake_complete_text)
+
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=DEEPSEEK_OCR_2_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+    result = await backend.ocr(DocumentPage.from_image(Image.new("RGB", (10, 10), color="white")))
+
+    assert result.text == "Decoded text"
+    assert result.model_name == "DeepSeek-OCR-2"
+    assert captured["model"] == f"openai/{DEEPSEEK_OCR_2_MODEL_ID}"
+    assert captured["completion_kwargs"] == {
+        "max_tokens": 8_192,
+        "temperature": 0.0,
+    }
+    conversation = cast("list[dict[str, object]]", captured["conversation"])
+    content = cast("list[dict[str, object]]", conversation[0]["content"])
+    assert content[0]["type"] == "image"
+    assert content[1] == {"type": "text", "text": DEEPSEEK_OCR_2_OCR_PROMPT}
 
 
 @pytest.mark.asyncio

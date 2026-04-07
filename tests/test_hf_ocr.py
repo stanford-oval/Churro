@@ -23,17 +23,25 @@ from churro_ocr.providers import OCRBackendSpec, build_ocr_backend
 from churro_ocr.providers.hf import (
     ChandraOCR2OCRBackend,
     Churro3BOCRBackend,
+    DeepSeekOCR2OCRBackend,
     DotsMOCROCRBackend,
     DotsOCR15OCRBackend,
     HuggingFaceVisionOCRBackend,
     LFM25VLOCRBackend,
     PaddleOCRVL15OCRBackend,
 )
-from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS, lfm2_5_vl_text_postprocessor
+from churro_ocr.providers.specs import (
+    DEFAULT_OCR_MAX_TOKENS,
+    deepseek_ocr_2_text_postprocessor,
+    lfm2_5_vl_text_postprocessor,
+)
 from churro_ocr.templates import (
     CHANDRA_OCR_2_MODEL_ID,
     CHANDRA_OCR_2_OCR_TEMPLATE,
     CHURRO_3B_XML_TEMPLATE,
+    DEEPSEEK_OCR_2_MODEL_ID,
+    DEEPSEEK_OCR_2_OCR_PROMPT,
+    DEEPSEEK_OCR_2_OCR_TEMPLATE,
     DOTS_MOCR_MODEL_ID,
     DOTS_MOCR_OCR_PROMPT,
     DOTS_MOCR_OCR_TEMPLATE,
@@ -86,6 +94,16 @@ def test_chandra_template_builds_image_before_prompt() -> None:
     assert conversation[0]["role"] == "user"
     assert conversation[0]["content"][0]["type"] == "image"
     assert conversation[0]["content"][1]["text"] == CHANDRA_OCR_LAYOUT_PROMPT
+
+
+def test_deepseek_ocr_2_template_builds_image_before_prompt() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = DEEPSEEK_OCR_2_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "user"
+    assert conversation[0]["content"][0]["type"] == "image"
+    assert conversation[0]["content"][1]["text"] == DEEPSEEK_OCR_2_OCR_PROMPT
 
 
 def test_parse_olmocr_response_extracts_plain_text_and_metadata() -> None:
@@ -155,6 +173,15 @@ def test_lfm25_text_postprocessor_strips_role_only_prefix() -> None:
     assert lfm2_5_vl_text_postprocessor("assistant:\nplain text") == "plain text"
 
 
+def test_deepseek_ocr_2_text_postprocessor_strips_prompt_echo_and_stop_token() -> None:
+    assert (
+        deepseek_ocr_2_text_postprocessor(
+            "<image>\nFree OCR.\n<｜Assistant｜>\nplain text<｜end▁of▁sentence｜>"
+        )
+        == "plain text"
+    )
+
+
 def test_build_ocr_backend_uses_chandra_profile_defaults_for_hf() -> None:
     backend = cast(
         "ChandraOCR2OCRBackend",
@@ -173,6 +200,29 @@ def test_build_ocr_backend_uses_chandra_profile_defaults_for_hf() -> None:
         "max_new_tokens": 12_384,
     }
     assert backend.image_preprocessor(Image.new("RGB", (5_000, 3_000), color="white")).size == (3_248, 1_932)
+
+
+def test_build_ocr_backend_uses_deepseek_ocr_2_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "DeepSeekOCR2OCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=DEEPSEEK_OCR_2_MODEL_ID,
+            )
+        ),
+    )
+
+    assert isinstance(backend, DeepSeekOCR2OCRBackend)
+    assert backend.template == DEEPSEEK_OCR_2_OCR_TEMPLATE
+    assert backend.model_name == "DeepSeek-OCR-2"
+    assert backend.generation_kwargs == {"max_new_tokens": 8_192}
+    assert backend.trust_remote_code is True
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {"use_safetensors": True}
+    assert backend.base_size == 1_024
+    assert backend.image_size == 768
+    assert backend.crop_mode is True
 
 
 def test_build_ocr_backend_uses_olmocr_profile_defaults_for_hf() -> None:
@@ -410,6 +460,106 @@ async def test_chandra_huggingface_backend_matches_upstream_chat_template_and_eo
     assert "dtype" in cast("dict[str, object]", captured["model_from_pretrained_kwargs"])
     assert captured["skip_special_tokens"] is True
     assert captured["clean_up_tokenization_spaces"] is False
+
+
+@pytest.mark.asyncio
+async def test_deepseek_ocr_2_huggingface_backend_uses_upstream_infer_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeTokenizer:
+        pass
+
+    class FakeTokenizerCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeTokenizer:
+            captured["tokenizer_model_id"] = model_id
+            captured["tokenizer_from_pretrained_kwargs"] = kwargs
+            return FakeTokenizer()
+
+    class FakeModel:
+        def eval(self) -> FakeModel:
+            captured["eval_called"] = True
+            return self
+
+        def cuda(self) -> FakeModel:
+            captured["cuda_called"] = True
+            return self
+
+        def to(self, dtype: object) -> FakeModel:
+            captured["to_dtype"] = dtype
+            return self
+
+        def infer(self, tokenizer: object, **kwargs: object) -> str:
+            captured["infer_tokenizer"] = tokenizer
+            captured["infer_kwargs"] = kwargs
+            image = Image.open(cast("str", kwargs["image_file"]))
+            captured["saved_image_mode"] = image.mode
+            captured["saved_image_size"] = image.size
+            captured["output_dir_exists"] = Path(cast("str", kwargs["output_path"])).exists()
+            return "<image>\nFree OCR.\n<｜Assistant｜>\nDecoded text<｜end▁of▁sentence｜>"
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeModel:
+            captured["model_model_id"] = model_id
+            captured["model_from_pretrained_kwargs"] = kwargs
+            return FakeModel()
+
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_hf_auto_model_runtime",
+        lambda: SimpleNamespace(
+            processor_cls=FakeTokenizerCls,
+            model_cls=FakeModelCls,
+            process_vision_info=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._ensure_deepseek_ocr_2_cuda_runtime",
+        lambda: SimpleNamespace(bfloat16="fake-bfloat16"),
+    )
+
+    backend = cast(
+        "DeepSeekOCR2OCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=DEEPSEEK_OCR_2_MODEL_ID,
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == "Decoded text"
+    assert result.metadata == {}
+    assert captured["tokenizer_model_id"] == DEEPSEEK_OCR_2_MODEL_ID
+    assert captured["model_model_id"] == DEEPSEEK_OCR_2_MODEL_ID
+    assert captured["tokenizer_from_pretrained_kwargs"] == {"trust_remote_code": True}
+    assert captured["model_from_pretrained_kwargs"] == {
+        "trust_remote_code": True,
+        "use_safetensors": True,
+    }
+    assert captured["eval_called"] is True
+    assert captured["cuda_called"] is True
+    assert captured["to_dtype"] == "fake-bfloat16"
+    assert captured["infer_tokenizer"].__class__ is FakeTokenizer
+    infer_kwargs = cast("dict[str, object]", captured["infer_kwargs"])
+    assert infer_kwargs == {
+        "prompt": "<image>\nFree OCR.",
+        "image_file": infer_kwargs["image_file"],
+        "output_path": infer_kwargs["output_path"],
+        "base_size": 1_024,
+        "image_size": 768,
+        "crop_mode": True,
+        "save_results": False,
+        "eval_mode": True,
+    }
+    assert captured["saved_image_mode"] == "RGB"
+    assert captured["saved_image_size"] == (32, 16)
+    assert captured["output_dir_exists"] is True
 
 
 @pytest.mark.asyncio
@@ -1000,6 +1150,21 @@ def test_dots_ocr_15_backend_uses_expected_defaults() -> None:
         assert backend.model_kwargs["device_map"] == "auto"
         assert "max_memory" in backend.model_kwargs
     assert backend.generation_kwargs == {"max_new_tokens": DEFAULT_OCR_MAX_TOKENS}
+
+
+def test_deepseek_ocr_2_backend_uses_expected_defaults() -> None:
+    backend = DeepSeekOCR2OCRBackend()
+
+    assert backend.model_id == DEEPSEEK_OCR_2_MODEL_ID
+    assert backend.template == DEEPSEEK_OCR_2_OCR_TEMPLATE
+    assert backend.model_name == "DeepSeek-OCR-2"
+    assert backend.trust_remote_code is True
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {"use_safetensors": True}
+    assert backend.generation_kwargs == {"max_new_tokens": 8_192}
+    assert backend.base_size == 1_024
+    assert backend.image_size == 768
+    assert backend.crop_mode is True
 
 
 def test_dots_mocr_backend_uses_expected_defaults() -> None:

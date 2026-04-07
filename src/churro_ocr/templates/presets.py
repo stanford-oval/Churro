@@ -12,6 +12,7 @@ from churro_ocr.templates.hf import HFChatTemplate
 
 CHURRO_3B_MODEL_ID = "stanford-oval/churro-3B"
 CHANDRA_OCR_2_MODEL_ID = "datalab-to/chandra-ocr-2"
+DEEPSEEK_OCR_2_MODEL_ID = "deepseek-ai/DeepSeek-OCR-2"
 DOTS_OCR_1_5_MODEL_ID = "kristaller486/dots.ocr-1.5"
 DOTS_MOCR_MODEL_ID = "rednote-hilab/dots.mocr"
 PADDLEOCR_VL_1_5_MODEL_ID = "PaddlePaddle/PaddleOCR-VL-1.5"
@@ -30,6 +31,11 @@ CHURRO_3B_XML_TEMPLATE = HFChatTemplate(
 CHANDRA_OCR_2_OCR_TEMPLATE = HFChatTemplate(
     system_message=None,
     user_prompt=CHANDRA_OCR_LAYOUT_PROMPT,
+)
+DEEPSEEK_OCR_2_OCR_PROMPT = "Free OCR."
+DEEPSEEK_OCR_2_OCR_TEMPLATE = HFChatTemplate(
+    system_message=None,
+    user_prompt=DEEPSEEK_OCR_2_OCR_PROMPT,
 )
 DOTS_OCR_1_5_OCR_PROMPT = "Extract the text content from this image."
 DOTS_OCR_1_5_OCR_TEMPLATE = HFChatTemplate(
@@ -62,6 +68,9 @@ __all__ = [
     "CHURRO_3B_XML_TEMPLATE",
     "CHANDRA_OCR_2_MODEL_ID",
     "CHANDRA_OCR_2_OCR_TEMPLATE",
+    "DEEPSEEK_OCR_2_MODEL_ID",
+    "DEEPSEEK_OCR_2_OCR_PROMPT",
+    "DEEPSEEK_OCR_2_OCR_TEMPLATE",
     "DEFAULT_OCR_TEMPLATE",
     "DOTS_MOCR_MODEL_ID",
     "DOTS_MOCR_OCR_PROMPT",
