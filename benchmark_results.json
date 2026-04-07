@@ -362,6 +362,15 @@
     "total": 39.1984
   },
   {
+    "modelName": "DeepSeek OCR 2",
+    "modelId": "deepseek-ai/DeepSeek-OCR-2",
+    "modelUrl": "https://huggingface.co/deepseek-ai/DeepSeek-OCR-2",
+    "iconPath": null,
+    "printed": 56.1,
+    "handwritten": 20.0,
+    "total": 36.7
+  },
+  {
     "modelName": "Skywork R1V3",
     "modelId": "Skywork/Skywork-R1V3-38B",
     "modelUrl": "https://huggingface.co/Skywork/Skywork-R1V3-38B",
