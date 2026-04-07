@@ -144,12 +144,14 @@ async def test_complete_text_wrapper_passes_transport_config(monkeypatch: pytest
         messages: list[dict[str, object]],
         timeout_seconds: int = 600,
         output_json: bool = False,
+        allow_empty: bool = False,
     ) -> str:
         captured["config"] = self.config
         captured["model"] = model
         captured["messages"] = messages
         captured["timeout_seconds"] = timeout_seconds
         captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
         return "ok"
 
     monkeypatch.setattr(
@@ -177,6 +179,7 @@ async def test_complete_text_wrapper_passes_transport_config(monkeypatch: pytest
     assert config.completion_kwargs == {"temperature": 0}
     assert captured["timeout_seconds"] == 42
     assert captured["output_json"] is True
+    assert captured["allow_empty"] is False
 
 
 def test_extract_response_cost_uses_completion_cost_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -342,6 +345,28 @@ async def test_transport_complete_text_rejects_empty_output(monkeypatch: pytest.
             model="example/model",
             messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
         )
+
+
+@pytest.mark.asyncio
+async def test_transport_complete_text_allows_empty_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _empty_acompletion(**_: object) -> object:
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="   "))],
+            _hidden_params={},
+        )
+
+    fake_module = _make_fake_litellm_module(acompletion=_empty_acompletion)
+    monkeypatch.setitem(sys.modules, "litellm", fake_module)
+    monkeypatch.setattr(litellm_module, "_INITIALIZED", False)
+
+    transport = LiteLLMTransport()
+    result = await transport.complete_text(
+        model="example/model",
+        messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+        allow_empty=True,
+    )
+
+    assert result == ""
 
 
 def test_logger_adapter_supports_success_fallback_and_other_levels() -> None:

@@ -71,6 +71,7 @@ async def test_litellm_ocr_backend_uses_transport(monkeypatch: pytest.MonkeyPatc
     image = Image.new("RGB", (10, 10), color="white")
     page = DocumentPage(page_index=0, image=image, source_index=0)
     prompt_logs: list[str] = []
+    captured: dict[str, object] = {}
 
     class FakeLogger:
         def debug(self, message: str, *args: object) -> None:
@@ -86,7 +87,21 @@ async def test_litellm_ocr_backend_uses_transport(monkeypatch: pytest.MonkeyPatc
         assert image_detail == "high"
         return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
 
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(
+        self: LiteLLMTransport,
+        *,
+        model: str,
+        messages: list[dict[str, object]],
+        timeout_seconds: int = 600,
+        output_json: bool = False,
+        allow_empty: bool = False,
+    ) -> str:
+        captured["transport"] = self
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["timeout_seconds"] = timeout_seconds
+        captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
         return "transcribed text"
 
     monkeypatch.setattr(
@@ -107,6 +122,12 @@ async def test_litellm_ocr_backend_uses_transport(monkeypatch: pytest.MonkeyPatc
     assert result.text == "transcribed text"
     assert result.model_name == "gpt-4.1-mini"
     assert backend.transport.config.completion_kwargs == {"max_tokens": DEFAULT_OCR_MAX_TOKENS}
+    assert captured["transport"] is backend.transport
+    assert captured["model"] == "gpt-4.1-mini"
+    assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+    assert captured["timeout_seconds"] == 600
+    assert captured["output_json"] is False
+    assert captured["allow_empty"] is True
     assert len(prompt_logs) == 1
     assert "First OCR prompt payload for litellm" in prompt_logs[0]
 
@@ -200,6 +221,31 @@ async def test_litellm_ocr_backend_strips_default_output_tags(
     result = await backend.ocr(DocumentPage.from_image(Image.new("RGB", (10, 10), color="white")))
 
     assert result.text == "transcribed text"
+
+
+@pytest.mark.asyncio
+async def test_litellm_ocr_backend_accepts_empty_transport_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+        return ""
+
+    monkeypatch.setattr(
+        "churro_ocr._internal.litellm._prepare_messages_from_conversation",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr("churro_ocr._internal.litellm.LiteLLMTransport.complete_text", _fake_complete_text)
+
+    backend = build_ocr_backend(
+        OCRBackendSpec(
+            provider="litellm",
+            model="gpt-4.1-mini",
+            profile=resolve_ocr_profile(model_id="gpt-4.1-mini"),
+        )
+    )
+    result = await backend.ocr(DocumentPage.from_image(Image.new("RGB", (10, 10), color="white")))
+
+    assert result.text == ""
 
 
 @pytest.mark.asyncio
@@ -746,11 +792,13 @@ async def test_openai_compatible_backend_uses_olmocr_prompt_and_plain_text_postp
         messages: list[dict[str, object]],
         timeout_seconds: int = 600,
         output_json: bool = False,
+        allow_empty: bool = False,
     ) -> str:
         captured["model"] = model
         captured["messages"] = messages
         captured["timeout_seconds"] = timeout_seconds
         captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
         captured["completion_kwargs"] = dict(self.config.completion_kwargs)
         return (
             "---\n"
@@ -808,6 +856,7 @@ async def test_openai_compatible_backend_uses_olmocr_prompt_and_plain_text_postp
     assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
     assert captured["timeout_seconds"] == 600
     assert captured["output_json"] is False
+    assert captured["allow_empty"] is True
     assert captured["completion_kwargs"] == {
         "max_tokens": 8_000,
         "temperature": 0.1,
@@ -843,11 +892,13 @@ async def test_openai_compatible_backend_uses_chandra_prompt_and_plain_text_post
         messages: list[dict[str, object]],
         timeout_seconds: int = 600,
         output_json: bool = False,
+        allow_empty: bool = False,
     ) -> str:
         captured["model"] = model
         captured["messages"] = messages
         captured["timeout_seconds"] = timeout_seconds
         captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
         captured["completion_kwargs"] = dict(self.config.completion_kwargs)
         return (
             '<div data-bbox="0 0 1000 100" data-label="Section-Header"><h1>Ledger</h1></div>\n'
@@ -892,6 +943,7 @@ async def test_openai_compatible_backend_uses_chandra_prompt_and_plain_text_post
     assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
     assert captured["timeout_seconds"] == 600
     assert captured["output_json"] is False
+    assert captured["allow_empty"] is True
     assert captured["completion_kwargs"] == {
         "max_tokens": 12_384,
         "temperature": 0.0,

@@ -105,6 +105,7 @@ class LiteLLMVisionOCRBackend(OCRBackend):
         text = await self.transport.complete_text(
             model=self.model,
             messages=messages,
+            allow_empty=True,
         )
         return build_ocr_result(
             text,
