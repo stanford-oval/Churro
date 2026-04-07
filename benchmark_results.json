@@ -17,6 +17,15 @@
     "handwritten": 66.5,
     "total": 73.9
   },
+   {
+    "modelName": "Gemini 3.1 Pro Preview",
+    "modelId": "gemini-3.1-pro-preview",
+    "modelUrl": "https://ai.google.dev/gemini-api/docs/models",
+    "iconPath": "_static/img/gemini-symbol.png",
+    "printed": 80.3,
+    "handwritten": 68.3,
+    "total": 73.8
+  },
   {
     "modelName": "Gemini 3 Pro",
     "modelId": "gemini-3-pro",
