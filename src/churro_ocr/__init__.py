@@ -16,8 +16,6 @@ from churro_ocr.templates import (
     CHURRO_3B_MODEL_ID,
     CHURRO_3B_XML_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
-    HFChatTemplate,
-    OCRPromptTemplate,
 )
 
 __all__ = [
@@ -31,8 +29,6 @@ __all__ = [
     "DocumentOCRResult",
     "DocumentPageDetector",
     "DEFAULT_OCR_TEMPLATE",
-    "HFChatTemplate",
-    "OCRPromptTemplate",
     "OCRBackend",
     "OCRClient",
     "OCRResult",
