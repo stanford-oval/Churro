@@ -6,13 +6,13 @@ Full documentation and project overview live at https://stanford-oval.github.io/
 
 ## Install
 
-Use UV as the supported install path.
+For the CLI-first workflow used in the docs, install Churro with UV as a tool.
 
 ```bash
 uv tool install churro-ocr
-# or, in a project:
-uv add churro-ocr
 ```
+
+If you are adding `churro-ocr` to a project instead, use `uv add churro-ocr` and prefix CLI commands with `uv run`.
 
 Runtime setup and provider-specific install commands are in
 [Getting Started](https://stanford-oval.github.io/Churro/getting-started.html)

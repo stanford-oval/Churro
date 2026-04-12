@@ -13,23 +13,39 @@
 
 ## Install
 
-Use UV as the supported install path.
+For the CLI-first workflow used in this guide, install Churro with UV as a tool.
+Python 3.12 or newer is required.
 
 ```bash
 uv tool install churro-ocr
-# or, in a project:
-uv add churro-ocr
 ```
+
+If you are adding `churro-ocr` to a project instead, use `uv add churro-ocr` and prefix the CLI commands below with `uv run`.
 
 Then install the runtime for the backend you plan to use:
 
 ```bash
-uv run churro-ocr install llm
-uv run churro-ocr install hf
-uv run churro-ocr install local
+churro-ocr install llm
+churro-ocr install hf
+churro-ocr install local
+churro-ocr install pdf
+churro-ocr install all
 ```
 
-If you installed the CLI with `uv tool install churro-ocr`, drop the `uv run` prefix.
+Common runtime targets:
+
+- `llm`: hosted multimodal OCR through LiteLLM-backed providers
+- `hf`: local Hugging Face OCR plus a PyTorch runtime
+- `local`: clients for OpenAI-compatible local or self-hosted servers
+- `pdf`: PDF rasterization support for `process_pdf_*` and `extract-pages --pdf`
+- `all`: every optional runtime in one command
+
+Use `--torch-backend` with `hf` or `all` when you need a specific PyTorch build:
+
+```bash
+churro-ocr install hf --torch-backend cu126
+```
+
 For the full provider/runtime matrix, use [Providers And Configuration](guides/providers.md).
 
 ## First OCR Example

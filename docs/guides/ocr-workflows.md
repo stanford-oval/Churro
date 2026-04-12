@@ -26,7 +26,13 @@ print(page.model_name)
 
 ## OCR A PDF
 
-If you install the `pdf` extra, `DocumentOCRPipeline` can rasterize a PDF and OCR each page.
+Install the `pdf` runtime first. If you also want local Hugging Face OCR for PDFs, install `all` or install both `hf` and `pdf`.
+
+```bash
+churro-ocr install pdf
+```
+
+Then `DocumentOCRPipeline` can rasterize a PDF and OCR each page.
 
 ```python
 from churro_ocr import DocumentOCRPipeline

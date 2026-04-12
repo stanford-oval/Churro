@@ -3,6 +3,7 @@
 Use the CLI when you want a quick sanity check before writing Python code.
 
 Use `churro-ocr --help` or `python -m churro_ocr --help` to inspect the top-level commands.
+This page assumes the CLI is installed and available as `churro-ocr`.
 Install Churro in [Getting Started](getting-started.md), and use
 [Providers And Configuration](guides/providers.md)
 for backend-specific runtime setup.
