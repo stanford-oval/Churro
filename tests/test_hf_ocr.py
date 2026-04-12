@@ -12,20 +12,51 @@ import churro_ocr.providers.hf as hf_module
 from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRClient
 from churro_ocr.page_detection import DocumentPage
-from churro_ocr.prompts import DEFAULT_OCR_OUTPUT_TAG
+from churro_ocr.prompts import (
+    CHANDRA_OCR_LAYOUT_PROMPT,
+    DEFAULT_OCR_OUTPUT_TAG,
+    OLMOCR_V4_YAML_PROMPT,
+    parse_chandra_response,
+    parse_olmocr_response,
+)
 from churro_ocr.providers import OCRBackendSpec, build_ocr_backend
 from churro_ocr.providers.hf import (
+    ChandraOCR2OCRBackend,
     Churro3BOCRBackend,
+    DeepSeekOCR2OCRBackend,
+    DotsMOCROCRBackend,
     DotsOCR15OCRBackend,
     HuggingFaceVisionOCRBackend,
+    LFM25VLOCRBackend,
+    PaddleOCRVL15OCRBackend,
 )
-from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
+from churro_ocr.providers.specs import (
+    DEFAULT_OCR_MAX_TOKENS,
+    deepseek_ocr_2_text_postprocessor,
+    lfm2_5_vl_text_postprocessor,
+)
 from churro_ocr.templates import (
+    CHANDRA_OCR_2_MODEL_ID,
+    CHANDRA_OCR_2_OCR_TEMPLATE,
     CHURRO_3B_XML_TEMPLATE,
+    DEEPSEEK_OCR_2_MODEL_ID,
+    DEEPSEEK_OCR_2_OCR_PROMPT,
+    DEEPSEEK_OCR_2_OCR_TEMPLATE,
+    DOTS_MOCR_MODEL_ID,
+    DOTS_MOCR_OCR_PROMPT,
+    DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_PROMPT,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    LFM2_5_VL_1_6B_MODEL_ID,
+    LFM2_5_VL_1_6B_OCR_TEMPLATE,
+    OLMOCR_2_7B_1025_MODEL_ID,
+    OLMOCR_2_7B_1025_OCR_TEMPLATE,
+    PADDLEOCR_VL_1_5_MODEL_ID,
+    PADDLEOCR_VL_1_5_OCR_PROMPT,
+    PADDLEOCR_VL_1_5_OCR_TEMPLATE,
     HFChatTemplate,
+    OCRConversation,
 )
 
 
@@ -43,6 +74,771 @@ def test_hf_chat_template_builds_expected_conversation() -> None:
     assert conversation[1]["role"] == "user"
     assert conversation[1]["content"][0]["type"] == "image"
     assert conversation[1]["content"][1]["text"] == "user text"
+
+
+def test_olmocr_template_builds_prompt_before_image() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = OLMOCR_2_7B_1025_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "user"
+    assert conversation[0]["content"][0]["text"] == OLMOCR_V4_YAML_PROMPT
+    assert conversation[0]["content"][1]["type"] == "image"
+
+
+def test_chandra_template_builds_image_before_prompt() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = CHANDRA_OCR_2_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "user"
+    assert conversation[0]["content"][0]["type"] == "image"
+    assert conversation[0]["content"][1]["text"] == CHANDRA_OCR_LAYOUT_PROMPT
+
+
+def test_deepseek_ocr_2_template_builds_image_before_prompt() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = DEEPSEEK_OCR_2_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "user"
+    assert conversation[0]["content"][0]["type"] == "image"
+    assert conversation[0]["content"][1]["text"] == DEEPSEEK_OCR_2_OCR_PROMPT
+
+
+def test_parse_olmocr_response_extracts_plain_text_and_metadata() -> None:
+    text, metadata = parse_olmocr_response(
+        "---\n"
+        "primary_language: en\n"
+        "is_rotation_valid: true\n"
+        "rotation_correction: 0\n"
+        "is_table: true\n"
+        "is_diagram: false\n"
+        "---\n"
+        "# Heading\n\n"
+        "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+        "![Figure alt text](page_0_0_100_100.png)\n"
+        "Paragraph with [reference](https://example.test)."
+    )
+
+    assert text == "Heading\n\nYear | Value\n1900 | 42\n\nParagraph with reference."
+    assert metadata["front_matter"] == {
+        "primary_language": "en",
+        "is_rotation_valid": True,
+        "rotation_correction": 0,
+        "is_table": True,
+        "is_diagram": False,
+    }
+    assert "Heading" in cast("str", metadata["raw_markdown"])
+
+
+def test_parse_chandra_response_extracts_plain_text_and_metadata() -> None:
+    text, metadata = parse_chandra_response(
+        '<div data-bbox="0 0 1000 100" data-label="Section-Header"><h1>Title</h1></div>\n'
+        '<div data-bbox="0 100 1000 300" data-label="Text"><p>Paragraph with <a '
+        'href="https://example.test">reference</a>.</p></div>\n'
+        '<div data-bbox="0 300 1000 500" data-label="Form"><p><input type="checkbox" checked> '
+        "Checked item</p></div>\n"
+        '<div data-bbox="0 500 1000 700" data-label="Table"><table><tr><th>Year</th>'
+        "<th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table></div>"
+    )
+
+    assert text == "Title\n\nParagraph with reference.\n\n[x] Checked item\n\nYear | Value\n1900 | 42"
+    assert metadata == {
+        "raw_html": (
+            '<div data-bbox="0 0 1000 100" data-label="Section-Header"><h1>Title</h1></div>\n'
+            '<div data-bbox="0 100 1000 300" data-label="Text"><p>Paragraph with <a '
+            'href="https://example.test">reference</a>.</p></div>\n'
+            '<div data-bbox="0 300 1000 500" data-label="Form"><p><input type="checkbox" checked> '
+            "Checked item</p></div>\n"
+            '<div data-bbox="0 500 1000 700" data-label="Table"><table><tr><th>Year</th>'
+            "<th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table></div>"
+        ),
+    }
+
+
+def test_lfm25_text_postprocessor_strips_prompt_and_role_scaffold() -> None:
+    text = (
+        "Transcribe all visible text from this historical document page in reading order.\n"
+        "assistant\n"
+        f"<{DEFAULT_OCR_OUTPUT_TAG}>\n"
+        "decoded text\n"
+        f"</{DEFAULT_OCR_OUTPUT_TAG}>"
+    )
+
+    assert lfm2_5_vl_text_postprocessor(text) == "decoded text"
+
+
+def test_lfm25_text_postprocessor_strips_role_only_prefix() -> None:
+    assert lfm2_5_vl_text_postprocessor("assistant:\nplain text") == "plain text"
+
+
+def test_deepseek_ocr_2_text_postprocessor_strips_prompt_echo_and_stop_token() -> None:
+    assert (
+        deepseek_ocr_2_text_postprocessor(
+            "<image>\nFree OCR.\n<｜Assistant｜>\nplain text<｜end▁of▁sentence｜>"
+        )
+        == "plain text"
+    )
+
+
+def test_build_ocr_backend_uses_chandra_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "ChandraOCR2OCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=CHANDRA_OCR_2_MODEL_ID,
+            )
+        ),
+    )
+
+    assert isinstance(backend, ChandraOCR2OCRBackend)
+    assert backend.template == CHANDRA_OCR_2_OCR_TEMPLATE
+    assert backend.model_name == "chandra-ocr-2"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 12_384,
+    }
+    assert backend.image_preprocessor(Image.new("RGB", (5_000, 3_000), color="white")).size == (3_248, 1_932)
+
+
+def test_build_ocr_backend_uses_deepseek_ocr_2_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "DeepSeekOCR2OCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=DEEPSEEK_OCR_2_MODEL_ID,
+            )
+        ),
+    )
+
+    assert isinstance(backend, DeepSeekOCR2OCRBackend)
+    assert backend.template == DEEPSEEK_OCR_2_OCR_TEMPLATE
+    assert backend.model_name == "DeepSeek-OCR-2"
+    assert backend.generation_kwargs == {"max_new_tokens": 8_192}
+    assert backend.trust_remote_code is True
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {"use_safetensors": True}
+    assert backend.base_size == 1_024
+    assert backend.image_size == 768
+    assert backend.crop_mode is True
+
+
+def test_build_ocr_backend_uses_olmocr_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=OLMOCR_2_7B_1025_MODEL_ID,
+            )
+        ),
+    )
+
+    assert backend.template == OLMOCR_2_7B_1025_OCR_TEMPLATE
+    assert backend.model_name == "olmOCR-2-7B-1025"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 8_000,
+        "temperature": 0.1,
+        "do_sample": True,
+    }
+    assert backend.image_preprocessor(Image.new("RGB", (5_000, 3_000), color="white")).size == (1_288, 772)
+
+
+def test_build_ocr_backend_uses_lfm25_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "LFM25VLOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=LFM2_5_VL_1_6B_MODEL_ID,
+            )
+        ),
+    )
+
+    assert isinstance(backend, LFM25VLOCRBackend)
+    assert backend.template == LFM2_5_VL_1_6B_OCR_TEMPLATE
+    assert backend.model_name == "LFM2.5-VL-1.6B"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 512,
+        "do_sample": False,
+        "repetition_penalty": 1.05,
+    }
+
+
+def test_build_ocr_backend_uses_paddleocr_vl_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "PaddleOCRVL15OCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=PADDLEOCR_VL_1_5_MODEL_ID,
+            )
+        ),
+    )
+
+    assert isinstance(backend, PaddleOCRVL15OCRBackend)
+    assert backend.template == PADDLEOCR_VL_1_5_OCR_TEMPLATE
+    assert backend.model_name == "PaddleOCR-VL-1.5"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+
+
+def test_build_ocr_backend_uses_dots_mocr_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "DotsMOCROCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=DOTS_MOCR_MODEL_ID,
+            )
+        ),
+    )
+
+    assert isinstance(backend, DotsMOCROCRBackend)
+    assert backend.template == DOTS_MOCR_OCR_TEMPLATE
+    assert backend.model_name == "dots.mocr"
+    assert backend.generation_kwargs == {"max_new_tokens": DEFAULT_OCR_MAX_TOKENS}
+    assert backend.trust_remote_code is True
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs["dtype"] in {"auto", "float32"}
+    if backend.model_kwargs["dtype"] == "auto" and "device_map" in backend.model_kwargs:
+        assert backend.model_kwargs["device_map"] == "auto"
+        assert "max_memory" in backend.model_kwargs
+
+
+@pytest.mark.asyncio
+async def test_chandra_huggingface_backend_matches_upstream_chat_template_and_eos_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeAttentionMask:
+        def sum(self, dim: int) -> SimpleNamespace:
+            captured["attention_mask_sum_dim"] = dim
+            return SimpleNamespace(tolist=lambda: [3])
+
+    class FakeBatch(dict[str, object]):
+        def to(self, device: object) -> FakeBatch:
+            captured["device"] = device
+            return self
+
+    class FakeTokenizer:
+        def __init__(self) -> None:
+            self.padding_side = "right"
+
+        def convert_tokens_to_ids(self, token: str) -> int:
+            captured["stop_token_lookup"] = token
+            return 77
+
+    class FakeProcessor:
+        def __init__(self) -> None:
+            self.tokenizer = FakeTokenizer()
+
+        def apply_chat_template(
+            self,
+            conversation: object,
+            *,
+            add_generation_prompt: bool,
+            tokenize: bool = True,
+            return_dict: bool = True,
+            return_tensors: str | None = None,
+            padding: bool | None = None,
+        ) -> object:
+            captured["add_generation_prompt"] = add_generation_prompt
+            captured["tokenize"] = tokenize
+            captured["return_dict"] = return_dict
+            if not tokenize:
+                captured["render_conversation"] = conversation
+                return "<rendered>"
+            captured["tokenized_conversations"] = conversation
+            captured["return_tensors"] = return_tensors
+            captured["padding"] = padding
+            return FakeBatch(
+                {
+                    "input_ids": SimpleNamespace(shape=(1, 3)),
+                    "attention_mask": FakeAttentionMask(),
+                }
+            )
+
+        def batch_decode(
+            self,
+            generated_ids: object,
+            *,
+            skip_special_tokens: bool,
+            clean_up_tokenization_spaces: bool,
+        ) -> list[str]:
+            captured["generated_ids"] = generated_ids
+            captured["skip_special_tokens"] = skip_special_tokens
+            captured["clean_up_tokenization_spaces"] = clean_up_tokenization_spaces
+            return [
+                '<div data-bbox="0 0 1000 1000" data-label="Text"><p>Decoded '
+                '<a href="https://example.test">output</a>.</p></div>'
+            ]
+
+    class FakeProcessorCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeProcessor:
+            captured["processor_model_id"] = model_id
+            captured["processor_from_pretrained_kwargs"] = kwargs
+            return FakeProcessor()
+
+    class FakeModel:
+        device = "fake-device"
+        dtype = None
+        generation_config = SimpleNamespace(eos_token_id=11)
+
+        def eval(self) -> FakeModel:
+            captured["eval_called"] = True
+            return self
+
+        def generate(self, **kwargs: object) -> list[list[int | str]]:
+            captured["generate_kwargs"] = kwargs
+            return [[0, 1, 2, "completion"]]
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeModel:
+            captured["model_model_id"] = model_id
+            captured["model_from_pretrained_kwargs"] = kwargs
+            return FakeModel()
+
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_hf_runtime",
+        lambda: SimpleNamespace(
+            processor_cls=FakeProcessorCls,
+            model_cls=FakeModelCls,
+            process_vision_info=None,
+        ),
+    )
+
+    backend = cast(
+        "ChandraOCR2OCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=CHANDRA_OCR_2_MODEL_ID,
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (5_000, 3_000), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == "Decoded output."
+    assert result.metadata == {
+        "raw_html": (
+            '<div data-bbox="0 0 1000 1000" data-label="Text"><p>Decoded '
+            '<a href="https://example.test">output</a>.</p></div>'
+        ),
+    }
+    assert captured["processor_model_id"] == CHANDRA_OCR_2_MODEL_ID
+    assert captured["model_model_id"] == CHANDRA_OCR_2_MODEL_ID
+    assert captured["eval_called"] is True
+    assert captured["render_conversation"][0]["role"] == "user"
+    render_content = cast("list[dict[str, object]]", captured["render_conversation"][0]["content"])
+    assert render_content[0]["type"] == "image"
+    render_image = cast("Image.Image", render_content[0]["image"])
+    assert render_image.size == (3_248, 1_932)
+    assert render_image.mode == "RGB"
+    assert render_content[1] == {"type": "text", "text": CHANDRA_OCR_LAYOUT_PROMPT}
+    tokenized_conversation = cast("list[OCRConversation]", captured["tokenized_conversations"])
+    assert tokenized_conversation[0][0]["role"] == "user"
+    assert captured["tokenize"] is True
+    assert captured["return_dict"] is True
+    assert captured["return_tensors"] == "pt"
+    assert captured["padding"] is True
+    assert captured["device"] == "fake-device"
+    assert captured["attention_mask_sum_dim"] == 1
+    assert captured["stop_token_lookup"] == "<|im_end|>"
+    assert captured["generate_kwargs"]["max_new_tokens"] == 12_384
+    assert captured["generate_kwargs"]["eos_token_id"] == [11, 77]
+    assert captured["model_from_pretrained_kwargs"]["device_map"] == "auto"
+    assert "dtype" in cast("dict[str, object]", captured["model_from_pretrained_kwargs"])
+    assert captured["skip_special_tokens"] is True
+    assert captured["clean_up_tokenization_spaces"] is False
+
+
+@pytest.mark.asyncio
+async def test_deepseek_ocr_2_huggingface_backend_uses_upstream_infer_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeTokenizer:
+        pass
+
+    class FakeTokenizerCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeTokenizer:
+            captured["tokenizer_model_id"] = model_id
+            captured["tokenizer_from_pretrained_kwargs"] = kwargs
+            return FakeTokenizer()
+
+    class FakeModel:
+        def eval(self) -> FakeModel:
+            captured["eval_called"] = True
+            return self
+
+        def cuda(self) -> FakeModel:
+            captured["cuda_called"] = True
+            return self
+
+        def to(self, dtype: object) -> FakeModel:
+            captured["to_dtype"] = dtype
+            return self
+
+        def infer(self, tokenizer: object, **kwargs: object) -> str:
+            captured["infer_tokenizer"] = tokenizer
+            captured["infer_kwargs"] = kwargs
+            image = Image.open(cast("str", kwargs["image_file"]))
+            captured["saved_image_mode"] = image.mode
+            captured["saved_image_size"] = image.size
+            captured["output_dir_exists"] = Path(cast("str", kwargs["output_path"])).exists()
+            return "<image>\nFree OCR.\n<｜Assistant｜>\nDecoded text<｜end▁of▁sentence｜>"
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeModel:
+            captured["model_model_id"] = model_id
+            captured["model_from_pretrained_kwargs"] = kwargs
+            return FakeModel()
+
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_hf_auto_model_runtime",
+        lambda: SimpleNamespace(
+            processor_cls=FakeTokenizerCls,
+            model_cls=FakeModelCls,
+            process_vision_info=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._ensure_deepseek_ocr_2_cuda_runtime",
+        lambda: SimpleNamespace(bfloat16="fake-bfloat16"),
+    )
+
+    backend = cast(
+        "DeepSeekOCR2OCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=DEEPSEEK_OCR_2_MODEL_ID,
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == "Decoded text"
+    assert result.metadata == {}
+    assert captured["tokenizer_model_id"] == DEEPSEEK_OCR_2_MODEL_ID
+    assert captured["model_model_id"] == DEEPSEEK_OCR_2_MODEL_ID
+    assert captured["tokenizer_from_pretrained_kwargs"] == {"trust_remote_code": True}
+    assert captured["model_from_pretrained_kwargs"] == {
+        "trust_remote_code": True,
+        "use_safetensors": True,
+    }
+    assert captured["eval_called"] is True
+    assert captured["cuda_called"] is True
+    assert captured["to_dtype"] == "fake-bfloat16"
+    assert captured["infer_tokenizer"].__class__ is FakeTokenizer
+    infer_kwargs = cast("dict[str, object]", captured["infer_kwargs"])
+    assert infer_kwargs == {
+        "prompt": "<image>\nFree OCR.",
+        "image_file": infer_kwargs["image_file"],
+        "output_path": infer_kwargs["output_path"],
+        "base_size": 1_024,
+        "image_size": 768,
+        "crop_mode": True,
+        "save_results": False,
+        "eval_mode": True,
+    }
+    assert captured["saved_image_mode"] == "RGB"
+    assert captured["saved_image_size"] == (32, 16)
+    assert captured["output_dir_exists"] is True
+
+
+@pytest.mark.asyncio
+async def test_lfm25_huggingface_backend_uses_tokenized_chat_template_and_ties_lm_head(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeAttentionMask:
+        def sum(self, dim: int) -> SimpleNamespace:
+            captured["attention_mask_sum_dim"] = dim
+            return SimpleNamespace(tolist=lambda: [4])
+
+    class FakeBatch(dict[str, object]):
+        def to(self, device: object) -> FakeBatch:
+            captured["device"] = device
+            return self
+
+    class FakeProcessor:
+        def __init__(self) -> None:
+            self.tokenizer = SimpleNamespace(padding_side="right")
+
+        def apply_chat_template(
+            self,
+            conversation: object,
+            *,
+            add_generation_prompt: bool,
+            tokenize: bool,
+            return_dict: bool | None = None,
+            return_tensors: str | None = None,
+            padding: bool | None = None,
+        ) -> object:
+            captured.setdefault("chat_calls", []).append(
+                {
+                    "conversation": conversation,
+                    "add_generation_prompt": add_generation_prompt,
+                    "tokenize": tokenize,
+                    "return_dict": return_dict,
+                    "return_tensors": return_tensors,
+                    "padding": padding,
+                }
+            )
+            if not tokenize:
+                return "<lfm-rendered>"
+            return FakeBatch(
+                {
+                    "input_ids": SimpleNamespace(shape=(1, 4)),
+                    "attention_mask": FakeAttentionMask(),
+                }
+            )
+
+        def __call__(self, **kwargs: object) -> object:
+            raise AssertionError("processor(...) should not be used for LFM2.5-VL")
+
+        def batch_decode(
+            self,
+            generated_ids: object,
+            *,
+            skip_special_tokens: bool,
+            clean_up_tokenization_spaces: bool,
+        ) -> list[str]:
+            captured["generated_ids"] = generated_ids
+            captured["skip_special_tokens"] = skip_special_tokens
+            captured["clean_up_tokenization_spaces"] = clean_up_tokenization_spaces
+            return ["lfm transcription"]
+
+    class FakeProcessorCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeProcessor:
+            captured["processor_model_id"] = model_id
+            captured["processor_from_pretrained_kwargs"] = kwargs
+            return FakeProcessor()
+
+    class FakeLmHead:
+        weight = "original-weight"
+
+    class FakeModel:
+        device = "fake-device"
+        dtype = None
+
+        def __init__(self) -> None:
+            self.lm_head = FakeLmHead()
+
+        def get_input_embeddings(self) -> SimpleNamespace:
+            captured["get_input_embeddings_called"] = True
+            return SimpleNamespace(weight="tied-weight")
+
+        def generate(self, **kwargs: object) -> list[list[int | str]]:
+            captured["generate_kwargs"] = kwargs
+            return [[0, 1, 2, 3, "completion"]]
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeModel:
+            captured["model_model_id"] = model_id
+            captured["model_from_pretrained_kwargs"] = kwargs
+            model = FakeModel()
+            captured["model"] = model
+            return model
+
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_hf_runtime",
+        lambda: SimpleNamespace(
+            processor_cls=FakeProcessorCls,
+            model_cls=FakeModelCls,
+            process_vision_info=None,
+        ),
+    )
+
+    backend = cast(
+        "LFM25VLOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=LFM2_5_VL_1_6B_MODEL_ID,
+            )
+        ),
+    )
+    result = await backend.ocr(DocumentPage.from_image(Image.new("RGB", (32, 32), color="white")))
+
+    assert result.text == "lfm transcription"
+    assert captured["processor_model_id"] == LFM2_5_VL_1_6B_MODEL_ID
+    assert captured["model_model_id"] == LFM2_5_VL_1_6B_MODEL_ID
+    assert captured["get_input_embeddings_called"] is True
+    assert cast("FakeModel", captured["model"]).lm_head.weight == "tied-weight"
+    assert cast("FakeProcessor", backend._processor).tokenizer.padding_side == "left"
+    assert len(cast("list[dict[str, object]]", captured["chat_calls"])) == 2
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[0]["tokenize"] is False
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["tokenize"] is True
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["return_dict"] is True
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["return_tensors"] == "pt"
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["padding"] is False
+    assert captured["device"] == "fake-device"
+    assert captured["attention_mask_sum_dim"] == 1
+    assert captured["generate_kwargs"] == {
+        "input_ids": SimpleNamespace(shape=(1, 4)),
+        "attention_mask": cast("object", captured["generate_kwargs"]["attention_mask"]),
+        "max_new_tokens": 512,
+        "do_sample": False,
+        "repetition_penalty": 1.05,
+    }
+    assert captured["generated_ids"] == [["completion"]]
+    assert captured["skip_special_tokens"] is True
+    assert captured["clean_up_tokenization_spaces"] is False
+
+
+@pytest.mark.asyncio
+async def test_lfm25_huggingface_backend_batches_pages_with_tokenized_chat_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeAttentionMask:
+        def sum(self, dim: int) -> SimpleNamespace:
+            captured["attention_mask_sum_dim"] = dim
+            return SimpleNamespace(tolist=lambda: [4, 4])
+
+    class FakeBatch(dict[str, object]):
+        def to(self, device: object) -> FakeBatch:
+            captured["device"] = device
+            return self
+
+    class FakeProcessor:
+        def __init__(self) -> None:
+            self.tokenizer = SimpleNamespace(padding_side="right")
+
+        def apply_chat_template(
+            self,
+            conversation: object,
+            *,
+            add_generation_prompt: bool,
+            tokenize: bool,
+            return_dict: bool | None = None,
+            return_tensors: str | None = None,
+            padding: bool | None = None,
+        ) -> object:
+            captured.setdefault("chat_calls", []).append(
+                {
+                    "conversation": conversation,
+                    "add_generation_prompt": add_generation_prompt,
+                    "tokenize": tokenize,
+                    "return_dict": return_dict,
+                    "return_tensors": return_tensors,
+                    "padding": padding,
+                }
+            )
+            if not tokenize:
+                return "<lfm-rendered>"
+            return FakeBatch(
+                {
+                    "input_ids": SimpleNamespace(shape=(2, 4)),
+                    "attention_mask": FakeAttentionMask(),
+                }
+            )
+
+        def __call__(self, **kwargs: object) -> object:
+            raise AssertionError("processor(...) should not be used for LFM2.5-VL batches")
+
+        def batch_decode(
+            self,
+            generated_ids: object,
+            *,
+            skip_special_tokens: bool,
+            clean_up_tokenization_spaces: bool,
+        ) -> list[str]:
+            captured["generated_ids"] = generated_ids
+            captured["skip_special_tokens"] = skip_special_tokens
+            captured["clean_up_tokenization_spaces"] = clean_up_tokenization_spaces
+            return ["first transcription", "second transcription"]
+
+    class FakeProcessorCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeProcessor:
+            captured["processor_model_id"] = model_id
+            captured["processor_from_pretrained_kwargs"] = kwargs
+            return FakeProcessor()
+
+    class FakeLmHead:
+        weight = "original-weight"
+
+    class FakeModel:
+        device = "fake-device"
+        dtype = None
+
+        def __init__(self) -> None:
+            self.lm_head = FakeLmHead()
+
+        def get_input_embeddings(self) -> SimpleNamespace:
+            return SimpleNamespace(weight="tied-weight")
+
+        def generate(self, **kwargs: object) -> list[list[int | str]]:
+            captured["generate_kwargs"] = kwargs
+            return [
+                [0, 1, 2, 3, "first"],
+                [0, 1, 2, 3, "second"],
+            ]
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeModel:
+            captured["model_model_id"] = model_id
+            captured["model_from_pretrained_kwargs"] = kwargs
+            return FakeModel()
+
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_hf_runtime",
+        lambda: SimpleNamespace(
+            processor_cls=FakeProcessorCls,
+            model_cls=FakeModelCls,
+            process_vision_info=None,
+        ),
+    )
+
+    backend = cast(
+        "LFM25VLOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=LFM2_5_VL_1_6B_MODEL_ID,
+            )
+        ),
+    )
+    results = await backend.ocr_batch(
+        [
+            DocumentPage.from_image(Image.new("RGB", (32, 32), color="white")),
+            DocumentPage.from_image(Image.new("RGB", (32, 32), color="white")),
+        ]
+    )
+
+    assert [result.text for result in results] == ["first transcription", "second transcription"]
+    assert cast("FakeProcessor", backend._processor).tokenizer.padding_side == "left"
+    assert len(cast("list[dict[str, object]]", captured["chat_calls"])) == 3
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[2]["tokenize"] is True
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[2]["padding"] is True
+    assert captured["device"] == "fake-device"
+    assert captured["attention_mask_sum_dim"] == 1
+    assert captured["generated_ids"] == [["first"], ["second"]]
+    assert captured["skip_special_tokens"] is True
+    assert captured["clean_up_tokenization_spaces"] is False
 
 
 @pytest.mark.asyncio
@@ -252,7 +1048,12 @@ async def test_dots_ocr_15_backend_uses_expected_runtime_and_prompt(
 
         def __call__(self, **kwargs: object) -> FakeBatch:
             captured["processor_kwargs"] = kwargs
-            return FakeBatch({"input_ids": SimpleNamespace(shape=(1, 4))})
+            return FakeBatch(
+                {
+                    "input_ids": SimpleNamespace(shape=(1, 4)),
+                    "mm_token_type_ids": "ignored-mm-token-type-ids",
+                }
+            )
 
         def batch_decode(
             self,
@@ -345,10 +1146,574 @@ def test_dots_ocr_15_backend_uses_expected_defaults() -> None:
     assert backend.trust_remote_code is True
     assert backend.processor_kwargs == {}
     assert backend.model_kwargs["dtype"] in {"auto", "float32"}
-    if backend.model_kwargs["dtype"] == "auto":
+    if backend.model_kwargs["dtype"] == "auto" and "device_map" in backend.model_kwargs:
         assert backend.model_kwargs["device_map"] == "auto"
         assert "max_memory" in backend.model_kwargs
     assert backend.generation_kwargs == {"max_new_tokens": DEFAULT_OCR_MAX_TOKENS}
+
+
+def test_deepseek_ocr_2_backend_uses_expected_defaults() -> None:
+    backend = DeepSeekOCR2OCRBackend()
+
+    assert backend.model_id == DEEPSEEK_OCR_2_MODEL_ID
+    assert backend.template == DEEPSEEK_OCR_2_OCR_TEMPLATE
+    assert backend.model_name == "DeepSeek-OCR-2"
+    assert backend.trust_remote_code is True
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {"use_safetensors": True}
+    assert backend.generation_kwargs == {"max_new_tokens": 8_192}
+    assert backend.base_size == 1_024
+    assert backend.image_size == 768
+    assert backend.crop_mode is True
+
+
+def test_dots_mocr_backend_uses_expected_defaults() -> None:
+    backend = DotsMOCROCRBackend()
+
+    assert backend.model_id == DOTS_MOCR_MODEL_ID
+    assert backend.template == DOTS_MOCR_OCR_TEMPLATE
+    assert backend.model_name == "dots.mocr"
+    assert backend.trust_remote_code is True
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs["dtype"] in {"auto", "float32"}
+    if backend.model_kwargs["dtype"] == "auto" and "device_map" in backend.model_kwargs:
+        assert backend.model_kwargs["device_map"] == "auto"
+        assert "max_memory" in backend.model_kwargs
+    assert backend.generation_kwargs == {"max_new_tokens": DEFAULT_OCR_MAX_TOKENS}
+
+
+def test_dots_mocr_template_matches_upstream_prompt() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = DOTS_MOCR_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "user"
+    assert conversation[0]["content"][0]["type"] == "image"
+    assert conversation[0]["content"][1]["text"] == DOTS_MOCR_OCR_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_paddleocr_vl_15_backend_uses_tokenized_chat_template_and_profile_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeAttentionMask:
+        def sum(self, dim: int) -> SimpleNamespace:
+            captured["attention_mask_sum_dim"] = dim
+            return SimpleNamespace(tolist=lambda: [4])
+
+    class FakeBatch(dict[str, object]):
+        def to(self, device: object) -> FakeBatch:
+            captured["device"] = device
+            return self
+
+    class FakeTokenizer:
+        def __init__(self) -> None:
+            self.padding_side = "right"
+
+    class FakeProcessor:
+        def __init__(self) -> None:
+            self.tokenizer = FakeTokenizer()
+            self.image_processor = SimpleNamespace(min_pixels=112_896, max_pixels=1_003_520)
+
+        def apply_chat_template(
+            self,
+            conversation: object,
+            *,
+            add_generation_prompt: bool,
+            tokenize: bool,
+            return_dict: bool | None = None,
+            return_tensors: str | None = None,
+            processor_kwargs: dict[str, object] | None = None,
+        ) -> object:
+            captured.setdefault("chat_calls", []).append(
+                {
+                    "conversation": conversation,
+                    "add_generation_prompt": add_generation_prompt,
+                    "tokenize": tokenize,
+                    "return_dict": return_dict,
+                    "return_tensors": return_tensors,
+                    "processor_kwargs": processor_kwargs,
+                }
+            )
+            if not tokenize:
+                return "<paddle-rendered>"
+            return FakeBatch(
+                {
+                    "input_ids": SimpleNamespace(shape=(1, 4)),
+                    "attention_mask": FakeAttentionMask(),
+                }
+            )
+
+        def __call__(self, **kwargs: object) -> object:
+            raise AssertionError("processor(...) should not be used for PaddleOCR-VL")
+
+        def batch_decode(
+            self,
+            generated_ids: object,
+            *,
+            skip_special_tokens: bool,
+            clean_up_tokenization_spaces: bool,
+        ) -> list[str]:
+            captured["generated_ids"] = generated_ids
+            captured["skip_special_tokens"] = skip_special_tokens
+            captured["clean_up_tokenization_spaces"] = clean_up_tokenization_spaces
+            return ["OCR:\nassistant\npaddle transcription"]
+
+    class FakeProcessorCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeProcessor:
+            captured["processor_model_id"] = model_id
+            captured["processor_from_pretrained_kwargs"] = kwargs
+            return FakeProcessor()
+
+    class FakeModel:
+        device = "fake-device"
+        dtype = None
+
+        def eval(self) -> FakeModel:
+            captured["eval_called"] = True
+            return self
+
+        def generate(self, **kwargs: object) -> list[list[int | str]]:
+            captured["generate_kwargs"] = kwargs
+            return [[0, 1, 2, 3, "completion"]]
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeModel:
+            captured["model_model_id"] = model_id
+            captured["model_from_pretrained_kwargs"] = kwargs
+            return FakeModel()
+
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_hf_runtime",
+        lambda: SimpleNamespace(
+            processor_cls=FakeProcessorCls,
+            model_cls=FakeModelCls,
+            process_vision_info=None,
+        ),
+    )
+
+    backend = cast(
+        "PaddleOCRVL15OCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=PADDLEOCR_VL_1_5_MODEL_ID,
+            )
+        ),
+    )
+    result = await backend.ocr(DocumentPage.from_image(Image.new("RGB", (32, 32), color="white")))
+
+    assert result.text == "paddle transcription"
+    assert captured["processor_model_id"] == PADDLEOCR_VL_1_5_MODEL_ID
+    assert captured["model_model_id"] == PADDLEOCR_VL_1_5_MODEL_ID
+    assert captured["eval_called"] is True
+    assert cast("FakeProcessor", backend._processor).tokenizer.padding_side == "left"
+    assert len(cast("list[dict[str, object]]", captured["chat_calls"])) == 2
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[0]["tokenize"] is False
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["tokenize"] is True
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["return_dict"] is True
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["return_tensors"] == "pt"
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["processor_kwargs"] == {
+        "text_kwargs": {
+            "padding": False,
+            "return_mm_token_type_ids": True,
+        },
+        "images_kwargs": {
+            "min_pixels": 112_896,
+            "max_pixels": 1_003_520,
+        },
+    }
+    render_conversation = cast("list[dict[str, object]]", captured["chat_calls"])[0]["conversation"]
+    assert cast("list[dict[str, object]]", render_conversation)[0]["role"] == "user"
+    render_content = cast(
+        "list[dict[str, object]]",
+        cast("list[dict[str, object]]", render_conversation)[0]["content"],
+    )
+    assert render_content[0]["type"] == "image"
+    assert render_content[1] == {"type": "text", "text": PADDLEOCR_VL_1_5_OCR_PROMPT}
+    assert captured["device"] == "fake-device"
+    assert captured["attention_mask_sum_dim"] == 1
+    assert captured["generate_kwargs"] == {
+        "input_ids": SimpleNamespace(shape=(1, 4)),
+        "attention_mask": cast("object", captured["generate_kwargs"]["attention_mask"]),
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+    assert captured["generated_ids"] == [["completion"]]
+    assert captured["skip_special_tokens"] is True
+    assert captured["clean_up_tokenization_spaces"] is False
+
+
+def test_paddleocr_vl_15_backend_uses_expected_defaults() -> None:
+    backend = PaddleOCRVL15OCRBackend()
+
+    assert backend.model_id == PADDLEOCR_VL_1_5_MODEL_ID
+    assert backend.template == PADDLEOCR_VL_1_5_OCR_TEMPLATE
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {}
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+
+
+def test_patch_dots_ocr_prepare_inputs_for_generation_handles_missing_cache_position() -> None:
+    captured: dict[str, object] = {}
+
+    class BaseModel:
+        def prepare_inputs_for_generation(
+            self,
+            input_ids: object,
+            *,
+            past_key_values: object = None,
+            inputs_embeds: object = None,
+            pixel_values: object = None,
+            attention_mask: object = None,
+            cache_position: object = None,
+            num_logits_to_keep: object = None,
+            **kwargs: object,
+        ) -> dict[str, object]:
+            del pixel_values
+            captured["base_call"] = {
+                "input_ids": input_ids,
+                "past_key_values": past_key_values,
+                "inputs_embeds": inputs_embeds,
+                "attention_mask": attention_mask,
+                "cache_position": cache_position,
+                "num_logits_to_keep": num_logits_to_keep,
+                "kwargs": kwargs,
+            }
+            return {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+            }
+
+    class FakeDotsModel(BaseModel):
+        pass
+
+    model = FakeDotsModel()
+
+    hf_module._patch_dots_ocr_prepare_inputs_for_generation(model)
+    first_inputs = model.prepare_inputs_for_generation(
+        "tokens",
+        pixel_values="pixels",
+        attention_mask="mask",
+        cache_position=None,
+    )
+    later_inputs = model.prepare_inputs_for_generation(
+        "tokens",
+        pixel_values="pixels",
+        attention_mask="mask",
+        cache_position=[3],
+    )
+
+    assert first_inputs == {
+        "input_ids": "tokens",
+        "attention_mask": "mask",
+        "pixel_values": "pixels",
+    }
+    assert later_inputs == {
+        "input_ids": "tokens",
+        "attention_mask": "mask",
+    }
+    assert captured["base_call"] == {
+        "input_ids": "tokens",
+        "past_key_values": None,
+        "inputs_embeds": None,
+        "attention_mask": "mask",
+        "cache_position": [3],
+        "num_logits_to_keep": None,
+        "kwargs": {},
+    }
+
+    hf_module._patch_dots_ocr_prepare_inputs_for_generation(model)
+    assert cast("Any", model)._churro_dots_prepare_inputs_patched is True
+
+
+def test_patch_dots_ocr_prepare_inputs_for_generation_skips_wrapped_dots_method() -> None:
+    captured: dict[str, object] = {}
+
+    class BaseModel:
+        def prepare_inputs_for_generation(
+            self,
+            input_ids: object,
+            *,
+            past_key_values: object = None,
+            inputs_embeds: object = None,
+            pixel_values: object = None,
+            attention_mask: object = None,
+            cache_position: object = None,
+            num_logits_to_keep: object = None,
+            **kwargs: object,
+        ) -> dict[str, object]:
+            del pixel_values
+            captured["base_call"] = {
+                "input_ids": input_ids,
+                "past_key_values": past_key_values,
+                "inputs_embeds": inputs_embeds,
+                "attention_mask": attention_mask,
+                "cache_position": cache_position,
+                "num_logits_to_keep": num_logits_to_keep,
+                "kwargs": kwargs,
+            }
+            return {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+            }
+
+    class FakeDotsModel(BaseModel):
+        def prepare_inputs_for_generation(
+            self,
+            input_ids: object,
+            *,
+            past_key_values: object = None,
+            inputs_embeds: object = None,
+            pixel_values: object = None,
+            attention_mask: object = None,
+            cache_position: object = None,
+            num_logits_to_keep: object = None,
+            **kwargs: object,
+        ) -> dict[str, object]:
+            if cast("Any", cache_position)[0] == 0:
+                return {"pixel_values": pixel_values}
+            return {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+            }
+
+    class WrappedFakeDotsModel(FakeDotsModel):
+        pass
+
+    model = WrappedFakeDotsModel()
+
+    hf_module._patch_dots_ocr_prepare_inputs_for_generation(model)
+    inputs = model.prepare_inputs_for_generation(
+        "tokens",
+        pixel_values="pixels",
+        attention_mask="mask",
+        cache_position=None,
+    )
+
+    assert inputs == {
+        "input_ids": "tokens",
+        "attention_mask": "mask",
+        "pixel_values": "pixels",
+    }
+    assert captured["base_call"] == {
+        "input_ids": "tokens",
+        "past_key_values": None,
+        "inputs_embeds": None,
+        "attention_mask": "mask",
+        "cache_position": None,
+        "num_logits_to_keep": None,
+        "kwargs": {},
+    }
+
+
+def test_patch_dots_ocr_prepare_inputs_for_generation_skips_duplicate_wrapped_dots_methods() -> None:
+    captured: dict[str, object] = {}
+
+    class BaseModel:
+        def prepare_inputs_for_generation(
+            self,
+            input_ids: object,
+            *,
+            past_key_values: object = None,
+            inputs_embeds: object = None,
+            pixel_values: object = None,
+            attention_mask: object = None,
+            cache_position: object = None,
+            num_logits_to_keep: object = None,
+            **kwargs: object,
+        ) -> dict[str, object]:
+            del pixel_values
+            captured["base_call"] = {
+                "input_ids": input_ids,
+                "past_key_values": past_key_values,
+                "inputs_embeds": inputs_embeds,
+                "attention_mask": attention_mask,
+                "cache_position": cache_position,
+                "num_logits_to_keep": num_logits_to_keep,
+                "kwargs": kwargs,
+            }
+            return {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+            }
+
+    def shared_prepare_inputs_for_generation(
+        self: object,
+        input_ids: object,
+        *,
+        past_key_values: object = None,
+        inputs_embeds: object = None,
+        pixel_values: object = None,
+        attention_mask: object = None,
+        cache_position: object = None,
+        num_logits_to_keep: object = None,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        del self, input_ids, past_key_values, inputs_embeds, pixel_values, attention_mask
+        del num_logits_to_keep, kwargs
+        if cast("Any", cache_position)[0] == 0:
+            return {"unexpected": True}
+        return {"unexpected": False}
+
+    class FakeDotsOwner(BaseModel):
+        pass
+
+    class WrappedFakeDotsModel(FakeDotsOwner):
+        pass
+
+    cast("Any", FakeDotsOwner).prepare_inputs_for_generation = shared_prepare_inputs_for_generation
+    cast("Any", WrappedFakeDotsModel).prepare_inputs_for_generation = (
+        shared_prepare_inputs_for_generation
+    )
+
+    model = WrappedFakeDotsModel()
+
+    hf_module._patch_dots_ocr_prepare_inputs_for_generation(model)
+    inputs = model.prepare_inputs_for_generation(
+        "tokens",
+        pixel_values="pixels",
+        attention_mask="mask",
+        cache_position=None,
+    )
+
+    assert inputs == {
+        "input_ids": "tokens",
+        "attention_mask": "mask",
+        "pixel_values": "pixels",
+    }
+    assert captured["base_call"] == {
+        "input_ids": "tokens",
+        "past_key_values": None,
+        "inputs_embeds": None,
+        "attention_mask": "mask",
+        "cache_position": None,
+        "num_logits_to_keep": None,
+        "kwargs": {},
+    }
+
+
+def test_dots_ocr_15_backend_batch_strips_unused_mm_token_type_ids(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeAttentionMask:
+        def sum(self, dim: int) -> SimpleNamespace:
+            captured["attention_mask_sum_dim"] = dim
+            return SimpleNamespace(tolist=lambda: [4, 4])
+
+    class FakeBatch(dict[str, object]):
+        def to(self, device: object) -> FakeBatch:
+            captured["device"] = device
+            return self
+
+    class FakeProcessor:
+        tokenizer = object()
+
+        def apply_chat_template(
+            self,
+            conversation: list[dict[str, object]],
+            *,
+            add_generation_prompt: bool,
+            tokenize: bool,
+        ) -> str:
+            del add_generation_prompt, tokenize
+            image = cast(Image.Image, cast(list[dict[str, object]], conversation[0]["content"])[0]["image"])
+            return f"<dots-rendered:{image.width}>"
+
+        def __call__(self, **kwargs: object) -> FakeBatch:
+            captured["processor_kwargs"] = kwargs
+            return FakeBatch(
+                {
+                    "input_ids": SimpleNamespace(shape=(2, 4)),
+                    "attention_mask": FakeAttentionMask(),
+                    "mm_token_type_ids": "ignored-mm-token-type-ids",
+                }
+            )
+
+        def batch_decode(
+            self,
+            generated_ids: object,
+            *,
+            skip_special_tokens: bool,
+            clean_up_tokenization_spaces: bool,
+        ) -> list[str]:
+            captured["generated_ids"] = generated_ids
+            captured["decode_kwargs"] = (skip_special_tokens, clean_up_tokenization_spaces)
+            return ["dots batch 1", "dots batch 2"]
+
+    class FakeProcessorCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeProcessor:
+            captured["processor_model_id"] = model_id
+            captured["processor_from_pretrained_kwargs"] = kwargs
+            return FakeProcessor()
+
+    class FakeModel:
+        device = "fake-device"
+
+        def generate(self, **kwargs: object) -> list[list[int]]:
+            captured["generate_kwargs"] = kwargs
+            return [
+                [100, 101, 102, 103, 104, 105],
+                [200, 201, 202, 203, 204, 205],
+            ]
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeModel:
+            captured["model_model_id"] = model_id
+            captured["model_from_pretrained_kwargs"] = kwargs
+            return FakeModel()
+
+    def fake_process_vision_info(
+        conversation: list[dict[str, object]],
+        *,
+        return_video_kwargs: bool,
+        return_video_metadata: bool,
+    ) -> tuple[object, None, None]:
+        del conversation, return_video_kwargs, return_video_metadata
+        return "fake-image-inputs", None, None
+
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_hf_causal_runtime",
+        lambda: SimpleNamespace(
+            processor_cls=FakeProcessorCls,
+            model_cls=FakeModelCls,
+            process_vision_info=fake_process_vision_info,
+        ),
+    )
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._prepare_dots_ocr_model_dir",
+        lambda model_id: model_id,
+    )
+
+    backend = DotsOCR15OCRBackend()
+    results = backend._ocr_batch_sync(
+        [
+            DocumentPage.from_image(Image.new("RGB", (32, 32), color="white")),
+            DocumentPage.from_image(Image.new("RGB", (64, 64), color="white")),
+        ]
+    )
+
+    assert [result.text for result in results] == ["dots batch 1", "dots batch 2"]
+    assert captured["processor_kwargs"]["text"] == ["<dots-rendered:32>", "<dots-rendered:64>"]
+    assert captured["processor_kwargs"]["images"] == [["fake-image-inputs"], ["fake-image-inputs"]]
+    assert captured["generate_kwargs"] == {
+        "input_ids": SimpleNamespace(shape=(2, 4)),
+        "attention_mask": cast("object", captured["generate_kwargs"]["attention_mask"]),
+        "max_new_tokens": DEFAULT_OCR_MAX_TOKENS,
+    }
+    assert captured["attention_mask_sum_dim"] == 1
+    assert captured["generated_ids"] == [[104, 105], [204, 205]]
+    assert captured["decode_kwargs"] == (True, False)
 
 
 @pytest.mark.asyncio
@@ -459,6 +1824,7 @@ def test_hf_runtime_loaders_use_installed_modules(
     cast(Any, transformers_module).AutoModelForImageTextToText = image_text_model_cls
     cast(Any, transformers_module).AutoModelForCausalLM = causal_model_cls
 
+    monkeypatch.setitem(sys.modules, "torch", ModuleType("torch"))
     monkeypatch.setitem(sys.modules, "qwen_vl_utils", qwen_module)
     monkeypatch.setitem(sys.modules, "transformers", transformers_module)
 

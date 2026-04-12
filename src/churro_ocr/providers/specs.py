@@ -2,21 +2,43 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import re
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from PIL import Image
 
-from churro_ocr._internal.image import prepare_ocr_image
-from churro_ocr.prompts import DEFAULT_OCR_OUTPUT_TAG, strip_ocr_output_tag
+from churro_ocr._internal.image import ensure_rgb, prepare_ocr_image, resize_image_to_fit
+from churro_ocr.errors import ConfigurationError
+from churro_ocr.prompts import (
+    DEFAULT_OCR_OUTPUT_TAG,
+    parse_chandra_response,
+    parse_olmocr_response,
+    strip_ocr_output_tag,
+)
 from churro_ocr.templates import (
+    CHANDRA_OCR_2_MODEL_ID,
+    CHANDRA_OCR_2_OCR_TEMPLATE,
     CHURRO_3B_MODEL_ID,
     CHURRO_3B_XML_TEMPLATE,
+    DEEPSEEK_OCR_2_MODEL_ID,
+    DEEPSEEK_OCR_2_OCR_PROMPT,
+    DEEPSEEK_OCR_2_OCR_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
+    DOTS_MOCR_MODEL_ID,
+    DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    LFM2_5_VL_1_6B_MODEL_ID,
+    LFM2_5_VL_1_6B_OCR_TEMPLATE,
+    OLMOCR_2_7B_1025_FP8_MODEL_ID,
+    OLMOCR_2_7B_1025_MODEL_ID,
+    OLMOCR_2_7B_1025_OCR_TEMPLATE,
+    PADDLEOCR_VL_1_5_MODEL_ID,
+    PADDLEOCR_VL_1_5_OCR_PROMPT,
+    PADDLEOCR_VL_1_5_OCR_TEMPLATE,
     OCRConversation,
     OCRPromptTemplateLike,
 )
@@ -25,11 +47,39 @@ if TYPE_CHECKING:
     pass
 
 
-OCRProvider = Literal["litellm", "openai-compatible", "azure", "mistral", "hf", "vllm"]
+OCRProvider = Literal["litellm", "openai-compatible", "azure", "mistral", "hf"]
+MistralOCRModel = Literal["mistral-ocr-2505", "mistral-ocr-2512"]
 ImagePreprocessor = Callable[[Image.Image], Image.Image]
-TextPostprocessor = Callable[[str], str]
+TextPostprocessorResult = str | tuple[str, dict[str, Any]]
+TextPostprocessor = Callable[[str], TextPostprocessorResult]
 VisionInputBuilder = Callable[[OCRConversation], object]
 DEFAULT_OCR_MAX_TOKENS = 20_000
+CHANDRA_OCR_MAX_TOKENS = 12_384
+DEEPSEEK_OCR_2_MAX_TOKENS = 8_192
+OLMOCR_MAX_TOKENS = 8_000
+PADDLEOCR_VL_MAX_TOKENS = 4_096
+CHANDRA_MAX_IMAGE_SIZE = (3_072, 2_048)
+CHANDRA_MIN_IMAGE_SIZE = (1_792, 28)
+CHANDRA_IMAGE_GRID_SIZE = 28
+OLMOCR_TARGET_LONGEST_IMAGE_DIM = 1_288
+MISTRAL_OCR_MODEL_IDS: tuple[MistralOCRModel, ...] = (
+    "mistral-ocr-2505",
+    "mistral-ocr-2512",
+)
+
+
+def validate_mistral_ocr_model(
+    model: str | None,
+    *,
+    context: str = "OCR provider 'mistral'",
+) -> MistralOCRModel:
+    """Return a supported pinned Mistral OCR model id or raise a configuration error."""
+    supported_models = ", ".join(MISTRAL_OCR_MODEL_IDS)
+    if model is None:
+        raise ConfigurationError(f"{context} requires `model` to be one of: {supported_models}.")
+    if model not in MISTRAL_OCR_MODEL_IDS:
+        raise ConfigurationError(f"{context} only supports `model` values {supported_models}; got {model!r}.")
+    return cast(MistralOCRModel, model)
 
 
 def identity_text_postprocessor(text: str) -> str:
@@ -57,6 +107,159 @@ def default_ocr_text_postprocessor(text: str) -> str:
     :returns: OCR text with the default wrapper removed when present.
     """
     return strip_ocr_output_tag(text, output_tag=DEFAULT_OCR_OUTPUT_TAG)
+
+
+_CHAT_ROLE_PREFIXES = {
+    "assistant",
+    "assistant:",
+    "user",
+    "user:",
+    "system",
+    "system:",
+    "<assistant>",
+    "<user>",
+    "<system>",
+    "<|assistant|>",
+    "<|assistant|>:",
+    "<|user|>",
+    "<|user|>:",
+    "<|system|>",
+    "<|system|>:",
+    "<｜assistant｜>",
+    "<｜assistant｜>:",
+    "<｜user｜>",
+    "<｜user｜>:",
+    "<｜system｜>",
+    "<｜system｜>:",
+}
+
+
+def _strip_leading_chat_scaffold(text: str, *, prompts: Sequence[str]) -> str:
+    """Remove echoed prompts and leading chat role markers from model output."""
+    cleaned = text.strip()
+    if not cleaned:
+        return ""
+
+    normalized_prompts = tuple(prompt.strip() for prompt in prompts if prompt and prompt.strip())
+    for _ in range(8):
+        previous = cleaned
+        lowered = cleaned.casefold()
+        stripped_prompt = False
+        for prompt in normalized_prompts:
+            if lowered.startswith(prompt.casefold()):
+                cleaned = cleaned[len(prompt) :].lstrip()
+                stripped_prompt = True
+                break
+        if stripped_prompt:
+            continue
+
+        lines = cleaned.splitlines()
+        if not lines:
+            return ""
+        first_line = lines[0].strip()
+        if first_line.casefold() in _CHAT_ROLE_PREFIXES:
+            cleaned = "\n".join(lines[1:]).lstrip()
+            continue
+        if re.fullmatch(r"<\|?(?:assistant|user|system)\|?>", first_line, flags=re.IGNORECASE):
+            cleaned = "\n".join(lines[1:]).lstrip()
+            continue
+        if cleaned == previous:
+            break
+    return cleaned.strip()
+
+
+def olmocr_image_preprocessor(image: Image.Image) -> Image.Image:
+    """Resize an image to olmOCR's expected 1288px longest side and normalize to RGB."""
+    return ensure_rgb(
+        resize_image_to_fit(
+            image,
+            OLMOCR_TARGET_LONGEST_IMAGE_DIM,
+            OLMOCR_TARGET_LONGEST_IMAGE_DIM,
+        )
+    )
+
+
+def olmocr_text_postprocessor(text: str) -> TextPostprocessorResult:
+    """Extract plain text and metadata from olmOCR YAML/markdown output."""
+    return parse_olmocr_response(text)
+
+
+def lfm2_5_vl_text_postprocessor(text: str) -> str:
+    """Strip Liquid LFM2.5-VL chat scaffold and OCR wrapper tags."""
+    prompt = getattr(LFM2_5_VL_1_6B_OCR_TEMPLATE, "user_prompt", None)
+    cleaned = _strip_leading_chat_scaffold(text, prompts=[prompt] if isinstance(prompt, str) else [])
+    return strip_ocr_output_tag(cleaned, output_tag=DEFAULT_OCR_OUTPUT_TAG)
+
+
+def deepseek_ocr_2_text_postprocessor(text: str) -> str:
+    """Strip DeepSeek OCR 2 prompt echoes, chat scaffold, and trailing stop tokens."""
+    cleaned = text.strip()
+    stop_token = "<｜end▁of▁sentence｜>"
+    while cleaned.endswith(stop_token):
+        cleaned = cleaned[: -len(stop_token)].rstrip()
+    cleaned = _strip_leading_chat_scaffold(
+        cleaned,
+        prompts=[
+            f"<image>\n{DEEPSEEK_OCR_2_OCR_PROMPT}",
+            DEEPSEEK_OCR_2_OCR_PROMPT,
+        ],
+    )
+    return cleaned.strip()
+
+
+def paddleocr_vl_text_postprocessor(text: str) -> str:
+    """Strip PaddleOCR-VL prompt echoes and leading chat scaffold from OCR output."""
+    return _strip_leading_chat_scaffold(text, prompts=[PADDLEOCR_VL_1_5_OCR_PROMPT])
+
+
+def chandra_image_preprocessor(image: Image.Image) -> Image.Image:
+    """Resize an image using Chandra OCR 2's pixel-budget and 28px-grid scaling."""
+    width, height = image.size
+    if width <= 0 or height <= 0:
+        return ensure_rgb(image)
+
+    max_pixels = CHANDRA_MAX_IMAGE_SIZE[0] * CHANDRA_MAX_IMAGE_SIZE[1]
+    min_pixels = CHANDRA_MIN_IMAGE_SIZE[0] * CHANDRA_MIN_IMAGE_SIZE[1]
+    current_pixels = width * height
+    scale = 1.0
+    if current_pixels > max_pixels:
+        scale = (max_pixels / current_pixels) ** 0.5
+    elif current_pixels < min_pixels:
+        scale = (min_pixels / current_pixels) ** 0.5
+
+    original_aspect_ratio = width / height
+    width_blocks = max(1, round((width * scale) / CHANDRA_IMAGE_GRID_SIZE))
+    height_blocks = max(1, round((height * scale) / CHANDRA_IMAGE_GRID_SIZE))
+
+    while (width_blocks * height_blocks * CHANDRA_IMAGE_GRID_SIZE**2) > max_pixels:
+        if width_blocks == 1 and height_blocks == 1:
+            break
+        if width_blocks == 1:
+            height_blocks -= 1
+            continue
+        if height_blocks == 1:
+            width_blocks -= 1
+            continue
+
+        width_loss = abs(((width_blocks - 1) / height_blocks) - original_aspect_ratio)
+        height_loss = abs((width_blocks / (height_blocks - 1)) - original_aspect_ratio)
+        if width_loss < height_loss:
+            width_blocks -= 1
+        else:
+            height_blocks -= 1
+
+    new_size = (
+        width_blocks * CHANDRA_IMAGE_GRID_SIZE,
+        height_blocks * CHANDRA_IMAGE_GRID_SIZE,
+    )
+    if new_size == (width, height):
+        return ensure_rgb(image)
+    return ensure_rgb(image.resize(new_size, resample=Image.Resampling.LANCZOS))
+
+
+def chandra_text_postprocessor(text: str) -> TextPostprocessorResult:
+    """Extract plain text and metadata from Chandra OCR 2 HTML-layout output."""
+    return parse_chandra_response(text)
 
 
 @dataclass(slots=True, frozen=True)
@@ -110,24 +313,6 @@ class HuggingFaceOptions:
 
 
 @dataclass(slots=True, frozen=True)
-class VLLMOptions:
-    """Provider options for local vLLM OCR backends.
-
-    :param trust_remote_code: Whether to allow remote model code execution.
-    :param processor_kwargs: Extra kwargs passed to ``AutoProcessor.from_pretrained``.
-    :param llm_kwargs: Extra kwargs passed to the vLLM ``LLM`` constructor.
-    :param sampling_kwargs: Extra kwargs passed to vLLM sampling params.
-    :param limit_mm_per_prompt: Per-request multimodal limits passed to vLLM.
-    """
-
-    trust_remote_code: bool | None = None
-    processor_kwargs: dict[str, object] = field(default_factory=dict)
-    llm_kwargs: dict[str, object] = field(default_factory=dict)
-    sampling_kwargs: dict[str, object] = field(default_factory=dict)
-    limit_mm_per_prompt: dict[str, int] = field(default_factory=dict)
-
-
-@dataclass(slots=True, frozen=True)
 class AzureDocumentIntelligenceOptions:
     """Provider options for Azure Document Intelligence OCR.
 
@@ -150,11 +335,7 @@ class MistralOptions:
 
 
 OCRProviderOptions = (
-    OpenAICompatibleOptions
-    | HuggingFaceOptions
-    | VLLMOptions
-    | AzureDocumentIntelligenceOptions
-    | MistralOptions
+    OpenAICompatibleOptions | HuggingFaceOptions | AzureDocumentIntelligenceOptions | MistralOptions
 )
 
 
@@ -169,7 +350,6 @@ class OCRModelProfile:
     :param display_name: Optional human-readable model name.
     :param transport: Default LiteLLM transport settings for this profile.
     :param huggingface: Default Hugging Face backend options for this profile.
-    :param vllm: Default vLLM backend options for this profile.
     """
 
     profile_name: str
@@ -179,7 +359,6 @@ class OCRModelProfile:
     display_name: str | None = None
     transport: LiteLLMTransportConfig = field(default_factory=LiteLLMTransportConfig)
     huggingface: HuggingFaceOptions = field(default_factory=HuggingFaceOptions)
-    vllm: VLLMOptions = field(default_factory=VLLMOptions)
 
 
 @dataclass(slots=True, frozen=True)
@@ -221,6 +400,56 @@ def churro_3b_profile() -> OCRModelProfile:
     )
 
 
+def chandra_ocr_2_profile() -> OCRModelProfile:
+    """Return the built-in ``datalab-to/chandra-ocr-2`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=CHANDRA_OCR_2_MODEL_ID,
+        template=CHANDRA_OCR_2_OCR_TEMPLATE,
+        image_preprocessor=chandra_image_preprocessor,
+        text_postprocessor=chandra_text_postprocessor,
+        display_name="chandra-ocr-2",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": CHANDRA_OCR_MAX_TOKENS,
+                "temperature": 0.0,
+                "top_p": 0.1,
+            }
+        ),
+        huggingface=HuggingFaceOptions(
+            generation_kwargs={
+                "max_new_tokens": CHANDRA_OCR_MAX_TOKENS,
+            },
+            backend_variant="chandra-ocr-2",
+        ),
+    )
+
+
+def deepseek_ocr_2_profile() -> OCRModelProfile:
+    """Return the built-in ``deepseek-ai/DeepSeek-OCR-2`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=DEEPSEEK_OCR_2_MODEL_ID,
+        template=DEEPSEEK_OCR_2_OCR_TEMPLATE,
+        text_postprocessor=deepseek_ocr_2_text_postprocessor,
+        display_name="DeepSeek-OCR-2",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": DEEPSEEK_OCR_2_MAX_TOKENS,
+                "temperature": 0.0,
+            }
+        ),
+        huggingface=HuggingFaceOptions(
+            model_kwargs={
+                "use_safetensors": True,
+            },
+            generation_kwargs={
+                "max_new_tokens": DEEPSEEK_OCR_2_MAX_TOKENS,
+            },
+            trust_remote_code=True,
+            backend_variant="deepseek-ocr-2",
+        ),
+    )
+
+
 def dots_ocr_1_5_profile() -> OCRModelProfile:
     """Return the built-in ``kristaller486/dots.ocr-1.5`` OCR profile.
 
@@ -231,24 +460,141 @@ def dots_ocr_1_5_profile() -> OCRModelProfile:
         template=DOTS_OCR_1_5_OCR_TEMPLATE,
         text_postprocessor=identity_text_postprocessor,
         display_name="dots.ocr-1.5",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": 2_048,
+                "temperature": 0.0,
+            }
+        ),
         huggingface=HuggingFaceOptions(
             trust_remote_code=True,
             backend_variant="dots-ocr-1.5",
         ),
-        vllm=VLLMOptions(
-            trust_remote_code=True,
+    )
+
+
+def dots_mocr_profile() -> OCRModelProfile:
+    """Return the built-in ``rednote-hilab/dots.mocr`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=DOTS_MOCR_MODEL_ID,
+        template=DOTS_MOCR_OCR_TEMPLATE,
+        text_postprocessor=identity_text_postprocessor,
+        display_name="dots.mocr",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": DEFAULT_OCR_MAX_TOKENS,
+                "temperature": 0.0,
+            }
         ),
+        huggingface=HuggingFaceOptions(
+            trust_remote_code=True,
+            backend_variant="dots-mocr",
+        ),
+    )
+
+
+def paddleocr_vl_1_5_profile() -> OCRModelProfile:
+    """Return the built-in ``PaddlePaddle/PaddleOCR-VL-1.5`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=PADDLEOCR_VL_1_5_MODEL_ID,
+        template=PADDLEOCR_VL_1_5_OCR_TEMPLATE,
+        text_postprocessor=paddleocr_vl_text_postprocessor,
+        display_name="PaddleOCR-VL-1.5",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": PADDLEOCR_VL_MAX_TOKENS,
+                "temperature": 0.0,
+            }
+        ),
+        huggingface=HuggingFaceOptions(
+            generation_kwargs={
+                "max_new_tokens": PADDLEOCR_VL_MAX_TOKENS,
+                "do_sample": False,
+            },
+            backend_variant="paddleocr-vl-1.5",
+        ),
+    )
+
+
+def _olmocr_profile(*, profile_name: str, display_name: str) -> OCRModelProfile:
+    return OCRModelProfile(
+        profile_name=profile_name,
+        template=OLMOCR_2_7B_1025_OCR_TEMPLATE,
+        image_preprocessor=olmocr_image_preprocessor,
+        text_postprocessor=olmocr_text_postprocessor,
+        display_name=display_name,
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": OLMOCR_MAX_TOKENS,
+                "temperature": 0.1,
+            }
+        ),
+        huggingface=HuggingFaceOptions(
+            generation_kwargs={
+                "max_new_tokens": OLMOCR_MAX_TOKENS,
+                "temperature": 0.1,
+                "do_sample": True,
+            },
+        ),
+    )
+
+
+def lfm2_5_vl_1_6b_profile() -> OCRModelProfile:
+    """Return the built-in ``LiquidAI/LFM2.5-VL-1.6B`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=LFM2_5_VL_1_6B_MODEL_ID,
+        template=LFM2_5_VL_1_6B_OCR_TEMPLATE,
+        text_postprocessor=lfm2_5_vl_text_postprocessor,
+        display_name="LFM2.5-VL-1.6B",
+        huggingface=HuggingFaceOptions(
+            generation_kwargs={
+                "max_new_tokens": 512,
+                "do_sample": False,
+                "repetition_penalty": 1.05,
+            },
+            backend_variant="lfm2.5-vl",
+        ),
+    )
+
+
+def olmocr_2_7b_1025_profile() -> OCRModelProfile:
+    """Return the built-in ``allenai/olmOCR-2-7B-1025`` OCR profile."""
+    return _olmocr_profile(
+        profile_name=OLMOCR_2_7B_1025_MODEL_ID,
+        display_name="olmOCR-2-7B-1025",
+    )
+
+
+def olmocr_2_7b_1025_fp8_profile() -> OCRModelProfile:
+    """Return the built-in ``allenai/olmOCR-2-7B-1025-FP8`` OCR profile."""
+    return _olmocr_profile(
+        profile_name=OLMOCR_2_7B_1025_FP8_MODEL_ID,
+        display_name="olmOCR-2-7B-1025-FP8",
     )
 
 
 def _profile_registry() -> dict[str, OCRModelProfile]:
     default_profile = default_ocr_profile()
     churro_profile = churro_3b_profile()
+    chandra_profile = chandra_ocr_2_profile()
+    deepseek_profile = deepseek_ocr_2_profile()
+    dots_mocr = dots_mocr_profile()
     dots_profile = dots_ocr_1_5_profile()
+    lfm2_5_vl_profile = lfm2_5_vl_1_6b_profile()
+    olmocr_profile = olmocr_2_7b_1025_profile()
+    olmocr_fp8_profile = olmocr_2_7b_1025_fp8_profile()
+    paddleocr_vl_profile = paddleocr_vl_1_5_profile()
     return {
         default_profile.profile_name: default_profile,
         churro_profile.profile_name: churro_profile,
+        chandra_profile.profile_name: chandra_profile,
+        deepseek_profile.profile_name: deepseek_profile,
+        dots_mocr.profile_name: dots_mocr,
         dots_profile.profile_name: dots_profile,
+        lfm2_5_vl_profile.profile_name: lfm2_5_vl_profile,
+        olmocr_profile.profile_name: olmocr_profile,
+        olmocr_fp8_profile.profile_name: olmocr_fp8_profile,
+        paddleocr_vl_profile.profile_name: paddleocr_vl_profile,
     }
 
 
@@ -282,20 +628,33 @@ def resolve_ocr_profile(
 __all__ = [
     "AzureDocumentIntelligenceOptions",
     "DEFAULT_OCR_MAX_TOKENS",
+    "chandra_image_preprocessor",
+    "chandra_ocr_2_profile",
+    "chandra_text_postprocessor",
+    "deepseek_ocr_2_profile",
+    "deepseek_ocr_2_text_postprocessor",
     "default_ocr_image_preprocessor",
     "default_ocr_profile",
     "default_ocr_text_postprocessor",
     "HuggingFaceOptions",
     "identity_text_postprocessor",
+    "lfm2_5_vl_text_postprocessor",
+    "lfm2_5_vl_1_6b_profile",
     "ImagePreprocessor",
     "LiteLLMTransportConfig",
+    "MistralOCRModel",
+    "MISTRAL_OCR_MODEL_IDS",
     "MistralOptions",
+    "olmocr_image_preprocessor",
+    "olmocr_text_postprocessor",
+    "paddleocr_vl_1_5_profile",
+    "paddleocr_vl_text_postprocessor",
     "OCRBackendSpec",
     "OCRModelProfile",
     "OCRProvider",
     "OpenAICompatibleOptions",
     "resolve_ocr_profile",
     "TextPostprocessor",
+    "validate_mistral_ocr_model",
     "VisionInputBuilder",
-    "VLLMOptions",
 ]

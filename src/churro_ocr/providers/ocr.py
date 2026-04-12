@@ -10,8 +10,10 @@ from threading import Lock
 from typing import Any
 
 from churro_ocr._internal.image import image_to_base64
+from churro_ocr._internal.install import install_command_hint
 from churro_ocr._internal.litellm import LiteLLMTransport
 from churro_ocr._internal.prompt_logging import log_prompt_payload_once
+from churro_ocr._internal.retry import retry_api_call
 from churro_ocr.errors import ConfigurationError, ProviderError
 from churro_ocr.ocr import OCRBackend, OCRResult
 from churro_ocr.page_detection import DocumentPage
@@ -23,12 +25,15 @@ from churro_ocr.providers.specs import (
     TextPostprocessor,
     default_ocr_image_preprocessor,
     identity_text_postprocessor,
+    validate_mistral_ocr_model,
 )
 from churro_ocr.templates import (
     DEFAULT_OCR_TEMPLATE,
     OCRPromptTemplateLike,
     build_ocr_conversation,
 )
+
+_MISTRAL_REQUEST_TIMEOUT_SECONDS = 60.0
 
 
 def _with_default_ocr_completion_kwargs(config: LiteLLMTransportConfig) -> LiteLLMTransportConfig:
@@ -100,6 +105,7 @@ class LiteLLMVisionOCRBackend(OCRBackend):
         text = await self.transport.complete_text(
             model=self.model,
             messages=messages,
+            allow_empty=True,
         )
         return build_ocr_result(
             text,
@@ -183,7 +189,7 @@ class AzureDocumentIntelligenceOCRBackend(OCRBackend):
                 from azure.core.credentials import AzureKeyCredential
             except ImportError as exc:  # pragma: no cover - optional extra path
                 raise ConfigurationError(
-                    "Azure OCR requires the 'azure' extra. Install with `pip install \"churro-ocr[azure]\"`."
+                    f"Azure OCR requires the `azure` runtime. {install_command_hint('azure')}"
                 ) from exc
 
             client = DocumentIntelligenceClient(
@@ -219,12 +225,20 @@ class AzureDocumentIntelligenceOCRBackend(OCRBackend):
             set_logged=lambda: setattr(self, "_has_logged_prompt", True),
         )
         client = await self._get_client()
-        poller = await client.begin_analyze_document(
-            model_id=self.model_id,
-            body=BytesIO(image_bytes),
-            content_type="application/octet-stream",
+
+        async def _analyze_document() -> Any:
+            poller = await client.begin_analyze_document(
+                model_id=self.model_id,
+                body=BytesIO(image_bytes),
+                content_type="application/octet-stream",
+            )
+            return await poller.result()
+
+        result = await retry_api_call(
+            _analyze_document,
+            operation_name="Azure OCR request",
+            context=f"for model {self.model_id}",
         )
-        result = await poller.result()
         if not isinstance(result.content, str):
             raise ProviderError("Azure Document Intelligence returned no OCR text.")
         return build_ocr_result(
@@ -240,14 +254,14 @@ class MistralOCRBackend(OCRBackend):
     """Mistral OCR backend.
 
     :param api_key: Mistral API key used for OCR requests.
-    :param model: Mistral OCR model identifier.
+    :param model: Pinned Mistral OCR model identifier.
     :param model_name: Optional human-readable model name for result metadata.
     :param image_preprocessor: Image preprocessor applied before OCR.
     :param text_postprocessor: Text postprocessor applied after OCR.
     """
 
     api_key: str
-    model: str = "mistral-ocr-latest"
+    model: str
     model_name: str | None = None
     image_preprocessor: ImagePreprocessor = default_ocr_image_preprocessor
     text_postprocessor: TextPostprocessor = identity_text_postprocessor
@@ -255,6 +269,10 @@ class MistralOCRBackend(OCRBackend):
     _client_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
     _has_logged_prompt: bool = field(default=False, init=False, repr=False)
     _prompt_log_lock: Lock = field(default_factory=Lock, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Reject unsupported Mistral OCR aliases and unpinned model ids."""
+        validate_mistral_ocr_model(self.model, context="Mistral OCR backend")
 
     async def _get_client(self) -> Any:
         client = self._client
@@ -269,8 +287,7 @@ class MistralOCRBackend(OCRBackend):
                 from mistralai import Mistral
             except ImportError as exc:  # pragma: no cover - optional extra path
                 raise ConfigurationError(
-                    "Mistral OCR requires the 'mistral' extra. "
-                    'Install with `pip install "churro-ocr[mistral]"`.'
+                    f"Mistral OCR requires the `mistral` runtime. {install_command_hint('mistral')}"
                 ) from exc
 
             client = Mistral(api_key=self.api_key)
@@ -302,9 +319,21 @@ class MistralOCRBackend(OCRBackend):
             set_logged=lambda: setattr(self, "_has_logged_prompt", True),
         )
         client = await self._get_client()
-        response = await client.ocr.process_async(
-            model=self.model,
-            document={"type": "image_url", "image_url": image_url},
+        document = {"type": "image_url", "image_url": image_url}
+
+        async def _process_ocr() -> Any:
+            return await asyncio.wait_for(
+                client.ocr.process_async(
+                    model=self.model,
+                    document=document,
+                ),
+                timeout=_MISTRAL_REQUEST_TIMEOUT_SECONDS,
+            )
+
+        response = await retry_api_call(
+            _process_ocr,
+            operation_name="Mistral OCR request",
+            context=f"for model {self.model}",
         )
         if not response.pages:
             raise ProviderError("Mistral OCR returned no pages.")

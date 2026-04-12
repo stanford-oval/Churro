@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 from base64 import b64encode
 from threading import Lock
@@ -11,13 +12,16 @@ from PIL import Image
 
 import churro_ocr._internal.litellm as litellm_module
 import churro_ocr._internal.prompt_logging as prompt_logging_module
+import churro_ocr._internal.retry as retry_module
 from churro_ocr._internal import logging as logging_module
 from churro_ocr._internal.image import image_to_base64, load_image
 from churro_ocr._internal.litellm import LiteLLMTransport, complete_text
 from churro_ocr.errors import ConfigurationError, ProviderError
+from churro_ocr.page_detection import DocumentPage
+from churro_ocr.providers._shared import render_ocr_prompt
 from churro_ocr.providers.hf import _load_hf_causal_runtime, _load_hf_runtime
 from churro_ocr.providers.specs import LiteLLMTransportConfig
-from churro_ocr.providers.vllm import _load_vllm_processor_cls, _load_vllm_runtime
+from churro_ocr.templates import HFChatTemplate
 
 
 def _make_fake_litellm_module(*, acompletion: object, completion_cost: object | None = None) -> ModuleType:
@@ -93,6 +97,42 @@ def test_prepare_messages_from_conversation_converts_images_and_preserves_unknow
     ]
 
 
+def test_render_ocr_prompt_supports_transformers_v5_chat_template_contract() -> None:
+    captured: dict[str, object] = {}
+
+    class FakeProcessor:
+        def apply_chat_template(
+            self,
+            conversation: list[dict[str, object]],
+            *,
+            add_generation_prompt: bool,
+            tokenize: bool = True,
+            return_dict: bool = True,
+        ) -> object:
+            captured["conversation"] = conversation
+            captured["add_generation_prompt"] = add_generation_prompt
+            captured["tokenize"] = tokenize
+            captured["return_dict"] = return_dict
+            if not tokenize:
+                return "<rendered>"
+            return {"input_ids": [1, 2, 3]} if return_dict else [1, 2, 3]
+
+    page = DocumentPage.from_image(Image.new("RGB", (16, 16), color="white"))
+
+    rendered, conversation = render_ocr_prompt(
+        FakeProcessor(),
+        HFChatTemplate(user_prompt="prompt"),
+        page,
+        add_generation_prompt=True,
+    )
+
+    assert rendered == "<rendered>"
+    assert conversation == captured["conversation"]
+    assert captured["add_generation_prompt"] is True
+    assert captured["tokenize"] is False
+    assert captured["return_dict"] is True
+
+
 @pytest.mark.asyncio
 async def test_complete_text_wrapper_passes_transport_config(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
@@ -104,12 +144,14 @@ async def test_complete_text_wrapper_passes_transport_config(monkeypatch: pytest
         messages: list[dict[str, object]],
         timeout_seconds: int = 600,
         output_json: bool = False,
+        allow_empty: bool = False,
     ) -> str:
         captured["config"] = self.config
         captured["model"] = model
         captured["messages"] = messages
         captured["timeout_seconds"] = timeout_seconds
         captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
         return "ok"
 
     monkeypatch.setattr(
@@ -137,6 +179,7 @@ async def test_complete_text_wrapper_passes_transport_config(monkeypatch: pytest
     assert config.completion_kwargs == {"temperature": 0}
     assert captured["timeout_seconds"] == 42
     assert captured["output_json"] is True
+    assert captured["allow_empty"] is False
 
 
 def test_extract_response_cost_uses_completion_cost_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -223,7 +266,10 @@ def test_configure_disk_cache_enables_and_updates_cache(monkeypatch: pytest.Monk
 async def test_transport_complete_text_raises_provider_error_on_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    calls = {"acompletion": 0}
+
     async def _failing_acompletion(**_: object) -> object:
+        calls["acompletion"] += 1
         raise RuntimeError("boom")
 
     fake_module = _make_fake_litellm_module(acompletion=_failing_acompletion)
@@ -236,6 +282,49 @@ async def test_transport_complete_text_raises_provider_error_on_failure(
             model="example/model",
             messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
         )
+    assert calls == {"acompletion": 1}
+
+
+@pytest.mark.asyncio
+async def test_transport_complete_text_retries_transient_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"acompletion": 0}
+    sleep_calls: list[float] = []
+
+    class FakeLiteLLMError(Exception):
+        def __init__(self, status_code: int, headers: dict[str, str] | None = None) -> None:
+            self.status_code = status_code
+            self.headers = headers or {}
+            self.raw_response = SimpleNamespace(headers=self.headers)
+            super().__init__(f"Status {status_code}")
+
+    async def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    async def _flaky_acompletion(**_: object) -> object:
+        calls["acompletion"] += 1
+        if calls["acompletion"] == 1:
+            raise FakeLiteLLMError(429, headers={"retry-after": "3"})
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+            _hidden_params={},
+        )
+
+    fake_module = _make_fake_litellm_module(acompletion=_flaky_acompletion)
+    monkeypatch.setitem(sys.modules, "litellm", fake_module)
+    monkeypatch.setattr(litellm_module, "_INITIALIZED", False)
+    monkeypatch.setattr(retry_module, "retry_sleep", _fake_sleep)
+
+    transport = LiteLLMTransport()
+    result = await transport.complete_text(
+        model="example/model",
+        messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+    )
+
+    assert result == "ok"
+    assert calls == {"acompletion": 2}
+    assert sleep_calls == [3.0]
 
 
 @pytest.mark.asyncio
@@ -256,6 +345,28 @@ async def test_transport_complete_text_rejects_empty_output(monkeypatch: pytest.
             model="example/model",
             messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
         )
+
+
+@pytest.mark.asyncio
+async def test_transport_complete_text_allows_empty_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _empty_acompletion(**_: object) -> object:
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="   "))],
+            _hidden_params={},
+        )
+
+    fake_module = _make_fake_litellm_module(acompletion=_empty_acompletion)
+    monkeypatch.setitem(sys.modules, "litellm", fake_module)
+    monkeypatch.setattr(litellm_module, "_INITIALIZED", False)
+
+    transport = LiteLLMTransport()
+    result = await transport.complete_text(
+        model="example/model",
+        messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+        allow_empty=True,
+    )
+
+    assert result == ""
 
 
 def test_logger_adapter_supports_success_fallback_and_other_levels() -> None:
@@ -351,20 +462,34 @@ def test_log_prompt_payload_once_sanitizes_nested_payloads(monkeypatch: pytest.M
 
 
 @pytest.mark.parametrize(
-    ("loader", "dependency_name"),
+    ("loader", "dependency_name", "message"),
     [
-        (_load_vllm_processor_cls, "transformers"),
-        (_load_vllm_runtime, "vllm"),
-        (_load_hf_runtime, "qwen_vl_utils"),
-        (_load_hf_causal_runtime, "qwen_vl_utils"),
+        (_load_hf_runtime, "torch", "PyTorch runtime"),
+        (_load_hf_runtime, "qwen_vl_utils", "install hf"),
+        (_load_hf_causal_runtime, "torch", "PyTorch runtime"),
+        (_load_hf_causal_runtime, "qwen_vl_utils", "install hf"),
     ],
 )
 def test_optional_dependency_loaders_raise_configuration_error(
     loader: Any,
     dependency_name: str,
+    message: str,
     patch_import_failure,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    patch_import_failure(failing_name=dependency_name)
+    if dependency_name == "torch":
 
-    with pytest.raises(ConfigurationError):
+        def _fake_import_module(name: str) -> object:
+            if name == "torch":
+                raise ImportError("missing torch")
+            return __import__(name)
+
+        monkeypatch.setattr("churro_ocr.providers.hf.import_module", _fake_import_module)
+    elif dependency_name == "qwen_vl_utils":
+        monkeypatch.setitem(sys.modules, "torch", ModuleType("torch"))
+        patch_import_failure(failing_name=dependency_name)
+    else:
+        patch_import_failure(failing_name=dependency_name)
+
+    with pytest.raises(ConfigurationError, match=re.escape(message)):
         loader()

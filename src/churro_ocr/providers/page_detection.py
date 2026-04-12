@@ -10,8 +10,10 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from PIL import Image, ImageDraw, ImageOps
 
+from churro_ocr._internal.install import install_command_hint
 from churro_ocr._internal.litellm import LiteLLMTransport
 from churro_ocr._internal.logging import logger
+from churro_ocr._internal.retry import retry_api_call
 from churro_ocr._internal.runtime import run_sync
 from churro_ocr.errors import ConfigurationError, ProviderError
 from churro_ocr.page_detection import PageCandidate, PageDetectionBackend
@@ -1202,8 +1204,7 @@ class AzurePageDetector(PageDetectionBackend):
             from azure.core.credentials import AzureKeyCredential
         except ImportError as exc:  # pragma: no cover - optional extra path
             raise ConfigurationError(
-                "Azure page detection requires the 'azure' extra. "
-                'Install with `pip install "churro-ocr[azure]"`.'
+                f"Azure page detection requires the `azure` runtime. {install_command_hint('azure')}"
             ) from exc
 
         buffer = BytesIO()
@@ -1213,12 +1214,21 @@ class AzurePageDetector(PageDetectionBackend):
             credential=AzureKeyCredential(self.api_key),
         )
         try:
-            poller = await client.begin_analyze_document(
-                model_id=self.model_id,
-                body=BytesIO(buffer.getvalue()),
-                content_type="application/octet-stream",
+            image_bytes = buffer.getvalue()
+
+            async def _analyze_document() -> Any:
+                poller = await client.begin_analyze_document(
+                    model_id=self.model_id,
+                    body=BytesIO(image_bytes),
+                    content_type="application/octet-stream",
+                )
+                return await poller.result()
+
+            result = await retry_api_call(
+                _analyze_document,
+                operation_name="Azure page detection request",
+                context=f"for model {self.model_id}",
             )
-            result = await poller.result()
         finally:
             await client.close()
 

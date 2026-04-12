@@ -22,6 +22,7 @@ if _REPO_SRC_PATH_STR in sys.path:
 sys.path.insert(0, _REPO_SRC_PATH_STR)
 
 from churro_ocr._internal.logging import logger
+from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import BatchOCRBackend, OCRBackend, OCRBackendLike
 from churro_ocr.page_detection import DocumentPage
 from churro_ocr.providers import (
@@ -32,19 +33,26 @@ from churro_ocr.providers import (
     MistralOptions,
     OCRBackendSpec,
     OpenAICompatibleOptions,
-    VLLMOptions,
 )
+from churro_ocr.providers.specs import MISTRAL_OCR_MODEL_IDS, validate_mistral_ocr_model
 from tooling.benchmarking.dataset import (
     DatasetSelection,
     DatasetSubset,
     load_dataset_split,
 )
 from tooling.evaluation.metrics import compute_metrics
-from tooling.evaluation.types import BenchmarkDatasetExample, EvaluationExample, to_evaluation_example
+from tooling.evaluation.types import (
+    BenchmarkDatasetExample,
+    BenchmarkPrediction,
+    EvaluationExample,
+    to_evaluation_example,
+)
 
 CHURRO_DATASET_ID = "stanford-oval/churro-dataset"
 VALID_DATASET_SPLITS = {"dev", "test"}
-VALID_OCR_BACKENDS = {"litellm", "openai-compatible", "azure", "mistral", "hf", "vllm"}
+VALID_OCR_BACKENDS = {"litellm", "openai-compatible", "azure", "mistral", "hf"}
+PROGRESS_BAR_SMOOTHING = 0.05
+PROGRESS_BAR_MININTERVAL_SECONDS = 1.0
 BENCHMARK_DATASET_COLUMNS = (
     "image",
     "cleaned_transcription",
@@ -73,8 +81,6 @@ class BenchmarkOptions:
     api_key: str | None = None
     base_url: str | None = None
     api_version: str | None = None
-    vllm_gpu_memory_utilization: float | None = None
-    vllm_cpu_offload_gb: float | None = None
 
     def dataset_subset(self) -> DatasetSubset:
         """Return the normalized subset filters for this benchmark run."""
@@ -103,13 +109,11 @@ def build_parser(*, add_help: bool = True) -> argparse.ArgumentParser:
     parser.add_argument("--input-size", type=int, default=0)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, default=None)
-    parser.add_argument("--max-concurrency", type=int, default=32)
+    parser.add_argument("--max-concurrency", type=int, default=16)
     parser.add_argument("--endpoint", default=None)
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--api-version", default=None)
-    parser.add_argument("--vllm-gpu-memory-utilization", type=float, default=None)
-    parser.add_argument("--vllm-cpu-offload-gb", type=float, default=None)
     return parser
 
 
@@ -130,8 +134,6 @@ def parse_args(argv: list[str] | None = None) -> BenchmarkOptions:
         api_key=namespace.api_key,
         base_url=namespace.base_url,
         api_version=namespace.api_version,
-        vllm_gpu_memory_utilization=namespace.vllm_gpu_memory_utilization,
-        vllm_cpu_offload_gb=namespace.vllm_cpu_offload_gb,
     )
 
 
@@ -148,31 +150,27 @@ def _validate_options(options: BenchmarkOptions) -> int:
     if options.backend == "litellm" and not options.model:
         logger.error("--model is required for backend=litellm.")
         return 1
-    if options.backend == "openai-compatible" and (
-        not options.model or not options.base_url or not options.api_key
-    ):
-        logger.error("--model, --base-url, and --api-key are required for backend=openai-compatible.")
+    if options.backend == "openai-compatible" and (not options.model or not options.base_url):
+        logger.error("--model and --base-url are required for backend=openai-compatible.")
         return 1
     if options.backend == "hf" and not options.model:
         logger.error("--model is required for backend=hf.")
         return 1
-    if options.backend == "vllm" and not options.model:
-        logger.error("--model is required for backend=vllm.")
-        return 1
-    if options.vllm_gpu_memory_utilization is not None and not (
-        0.0 < options.vllm_gpu_memory_utilization <= 1.0
-    ):
-        logger.error("--vllm-gpu-memory-utilization must be in the range (0, 1].")
-        return 1
-    if options.vllm_cpu_offload_gb is not None and options.vllm_cpu_offload_gb < 0.0:
-        logger.error("--vllm-cpu-offload-gb must be non-negative.")
-        return 1
     if options.backend == "azure" and (not options.endpoint or not options.api_key):
         logger.error("--endpoint and --api-key are required for backend=azure.")
         return 1
-    if options.backend == "mistral" and not options.api_key:
-        logger.error("--api-key is required for backend=mistral.")
-        return 1
+    if options.backend == "mistral":
+        if not options.api_key:
+            logger.error("--api-key is required for backend=mistral.")
+            return 1
+        try:
+            validate_mistral_ocr_model(options.model)
+        except ConfigurationError:
+            logger.error(
+                "--model is required for backend=mistral and must be one of: %s.",
+                ", ".join(MISTRAL_OCR_MODEL_IDS),
+            )
+            return 1
     return 0
 
 
@@ -202,9 +200,21 @@ def _default_litellm_cache_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "workdir" / "cache" / "litellm"
 
 
+def _create_progress_bar(*, total: int | None, desc: str, unit: str) -> tqdm[object]:
+    """Return a tqdm progress bar tuned for steadier ETA updates."""
+    return tqdm(
+        total=total,
+        desc=desc,
+        unit=unit,
+        mininterval=PROGRESS_BAR_MININTERVAL_SECONDS,
+        smoothing=PROGRESS_BAR_SMOOTHING,
+    )
+
+
 def _build_evaluation_example(example: BenchmarkDatasetExample) -> EvaluationExample:
     """Keep only the fields needed for evaluation after OCR completes."""
     return to_evaluation_example(example)
+
 
 def _selected_dataset_examples(
     dataset_stream: Iterable[BenchmarkDatasetExample],
@@ -232,7 +242,6 @@ def _build_ocr_backend(options: BenchmarkOptions) -> OCRBackendLike:
     if options.backend == "openai-compatible":
         assert options.model is not None
         assert options.base_url is not None
-        assert options.api_key is not None
         return build_ocr_backend(
             OCRBackendSpec(
                 provider="openai-compatible",
@@ -267,25 +276,13 @@ def _build_ocr_backend(options: BenchmarkOptions) -> OCRBackendLike:
                 options=HuggingFaceOptions(model_kwargs={"device_map": "auto", "torch_dtype": "auto"}),
             )
         )
-    if options.backend == "vllm":
-        assert options.model is not None
-        llm_kwargs: dict[str, object] = {}
-        if options.vllm_gpu_memory_utilization is not None:
-            llm_kwargs["gpu_memory_utilization"] = options.vllm_gpu_memory_utilization
-        if options.vllm_cpu_offload_gb is not None:
-            llm_kwargs["cpu_offload_gb"] = options.vllm_cpu_offload_gb
-        return build_ocr_backend(
-            OCRBackendSpec(
-                provider="vllm",
-                model=options.model,
-                options=VLLMOptions(llm_kwargs=llm_kwargs),
-            )
-        )
     assert options.api_key is not None
+    assert options.model is not None
+    mistral_model = validate_mistral_ocr_model(options.model)
     return build_ocr_backend(
         OCRBackendSpec(
             provider="mistral",
-            model=options.model or "mistral-ocr-latest",
+            model=mistral_model,
             options=MistralOptions(api_key=options.api_key),
         )
     )
@@ -306,17 +303,17 @@ async def _predict_texts(
     options: BenchmarkOptions,
     *,
     total_pages: int | None = None,
-) -> tuple[list[EvaluationExample], list[str]]:
+) -> tuple[list[EvaluationExample], list[BenchmarkPrediction]]:
     ocr_backend = _build_ocr_backend(options)
     max_in_flight = max(1, options.max_concurrency)
     has_logged_first_output = False
     if isinstance(ocr_backend, BatchOCRBackend):
         dataset_iterator = iter(dataset)
         evaluation_examples: list[EvaluationExample] = []
-        predicted_texts: list[str] = []
+        predictions: list[BenchmarkPrediction] = []
         submitted_pages = 0
 
-        with tqdm(total=total_pages, desc="OCR", unit="page") as progress:
+        with _create_progress_bar(total=total_pages, desc="OCR", unit="page") as progress:
             while True:
                 batch_examples: list[BenchmarkDatasetExample] = []
                 pages: list[DocumentPage] = []
@@ -346,25 +343,34 @@ async def _predict_texts(
                         text=batch_results[0].text or "",
                     )
                     has_logged_first_output = True
-                predicted_texts.extend((result.text or "") for result in batch_results)
+                predictions.extend(
+                    {
+                        "text": result.text or "",
+                        "metadata": dict(result.metadata),
+                    }
+                    for result in batch_results
+                )
                 progress.update(len(batch_results))
                 progress.set_postfix(submitted=submitted_pages, in_flight=0, refresh=False)
 
-        return evaluation_examples, predicted_texts
+        return evaluation_examples, predictions
 
-    async def _predict(index: int, image: Image.Image) -> tuple[int, str]:
+    async def _predict(index: int, image: Image.Image) -> tuple[int, BenchmarkPrediction]:
         page = DocumentPage(page_index=index, source_index=0, image=image)
         if callable(ocr_backend) and not isinstance(ocr_backend, OCRBackend):
             result = await ocr_backend(page)
         else:
             assert isinstance(ocr_backend, OCRBackend)
             result = await ocr_backend.ocr(page)
-        return index, (result.text or "")
+        return index, {
+            "text": result.text or "",
+            "metadata": dict(result.metadata),
+        }
 
     dataset_iterator = iter(dataset)
     evaluation_examples: list[EvaluationExample] = []
-    pending_tasks: set[asyncio.Task[tuple[int, str]]] = set()
-    predicted_texts: list[str] = []
+    pending_tasks: set[asyncio.Task[tuple[int, BenchmarkPrediction]]] = set()
+    predictions: list[BenchmarkPrediction] = []
     next_index = 0
     wait_poll_seconds = 1.0
 
@@ -381,7 +387,7 @@ async def _predict_texts(
         while not stop_event.wait(wait_poll_seconds):
             _update_progress_status(progress, force_refresh=True)
 
-    with tqdm(total=total_pages, desc="OCR", unit="page") as progress:
+    with _create_progress_bar(total=total_pages, desc="OCR", unit="page") as progress:
         heartbeat_stop_event = threading.Event()
         heartbeat_thread = threading.Thread(
             target=_progress_heartbeat,
@@ -400,7 +406,7 @@ async def _predict_texts(
                     image = example["image"]
                     assert isinstance(image, Image.Image)
                     evaluation_examples.append(_build_evaluation_example(example))
-                    predicted_texts.append("")
+                    predictions.append({"text": "", "metadata": {}})
                     pending_tasks.add(asyncio.create_task(_predict(next_index, image)))
                     next_index += 1
                     _update_progress_status(progress)
@@ -413,10 +419,10 @@ async def _predict_texts(
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 for task in done_tasks:
-                    index, text = await task
-                    predicted_texts[index] = text
+                    index, prediction = await task
+                    predictions[index] = prediction
                     if not has_logged_first_output and index == 0:
-                        _log_first_benchmark_output(options=options, text=text)
+                        _log_first_benchmark_output(options=options, text=prediction["text"])
                         has_logged_first_output = True
                     progress.update(1)
                 _update_progress_status(progress)
@@ -430,7 +436,7 @@ async def _predict_texts(
             heartbeat_thread.join(timeout=wait_poll_seconds * 2)
             _update_progress_status(progress, force_refresh=True)
 
-    return evaluation_examples, predicted_texts
+    return evaluation_examples, predictions
 
 
 async def run(options: BenchmarkOptions) -> int:
@@ -447,17 +453,17 @@ async def run(options: BenchmarkOptions) -> int:
 
     output_prefix = create_output_prefix(options)
     start_time = time()
-    evaluation_examples, predicted_texts = await _predict_texts(
+    evaluation_examples, predictions = await _predict_texts(
         dataset,
         options,
         total_pages=total_pages,
     )
     elapsed_time = time() - start_time
 
-    assert len(evaluation_examples) == len(predicted_texts), (
-        f"Mismatch in dataset size ({len(evaluation_examples)}) and predictions ({len(predicted_texts)})."
+    assert len(evaluation_examples) == len(predictions), (
+        f"Mismatch in dataset size ({len(evaluation_examples)}) and predictions ({len(predictions)})."
     )
-    compute_metrics(evaluation_examples, predicted_texts, output_prefix, elapsed_time)
+    compute_metrics(evaluation_examples, predictions, output_prefix, elapsed_time)
     return 0
 
 

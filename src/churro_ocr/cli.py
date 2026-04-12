@@ -6,6 +6,11 @@ from pathlib import Path
 
 import typer
 
+from churro_ocr._internal.install import (
+    INSTALL_TARGETS,
+    install_runtime_dependencies,
+)
+from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRClient
 from churro_ocr.page_detection import DocumentPage, DocumentPageDetector, PageDetectionRequest
 from churro_ocr.providers import (
@@ -17,11 +22,17 @@ from churro_ocr.providers import (
     MistralOptions,
     OCRBackendSpec,
     OpenAICompatibleOptions,
-    VLLMOptions,
     build_ocr_backend,
 )
+from churro_ocr.providers.specs import MISTRAL_OCR_MODEL_IDS, validate_mistral_ocr_model
 
 app = typer.Typer(help="churro-ocr library-first CLI")
+
+_INSTALL_TARGET_METAVAR = "{" + "|".join(INSTALL_TARGETS) + "}"
+_MISTRAL_MODEL_OPTION_ERROR = (
+    "--model is required for backend=mistral and must be one of: "
+    + ", ".join(MISTRAL_OCR_MODEL_IDS)
+)
 
 
 def _build_ocr_backend(
@@ -48,10 +59,8 @@ def _build_ocr_backend(
             )
         )
     if backend == "openai-compatible":
-        if not model or not base_url or not api_key:
-            raise typer.BadParameter(
-                "--model, --base-url, and --api-key are required for backend=openai-compatible"
-            )
+        if not model or not base_url:
+            raise typer.BadParameter("--model and --base-url are required for backend=openai-compatible")
         return build_ocr_backend(
             OCRBackendSpec(
                 provider="openai-compatible",
@@ -80,10 +89,14 @@ def _build_ocr_backend(
     if backend == "mistral":
         if not api_key:
             raise typer.BadParameter("--api-key is required for backend=mistral")
+        try:
+            mistral_model = validate_mistral_ocr_model(model)
+        except ConfigurationError as exc:
+            raise typer.BadParameter(_MISTRAL_MODEL_OPTION_ERROR) from exc
         return build_ocr_backend(
             OCRBackendSpec(
                 provider="mistral",
-                model=model or "mistral-ocr-latest",
+                model=mistral_model,
                 options=MistralOptions(api_key=api_key),
             )
         )
@@ -95,16 +108,6 @@ def _build_ocr_backend(
                 provider="hf",
                 model=model,
                 options=HuggingFaceOptions(model_kwargs={"device_map": "auto", "torch_dtype": "auto"}),
-            )
-        )
-    if backend == "vllm":
-        if not model:
-            raise typer.BadParameter("--model is required for backend=vllm")
-        return build_ocr_backend(
-            OCRBackendSpec(
-                provider="vllm",
-                model=model,
-                options=VLLMOptions(),
             )
         )
     raise typer.BadParameter(f"Unsupported backend: {backend}")
@@ -228,6 +231,33 @@ def extract_pages_command(
         output_path = output_dir / f"page_{page.page_index:04d}.png"
         page.image.save(output_path)
         typer.echo(str(output_path))
+
+
+@app.command("install")
+def install_command(
+    target: str = typer.Argument(
+        ...,
+        metavar=_INSTALL_TARGET_METAVAR,
+        help="Runtime target to install into the active environment with uv.",
+    ),
+    torch_backend: str = typer.Option(
+        "auto",
+        help="PyTorch backend passed through to uv when a local runtime needs torch.",
+    ),
+) -> None:
+    """Install optional runtime dependencies with uv."""
+    try:
+        result = install_runtime_dependencies(
+            target=target,
+            torch_backend=torch_backend,
+        )
+    except ConfigurationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Installed runtime target: {result.target}")
+    for note in result.notes:
+        typer.echo(note)
 
 
 def main() -> None:

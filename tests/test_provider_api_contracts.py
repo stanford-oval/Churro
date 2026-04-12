@@ -14,7 +14,6 @@ from churro_ocr.providers import (
     MistralOptions,
     OCRBackendSpec,
     OpenAICompatibleOptions,
-    VLLMOptions,
     build_ocr_backend,
     resolve_ocr_profile,
 )
@@ -59,7 +58,7 @@ def test_provider_dir_lists_lazy_exports() -> None:
         (OCRBackendSpec(provider="litellm"), "OCR provider 'litellm' requires `model`."),
         (
             OCRBackendSpec(provider="openai-compatible", model="local-model"),
-            "OCR provider 'openai-compatible' requires `transport.api_base` and `transport.api_key`.",
+            "OCR provider 'openai-compatible' requires `transport.api_base`.",
         ),
         (
             OCRBackendSpec(provider="azure"),
@@ -71,19 +70,40 @@ def test_provider_dir_lists_lazy_exports() -> None:
         ),
         (
             OCRBackendSpec(
-                provider="hf",
-                model="example/model",
-                options=cast("Any", VLLMOptions()),
+                provider="mistral",
+                options=MistralOptions(api_key="secret"),
             ),
-            "OCR provider 'hf' requires options of type HuggingFaceOptions, got VLLMOptions.",
+            "OCR provider 'mistral' requires `model` to be one of: mistral-ocr-2505, mistral-ocr-2512.",
         ),
         (
             OCRBackendSpec(
-                provider="vllm",
+                provider="mistral",
+                model="mistral-ocr-latest",
+                options=MistralOptions(api_key="secret"),
+            ),
+            (
+                "OCR provider 'mistral' only supports `model` values mistral-ocr-2505, "
+                "mistral-ocr-2512; got 'mistral-ocr-latest'."
+            ),
+        ),
+        (
+            OCRBackendSpec(
+                provider="hf",
+                model="example/model",
+                options=cast("Any", OpenAICompatibleOptions()),
+            ),
+            "OCR provider 'hf' requires options of type HuggingFaceOptions, got OpenAICompatibleOptions.",
+        ),
+        (
+            OCRBackendSpec(
+                provider="openai-compatible",
                 model="example/model",
                 options=cast("Any", HuggingFaceOptions()),
             ),
-            "OCR provider 'vllm' requires options of type VLLMOptions, got HuggingFaceOptions.",
+            (
+                "OCR provider 'openai-compatible' requires options of type "
+                "OpenAICompatibleOptions, got HuggingFaceOptions."
+            ),
         ),
     ],
 )
@@ -99,7 +119,6 @@ def test_build_ocr_backend_supports_custom_openai_model_prefix() -> None:
             model="local-model",
             transport=LiteLLMTransportConfig(
                 api_base="http://127.0.0.1:8000/v1",
-                api_key="dummy",
             ),
             options=OpenAICompatibleOptions(model_prefix="custom"),
         )
@@ -134,6 +153,7 @@ def test_build_ocr_backend_accepts_provider_specific_options() -> None:
     mistral_backend = build_ocr_backend(
         OCRBackendSpec(
             provider="mistral",
+            model="mistral-ocr-2512",
             options=MistralOptions(api_key="secret"),
         )
     )
@@ -142,4 +162,4 @@ def test_build_ocr_backend_accepts_provider_specific_options() -> None:
     assert isinstance(mistral_backend, MistralOCRBackend)
     assert azure_backend.model_id == "layout-model"
     assert azure_backend.model_name == "layout-model"
-    assert mistral_backend.model == "mistral-ocr-latest"
+    assert mistral_backend.model == "mistral-ocr-2512"

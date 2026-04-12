@@ -1,8 +1,8 @@
-"""Shared dataset and result types for CHURRO tooling evaluation flows."""
+"""Shared dataset, prediction, and result types for CHURRO tooling evaluation flows."""
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from PIL import Image
 
@@ -59,6 +59,19 @@ class PageEvaluationResult(PageEvaluationMetrics):
     gold_text: str
     dataset_id: str
     document_type: str
+
+
+class BenchmarkPrediction(TypedDict):
+    """OCR output retained during benchmarking before metrics are computed."""
+
+    text: str
+    metadata: dict[str, Any]
+
+
+class BenchmarkOutputRow(PageEvaluationResult):
+    """Serialized benchmark output row written to ``outputs.json``."""
+
+    metadata: dict[str, Any]
 
 
 def to_evaluation_example(example: BenchmarkDatasetExample) -> EvaluationExample:

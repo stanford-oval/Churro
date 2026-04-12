@@ -1,15 +1,15 @@
 # <img src="static/churro.png" alt="CHURRO logo" width="40" /> CHURRO
 
-CHURRO is an OCR toolkit for historical document transcription, built to make handwritten and printed sources readable at high accuracy and lower cost.
-
-It works with all major OCR proividers and vision-language models, and provides first-party support for the CHURRO 3B model and CHURRO-DS dataset.
-
 [![Model](https://img.shields.io/badge/Model-CHURRO%203B-8A4FFF)](https://huggingface.co/stanford-oval/churro-3B)
 [![Dataset](https://img.shields.io/badge/Dataset-CHURRO--DS-0A7BBB)](https://huggingface.co/datasets/stanford-oval/churro-dataset)
 [![Paper](https://img.shields.io/badge/Paper-arXiv-B31B1B)](https://arxiv.org/abs/2509.19768)
 [![Docs](https://img.shields.io/badge/Docs-Documentation-8B451F)](https://stanford-oval.github.io/Churro/)
 [![Leaderboard](https://img.shields.io/badge/Leaderboard-Benchmark%20Snapshot-6B7280)](https://stanford-oval.github.io/Churro/leaderboard.html)
 [![GitHub Stars](https://img.shields.io/github/stars/stanford-oval/churro?style=social)](https://github.com/stanford-oval/churro/stargazers)
+
+CHURRO is an OCR toolkit for historical document transcription, built to make handwritten and printed sources readable at high accuracy and lower cost.
+
+It works with all major OCR providers and vision-language models, and provides first-party support for the CHURRO 3B model and CHURRO-DS dataset.
 
 
 - CHURRO 3B exceeds the accuracy of Gemini 2.5 Pro at 15.5x lower cost.
@@ -24,7 +24,8 @@ It works with all major OCR proividers and vision-language models, and provides 
 ## Quick Try
 
 ```bash
-pip install "churro-ocr[hf]"
+uv tool install churro-ocr
+churro-ocr install hf
 churro-ocr transcribe --image scan.png --backend hf --model stanford-oval/churro-3B
 ```
 

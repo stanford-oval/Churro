@@ -270,6 +270,85 @@ def test_evaluate_page_metric_helpers_cover_initialization_and_single_batch_path
     assert rows[0]["example_id"] == "row-1"
 
 
+def test_batch_evaluate_initializes_worker_metrics_for_multi_example(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    init_calls = 0
+    captured_initializer = None
+
+    def fake_initialize_metrics() -> None:
+        nonlocal init_calls
+        init_calls += 1
+
+    class _FakePool:
+        def __init__(self, *, processes: int, initializer) -> None:  # noqa: ANN001
+            nonlocal captured_initializer
+            assert processes == 2
+            captured_initializer = initializer
+
+        def __enter__(self) -> _FakePool:
+            assert captured_initializer is not None
+            captured_initializer()
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:  # noqa: ANN001
+            return False
+
+        def imap(self, func, iterable):  # noqa: ANN001
+            return map(func, iterable)
+
+    monkeypatch.setattr(evaluate_page_module, "initialize_metrics", fake_initialize_metrics)
+    monkeypatch.setattr(evaluate_page_module.multiprocessing, "cpu_count", lambda: 2)
+    monkeypatch.setattr(evaluate_page_module.multiprocessing, "Pool", _FakePool)
+    monkeypatch.setattr(
+        evaluate_page_module,
+        "evaluate_page",
+        lambda inputs: cast(
+            "PageEvaluationResult",
+            {
+                "example_id": inputs[0]["example_id"],
+                "normalized_levenshtein_similarity": 1.0,
+                "is_empty": 0.0,
+            },
+        ),
+    )
+
+    aggregate, rows = evaluate_page_module.batch_evaluate(
+        dataset=[
+            cast(
+                "BenchmarkDatasetExample",
+                {
+                    "image": "image",
+                    "cleaned_transcription": "",
+                    "dataset_id": "dataset-1",
+                    "document_type": "print",
+                    "example_id": "row-1",
+                    "main_language": "English",
+                    "main_script": "Latin",
+                },
+            ),
+            cast(
+                "BenchmarkDatasetExample",
+                {
+                    "image": "image",
+                    "cleaned_transcription": "",
+                    "dataset_id": "dataset-2",
+                    "document_type": "print",
+                    "example_id": "row-2",
+                    "main_language": "English",
+                    "main_script": "Latin",
+                },
+            ),
+        ],
+        predicted_texts=["predicted-1", "predicted-2"],
+    )
+
+    assert captured_initializer is fake_initialize_metrics
+    assert init_calls == 2
+    assert aggregate == {"normalized_levenshtein_similarity": 1.0, "is_empty": 0.0}
+    assert [row["example_id"] for row in rows] == ["row-1", "row-2"]
+
+
 def test_calculate_metrics_from_text_and_internal_error_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(evaluate_page_module, "initialize_metrics", lambda: None)
     monkeypatch.setattr(

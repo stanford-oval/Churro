@@ -6,19 +6,18 @@ Full documentation and project overview live at https://stanford-oval.github.io/
 
 ## Install
 
-Install only the pieces you need:
+Use UV as the supported install path.
 
 ```bash
-pip install churro-ocr
-pip install "churro-ocr[llm]"
-pip install "churro-ocr[local]"
-pip install "churro-ocr[hf]"
-pip install "churro-ocr[vllm]"
-pip install "churro-ocr[azure]"
-pip install "churro-ocr[mistral]"
-pip install "churro-ocr[pdf]"
-pip install "churro-ocr[all]"
+uv tool install churro-ocr
+# or, in a project:
+uv add churro-ocr
 ```
+
+Runtime setup and provider-specific install commands are in
+[Getting Started](https://stanford-oval.github.io/Churro/getting-started.html)
+and
+[Providers And Configuration](https://stanford-oval.github.io/Churro/guides/providers.html).
 
 ## Which API Should You Use?
 
@@ -30,6 +29,8 @@ pip install "churro-ocr[all]"
 | Tune backend/provider options directly | `build_ocr_backend(...)` + `OCRBackendSpec` |
 
 ## Quick Start
+
+This example assumes you already installed the runtime for the provider you want to use.
 
 ```python
 from churro_ocr.ocr import OCRClient

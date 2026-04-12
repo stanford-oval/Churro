@@ -6,8 +6,13 @@ from churro_ocr._internal.litellm import LiteLLMTransport
 from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRBackend
 from churro_ocr.providers.hf import (
+    ChandraOCR2OCRBackend,
+    DeepSeekOCR2OCRBackend,
+    DotsMOCROCRBackend,
     DotsOCR15OCRBackend,
     HuggingFaceVisionOCRBackend,
+    LFM25VLOCRBackend,
+    PaddleOCRVL15OCRBackend,
     _default_dots_ocr_1_5_model_kwargs,
 )
 from churro_ocr.providers.ocr import (
@@ -24,10 +29,9 @@ from churro_ocr.providers.specs import (
     OCRBackendSpec,
     OCRModelProfile,
     OpenAICompatibleOptions,
-    VLLMOptions,
     resolve_ocr_profile,
+    validate_mistral_ocr_model,
 )
-from churro_ocr.providers.vllm import VLLMVisionOCRBackend
 
 
 def _merge_mapping(
@@ -92,32 +96,6 @@ def _merge_huggingface_options(
     )
 
 
-def _merge_vllm_options(
-    base: VLLMOptions,
-    override: VLLMOptions | None,
-) -> VLLMOptions:
-    if override is None:
-        return VLLMOptions(
-            trust_remote_code=base.trust_remote_code,
-            processor_kwargs=dict(base.processor_kwargs),
-            llm_kwargs=dict(base.llm_kwargs),
-            sampling_kwargs=dict(base.sampling_kwargs),
-            limit_mm_per_prompt=dict(base.limit_mm_per_prompt),
-        )
-    return VLLMOptions(
-        trust_remote_code=(
-            override.trust_remote_code if override.trust_remote_code is not None else base.trust_remote_code
-        ),
-        processor_kwargs=_merge_mapping(base.processor_kwargs, override.processor_kwargs),
-        llm_kwargs=_merge_mapping(base.llm_kwargs, override.llm_kwargs),
-        sampling_kwargs=_merge_mapping(base.sampling_kwargs, override.sampling_kwargs),
-        limit_mm_per_prompt={
-            **base.limit_mm_per_prompt,
-            **override.limit_mm_per_prompt,
-        },
-    )
-
-
 def _merge_openai_options(
     override: OpenAICompatibleOptions | None,
 ) -> OpenAICompatibleOptions:
@@ -166,10 +144,8 @@ def _build_openai_compatible_backend(spec: OCRBackendSpec, profile: OCRModelProf
         _ensure_options_type(spec.options, OpenAICompatibleOptions, provider=spec.provider)
     )
     transport_config = _merge_transport_config(profile.transport, spec.transport)
-    if not transport_config.api_base or not transport_config.api_key:
-        raise ConfigurationError(
-            "OCR provider 'openai-compatible' requires `transport.api_base` and `transport.api_key`."
-        )
+    if not transport_config.api_base:
+        raise ConfigurationError("OCR provider 'openai-compatible' requires `transport.api_base`.")
     return OpenAICompatibleOCRBackend(
         model=spec.model,
         model_prefix=options.model_prefix or "openai",
@@ -190,9 +166,19 @@ def _build_huggingface_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -
     )
     backend_cls: type[HuggingFaceVisionOCRBackend] = HuggingFaceVisionOCRBackend
     model_kwargs = dict(options.model_kwargs)
-    if options.backend_variant == "dots-ocr-1.5":
+    if options.backend_variant in {"dots-ocr-1.5", "dots-mocr"}:
         backend_cls = DotsOCR15OCRBackend
+        if options.backend_variant == "dots-mocr":
+            backend_cls = DotsMOCROCRBackend
         model_kwargs = _merge_mapping(_default_dots_ocr_1_5_model_kwargs(), model_kwargs)
+    elif options.backend_variant == "deepseek-ocr-2":
+        backend_cls = DeepSeekOCR2OCRBackend
+    elif options.backend_variant == "chandra-ocr-2":
+        backend_cls = ChandraOCR2OCRBackend
+    elif options.backend_variant == "paddleocr-vl-1.5":
+        backend_cls = PaddleOCRVL15OCRBackend
+    elif options.backend_variant == "lfm2.5-vl":
+        backend_cls = LFM25VLOCRBackend
     return backend_cls(
         model_id=spec.model,
         template=profile.template,
@@ -202,27 +188,6 @@ def _build_huggingface_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -
         model_kwargs=model_kwargs,
         generation_kwargs=dict(options.generation_kwargs),
         vision_input_builder=options.vision_input_builder,
-        image_preprocessor=profile.image_preprocessor,
-        text_postprocessor=profile.text_postprocessor,
-    )
-
-
-def _build_vllm_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -> OCRBackend:
-    if spec.model is None:
-        raise ConfigurationError("OCR provider 'vllm' requires `model`.")
-    options = _merge_vllm_options(
-        profile.vllm,
-        _ensure_options_type(spec.options, VLLMOptions, provider=spec.provider),
-    )
-    return VLLMVisionOCRBackend(
-        model_id=spec.model,
-        template=profile.template,
-        model_name=_resolve_model_name(profile, spec.model, fallback=spec.model),
-        trust_remote_code=bool(options.trust_remote_code),
-        processor_kwargs=dict(options.processor_kwargs),
-        llm_kwargs=dict(options.llm_kwargs),
-        sampling_kwargs=dict(options.sampling_kwargs),
-        limit_mm_per_prompt=dict(options.limit_mm_per_prompt) or {"image": 1},
         image_preprocessor=profile.image_preprocessor,
         text_postprocessor=profile.text_postprocessor,
     )
@@ -249,7 +214,7 @@ def _build_mistral_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -> OC
     options = _ensure_options_type(spec.options, MistralOptions, provider=spec.provider)
     if options is None or not options.api_key:
         raise ConfigurationError("OCR provider 'mistral' requires MistralOptions(api_key=...).")
-    model = spec.model or "mistral-ocr-latest"
+    model = validate_mistral_ocr_model(spec.model)
     return MistralOCRBackend(
         api_key=options.api_key,
         model=model,
@@ -275,8 +240,6 @@ def build_ocr_backend(spec: OCRBackendSpec) -> OCRBackend:
         return _build_openai_compatible_backend(spec, profile)
     if spec.provider == "hf":
         return _build_huggingface_backend(spec, profile)
-    if spec.provider == "vllm":
-        return _build_vllm_backend(spec, profile)
     if spec.provider == "azure":
         return _build_azure_backend(spec, profile)
     if spec.provider == "mistral":

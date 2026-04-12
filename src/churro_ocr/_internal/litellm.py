@@ -12,6 +12,8 @@ from typing import Any, cast
 from PIL import Image
 
 from churro_ocr._internal.image import image_to_base64
+from churro_ocr._internal.install import install_command_hint
+from churro_ocr._internal.retry import retry_api_call
 from churro_ocr.errors import ConfigurationError, ProviderError
 from churro_ocr.providers.specs import LiteLLMTransportConfig
 from churro_ocr.templates import OCRConversation
@@ -28,8 +30,7 @@ def _ensure_initialized() -> None:
         import litellm
     except ImportError as exc:  # pragma: no cover - optional extra path
         raise ConfigurationError(
-            "LiteLLM-backed providers require the 'llm' extra. "
-            'Install with `pip install "churro-ocr[llm]"`.'
+            f"LiteLLM-backed providers require the `llm` runtime. {install_command_hint('llm')}"
         ) from exc
 
     litellm_any = cast(Any, litellm)
@@ -161,6 +162,7 @@ class LiteLLMTransport:
         messages: list[dict[str, Any]],
         timeout_seconds: int = 600,
         output_json: bool = False,
+        allow_empty: bool = False,
     ) -> str:
         """Run a LiteLLM completion and return the text content."""
         if self._config.cache_dir is not None:
@@ -186,15 +188,26 @@ class LiteLLMTransport:
             kwargs.update(self._config.completion_kwargs)
 
         try:
-            response = await acompletion(**kwargs)
+            response = await retry_api_call(
+                lambda: acompletion(**kwargs),
+                operation_name="LiteLLM request",
+                context=f"for model '{model}'",
+            )
         except Exception as exc:  # pragma: no cover - provider-specific failure path
             raise ProviderError(f"LiteLLM request failed for model '{model}': {exc}") from exc
         self._record_response_cost(model=model, response=response)
 
         answer = response.choices[0].message.content
-        if not isinstance(answer, str) or not answer.strip():
+        if isinstance(answer, str):
+            if answer.strip():
+                return answer
+            if allow_empty:
+                return ""
+        elif answer is None and allow_empty:
+            return ""
+        if not isinstance(answer, str):
             raise ProviderError(f"LiteLLM returned empty output for model '{model}'.")
-        return answer
+        raise ProviderError(f"LiteLLM returned empty output for model '{model}'.")
 
     def _resolved_image_detail(self) -> str | None:
         return "high" if self._config.image_detail is None else self._config.image_detail
@@ -328,6 +341,7 @@ async def complete_text(
     api_version: str | None = None,
     timeout_seconds: int = 600,
     output_json: bool = False,
+    allow_empty: bool = False,
     completion_kwargs: dict[str, object] | None = None,
 ) -> str:
     """Run a LiteLLM completion and return the text content."""
@@ -344,6 +358,7 @@ async def complete_text(
         messages=messages,
         timeout_seconds=timeout_seconds,
         output_json=output_json,
+        allow_empty=allow_empty,
     )
 
 

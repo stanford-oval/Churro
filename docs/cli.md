@@ -3,13 +3,25 @@
 Use the CLI when you want a quick sanity check before writing Python code.
 
 Use `churro-ocr --help` or `python -m churro_ocr --help` to inspect the top-level commands.
+Install Churro in [Getting Started](getting-started.md), and use
+[Providers And Configuration](guides/providers.md)
+for backend-specific runtime setup.
 
 ## Command Summary
 
 | Command | Use it when |
 | --- | --- |
+| `install` | you want Churro to install an optional runtime into the active UV environment |
 | `transcribe` | you want OCR text for one image |
 | `extract-pages` | you want page crops from an image or PDF |
+
+## `install` Examples
+
+### Install Local Transformers OCR
+
+```bash
+churro-ocr install hf
+```
 
 ## `transcribe` Examples
 
@@ -29,9 +41,10 @@ churro-ocr transcribe \
   --image scan.png \
   --backend openai-compatible \
   --model local-model \
-  --base-url http://127.0.0.1:8000/v1 \
-  --api-key dummy
+  --base-url http://127.0.0.1:8000/v1
 ```
+
+For vLLM, serve the model separately with its OpenAI-compatible server and then use this same `openai-compatible` route. See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html).
 
 ## `extract-pages` Examples
 
@@ -73,11 +86,10 @@ churro-ocr extract-pages \
 | `--backend` value | Required flags | Notes |
 | --- | --- | --- |
 | `litellm` | `--model` | Uses LiteLLM credentials and routing. `--base-url`, `--api-key`, and `--api-version` are optional transport overrides. |
-| `openai-compatible` | `--model`, `--base-url`, `--api-key` | For local or self-hosted OpenAI-style servers. |
+| `openai-compatible` | `--model`, `--base-url` | For local or self-hosted OpenAI-style servers. `--api-key` is optional. |
 | `azure` | `--endpoint`, `--api-key` | `--model` is optional. |
-| `mistral` | `--api-key` | `--model` defaults to `mistral-ocr-latest`. |
+| `mistral` | `--api-key`, `--model` | `--model` must be either `mistral-ocr-2505` or `mistral-ocr-2512`. |
 | `hf` | `--model` | Local Transformers OCR. |
-| `vllm` | `--model` | Local vLLM OCR. |
 
 ### `extract-pages` Detectors
 

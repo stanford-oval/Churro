@@ -23,12 +23,19 @@ def sample_image_path(write_image_file) -> Path:
         (["--backend", "litellm"], ("--model is required for backend=litellm",)),
         (
             ["--backend", "openai-compatible", "--model", "local-model"],
-            ("required for", "backend=openai-compatible"),
+            ("--model and --base-url are required for", "backend=openai-compatible"),
         ),
         (["--backend", "azure"], ("--endpoint and --api-key are required for backend=azure",)),
         (["--backend", "mistral"], ("--api-key is required for backend=mistral",)),
+        (
+            ["--backend", "mistral", "--api-key", "secret"],
+            ("--model is required for backend=mistral", "mistral-ocr-2505", "mistral-ocr-2512"),
+        ),
+        (
+            ["--backend", "mistral", "--api-key", "secret", "--model", "mistral-ocr-latest"],
+            ("must be one of", "mistral-ocr-2505", "mistral-ocr-2512"),
+        ),
         (["--backend", "hf"], ("--model is required for backend=hf",)),
-        (["--backend", "vllm"], ("--model is required for backend=vllm",)),
     ],
 )
 def test_transcribe_cli_validates_backend_requirements(
@@ -48,7 +55,27 @@ def test_transcribe_cli_validates_backend_requirements(
         assert expected_part in output
 
 
-def test_transcribe_cli_rejects_unsupported_backend(sample_image_path: Path, cli_runner) -> None:
+def test_transcribe_cli_allows_openai_compatible_backend_without_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+    sample_image_path: Path,
+    cli_runner,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeBackend:
+        async def ocr(self, page: DocumentPage) -> OCRResult:
+            captured["size"] = (page.image.width, page.image.height)
+            return OCRResult(text="ok", provider_name="fake", model_name="fake-model")
+
+    def _fake_build_ocr_backend(spec: cli_module.OCRBackendSpec) -> _FakeBackend:
+        captured["spec"] = spec
+        return _FakeBackend()
+
+    monkeypatch.setattr(
+        "churro_ocr.cli.build_ocr_backend",
+        _fake_build_ocr_backend,
+    )
+
     result = cli_runner.invoke(
         app,
         [
@@ -56,14 +83,44 @@ def test_transcribe_cli_rejects_unsupported_backend(sample_image_path: Path, cli
             "--image",
             str(sample_image_path),
             "--backend",
-            "unsupported",
+            "openai-compatible",
+            "--model",
+            "local-model",
+            "--base-url",
+            "http://127.0.0.1:8000/v1",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.output.strip() == "ok"
+    spec = captured["spec"]
+    assert isinstance(spec, cli_module.OCRBackendSpec)
+    assert spec.transport is not None
+    assert spec.transport.api_base == "http://127.0.0.1:8000/v1"
+    assert spec.transport.api_key is None
+
+
+@pytest.mark.parametrize("backend", ["unsupported"])
+def test_transcribe_cli_rejects_unsupported_backend(
+    sample_image_path: Path,
+    backend: str,
+    cli_runner,
+) -> None:
+    result = cli_runner.invoke(
+        app,
+        [
+            "transcribe",
+            "--image",
+            str(sample_image_path),
+            "--backend",
+            backend,
             "--model",
             "example/model",
         ],
     )
 
     assert result.exit_code != 0
-    assert "Unsupported backend: unsupported" in result.output
+    assert f"Unsupported backend: {backend}" in result.output
 
 
 def test_transcribe_cli_echoes_text_without_output(
