@@ -23,6 +23,8 @@ It works with all major OCR providers and vision-language models, and provides f
 
 ## Quick Try
 
+Python 3.12+ and `uv` are required.
+
 ```bash
 uv tool install churro-ocr
 churro-ocr install hf
