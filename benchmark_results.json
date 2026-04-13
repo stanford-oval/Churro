@@ -402,7 +402,7 @@
     "modelName": "Skywork R1V3",
     "modelId": "Skywork/Skywork-R1V3-38B",
     "modelUrl": "https://huggingface.co/Skywork/Skywork-R1V3-38B",
-    "iconPath": null,
+    "iconPath": "_static/img/skywork-logo.png",
     "printed": 42.4283,
     "handwritten": 25.619,
     "total": 33.3771
@@ -429,7 +429,7 @@
     "modelName": "R",
     "modelId": "YannQi/R-4B",
     "modelUrl": "https://huggingface.co/YannQi/R-4B",
-    "iconPath": null,
+    "iconPath": "_static/img/r4b-logo.png",
     "printed": 32.6874,
     "handwritten": 21.735,
     "total": 26.79
