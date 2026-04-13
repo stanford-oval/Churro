@@ -97,6 +97,24 @@ def test_prepare_messages_from_conversation_converts_images_and_preserves_unknow
     ]
 
 
+def test_is_retryable_api_error_accepts_builtin_connection_error() -> None:
+    assert retry_module.is_retryable_api_error(ConnectionError("Connection lost"))
+
+
+def test_is_retryable_api_error_accepts_aiohttp_client_oserror() -> None:
+    client_oserror_type = type(
+        "ClientOSError",
+        (OSError,),
+        {"__module__": "aiohttp.client_exceptions"},
+    )
+
+    assert retry_module.is_retryable_api_error(client_oserror_type("Broken pipe"))
+
+
+def test_is_retryable_api_error_rejects_generic_oserror() -> None:
+    assert not retry_module.is_retryable_api_error(OSError("not retryable"))
+
+
 def test_render_ocr_prompt_supports_transformers_v5_chat_template_contract() -> None:
     captured: dict[str, object] = {}
 

@@ -19,14 +19,19 @@ RETRYABLE_EXCEPTION_CLASS_NAMES = frozenset(
     {
         "APIConnectionError",
         "APITimeoutError",
+        "ClientConnectionError",
+        "ClientConnectorError",
+        "ClientOSError",
         "ConnectError",
         "ConnectTimeout",
+        "ConnectionError",
         "PoolTimeout",
         "RateLimitError",
         "ReadTimeout",
         "RemoteProtocolError",
         "ServiceRequestError",
         "ServiceResponseError",
+        "ServerDisconnectedError",
         "WriteTimeout",
     }
 )
@@ -110,6 +115,8 @@ def compute_retry_delay_seconds(
 def is_retryable_api_error(exc: BaseException) -> bool:
     """Return whether a provider exception should be retried."""
     if isinstance(exc, TimeoutError):
+        return True
+    if isinstance(exc, ConnectionError):
         return True
 
     status_code = get_error_status_code(exc)
