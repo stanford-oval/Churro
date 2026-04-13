@@ -2,26 +2,35 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from PIL import Image
+from typing import TYPE_CHECKING
 
 from churro_ocr._internal.install import install_command_hint
 from churro_ocr.errors import ConfigurationError
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from PIL import Image
+
+
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
+
 
 def rasterize_pdf(path: str | Path, *, dpi: int = 300) -> list[Image.Image]:
     """Rasterize a PDF into PIL images."""
+    from pathlib import Path
+
     try:
         import pypdfium2
     except ImportError as exc:  # pragma: no cover - depends on optional extra
-        raise ConfigurationError(
-            f"PDF support requires the `pdf` runtime. {install_command_hint('pdf')}"
-        ) from exc
+        message = f"PDF support requires the `pdf` runtime. {install_command_hint('pdf')}"
+        raise _configuration_error(message) from exc
 
     resolved = Path(path)
     if not resolved.exists():
-        raise ConfigurationError(f"PDF path does not exist: {resolved}")
+        message = f"PDF path does not exist: {resolved}"
+        raise _configuration_error(message)
 
     images: list[Image.Image] = []
     scale = max(dpi, 1) / 72.0

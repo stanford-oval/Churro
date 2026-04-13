@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import json
 from base64 import b64encode
-from collections.abc import Callable
-from threading import Lock
+from typing import TYPE_CHECKING
 
 from PIL import Image
 
 from churro_ocr._internal.image import image_to_base64
 from churro_ocr._internal.logging import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from threading import Lock
 
 _IMAGE_PREVIEW_CHARS = 96
 

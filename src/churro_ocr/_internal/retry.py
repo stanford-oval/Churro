@@ -43,6 +43,10 @@ retry_sleep = asyncio.sleep
 type RetryPredicate = Callable[[BaseException], bool]
 
 
+def _assertion_error(message: str) -> AssertionError:
+    return AssertionError(message)
+
+
 def _coerce_status_code(value: object) -> int | None:
     if isinstance(value, int):
         return value
@@ -229,7 +233,8 @@ async def retry_api_call[T](
         with attempt:
             return await fn()
 
-    raise AssertionError("AsyncRetrying exited without returning or raising.")
+    message = "AsyncRetrying exited without returning or raising."
+    raise _assertion_error(message)
 
 
 __all__ = [

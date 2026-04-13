@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from PIL import Image
 
@@ -13,6 +15,9 @@ from churro_ocr.page_detection import (
     PageDetector,
 )
 
+if TYPE_CHECKING:
+    from tests._types import WriteImageFile
+
 
 class _MetadataEchoOCRBackend(OCRBackend):
     async def ocr(self, page: DocumentPage) -> OCRResult:
@@ -22,6 +27,14 @@ class _MetadataEchoOCRBackend(OCRBackend):
             model_name="echo-model",
             metadata=dict(page.metadata),
         )
+
+
+def _fake_rasterize_pdf(_path: str, *, dpi: int) -> list[Image.Image]:
+    assert dpi == 144
+    return [
+        Image.new("RGB", (10, 10), color="white"),
+        Image.new("RGB", (10, 10), color="white"),
+    ]
 
 
 def test_document_page_properties_and_with_ocr() -> None:
@@ -128,10 +141,7 @@ async def test_document_page_detector_detect_pdf_async_preserves_source_indexes(
 ) -> None:
     monkeypatch.setattr(
         "churro_ocr.page_detection.rasterize_pdf",
-        lambda path, *, dpi: [
-            Image.new("RGB", (10, 10), color="white"),
-            Image.new("RGB", (12, 8), color="white"),
-        ],
+        _fake_rasterize_pdf,
     )
 
     result = await DocumentPageDetector().detect_pdf("sample.pdf", dpi=144, trim_margin=0)
@@ -161,7 +171,9 @@ def test_ocr_client_ocr_image_propagates_metadata_and_indexes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ocr_client_aocr_image_from_path_propagates_metadata_and_indexes(write_image_file) -> None:
+async def test_ocr_client_aocr_image_from_path_propagates_metadata_and_indexes(
+    write_image_file: WriteImageFile,
+) -> None:
     image_path = write_image_file(size=(9, 7))
     page = await OCRClient(_MetadataEchoOCRBackend()).aocr_image(
         image_path=image_path,

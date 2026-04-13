@@ -24,6 +24,6 @@ __all__ = [
     "OLMOCR_V4_YAML_PROMPT",
     "parse_chandra_response",
     "parse_olmocr_response",
-    "strip_rich_ocr_markup_to_plain_text",
     "strip_ocr_output_tag",
+    "strip_rich_ocr_markup_to_plain_text",
 ]

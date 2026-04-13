@@ -6,7 +6,7 @@ import sys
 from base64 import b64encode
 from threading import Lock
 from types import ModuleType, SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from PIL import Image
@@ -24,15 +24,29 @@ from churro_ocr.providers.hf import _load_hf_causal_runtime, _load_hf_runtime
 from churro_ocr.providers.specs import LiteLLMTransportConfig
 from churro_ocr.templates import HFChatTemplate
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from pathlib import Path
+
+    from tests._types import ImportFailurePatcher
+
+
+def _connection_error(message: str) -> ConnectionError:
+    return ConnectionError(message)
+
+
+def _import_error(message: str) -> ImportError:
+    return ImportError(message)
+
 
 def _make_fake_litellm_module(*, acompletion: object, completion_cost: object | None = None) -> ModuleType:
-    module = cast(Any, ModuleType("litellm"))
+    module = cast("Any", ModuleType("litellm"))
     module.acompletion = acompletion
     module.completion_cost = completion_cost or (lambda **_: None)
     module.turn_off_message_logging = False
     module.success_callback = ["stale"]
     module.failure_callback = ["stale"]
-    module._logging = SimpleNamespace(_logged_requests=["stale"])  # noqa: SLF001
+    module._logging = SimpleNamespace(_logged_requests=["stale"])
     module.drop_params = False
     module.suppress_debug_info = False
     module.set_verbose = True
@@ -41,7 +55,7 @@ def _make_fake_litellm_module(*, acompletion: object, completion_cost: object | 
     return module
 
 
-def test_load_image_rejects_missing_path(tmp_path) -> None:
+def test_load_image_rejects_missing_path(tmp_path: Path) -> None:
     missing = tmp_path / "missing.png"
 
     with pytest.raises(ConfigurationError, match="Image path does not exist"):
@@ -253,12 +267,14 @@ def test_ensure_initialized_wraps_logging_worker_when_present(monkeypatch: pytes
     assert fake_module.failure_callback == []
 
 
-def test_configure_disk_cache_enables_and_updates_cache(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_configure_disk_cache_enables_and_updates_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     fake_module = _make_fake_litellm_module(acompletion=lambda **_: None)
     enable_calls: list[dict[str, object]] = []
     update_calls: list[dict[str, object]] = []
 
-    caching_module = cast(Any, ModuleType("litellm.caching.caching"))
+    caching_module = cast("Any", ModuleType("litellm.caching.caching"))
     caching_module.enable_cache = lambda **kwargs: enable_calls.append(kwargs)
     caching_module.update_cache = lambda **kwargs: update_calls.append(kwargs)
 
@@ -272,7 +288,7 @@ def test_configure_disk_cache_enables_and_updates_cache(monkeypatch: pytest.Monk
     second_cache_dir = tmp_path / "second"
     litellm_module.configure_disk_cache(disk_cache_dir=first_cache_dir)
 
-    fake_module = cast(Any, fake_module)
+    fake_module = cast("Any", fake_module)
     fake_module.cache = object()
     fake_module.input_callback = ["cache"]
     litellm_module.configure_disk_cache(disk_cache_dir=second_cache_dir)
@@ -358,7 +374,8 @@ async def test_retry_api_call_stops_after_total_time_budget(monkeypatch: pytest.
 
     async def _always_fail() -> object:
         calls["count"] += 1
-        raise ConnectionError("still failing")
+        message = "still failing"
+        raise _connection_error(message)
 
     monkeypatch.setattr(retry_module, "retry_sleep", _fake_sleep)
     monkeypatch.setattr(retry_module, "monotonic", lambda: now["value"])
@@ -393,7 +410,7 @@ async def test_transport_complete_text_uses_stable_provider_timeout_with_total_t
 
     async def _flaky_acompletion(**kwargs: object) -> object:
         calls["acompletion"] += 1
-        attempt_timeouts.append(float(cast(float, kwargs["timeout"])))
+        attempt_timeouts.append(float(cast("float", kwargs["timeout"])))
         if calls["acompletion"] == 1:
             now["value"] = 103.0
             raise FakeLiteLLMError(429)
@@ -403,7 +420,7 @@ async def test_transport_complete_text_uses_stable_provider_timeout_with_total_t
         )
 
     async def _fake_retry_api_call(
-        fn: Any,
+        fn: Callable[[], Awaitable[object]],
         *,
         operation_name: str,
         context: str | None = None,
@@ -445,38 +462,6 @@ async def test_transport_complete_text_uses_stable_provider_timeout_with_total_t
 
 
 @pytest.mark.asyncio
-async def test_close_litellm_async_clients_closes_cached_async_clients(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    closed: list[str] = []
-
-    class FakeAsyncOpenAI:
-        async def close(self) -> None:
-            closed.append("client")
-
-    class FakeAsyncHTTPClient:
-        async def aclose(self) -> None:
-            closed.append("http")
-
-    fake_module = _make_fake_litellm_module(acompletion=lambda **_: None)
-    fake_litellm_module = cast(Any, fake_module)
-    fake_litellm_module.in_memory_llm_clients_cache = SimpleNamespace(
-        cache_dict={
-            "openai": FakeAsyncOpenAI(),
-            "wrapper": SimpleNamespace(client=FakeAsyncHTTPClient()),
-        }
-    )
-    fake_litellm_module.aclient_session = FakeAsyncHTTPClient()
-    monkeypatch.setitem(sys.modules, "litellm", fake_module)
-
-    await litellm_module.close_litellm_async_clients()
-
-    assert closed == ["client", "http", "http"]
-    assert fake_litellm_module.in_memory_llm_clients_cache.cache_dict == {}
-    assert fake_litellm_module.aclient_session is None
-
-
-@pytest.mark.asyncio
 async def test_transport_complete_text_enforces_wall_clock_timeout_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -484,7 +469,7 @@ async def test_transport_complete_text_enforces_wall_clock_timeout_budget(
 
     async def _hanging_acompletion(**kwargs: object) -> object:
         calls["acompletion"] += 1
-        await asyncio.sleep(float(cast(float, kwargs["timeout"])) * 10)
+        await asyncio.sleep(float(cast("float", kwargs["timeout"])) * 10)
         return SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="late"))],
             _hidden_params={},
@@ -504,8 +489,39 @@ async def test_transport_complete_text_enforces_wall_clock_timeout_budget(
             messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
             timeout_seconds=0.01,
         )
-
     assert calls == {"acompletion": 1}
+
+
+@pytest.mark.asyncio
+async def test_close_litellm_async_clients_closes_cached_async_clients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed: list[str] = []
+
+    class FakeAsyncOpenAI:
+        async def close(self) -> None:
+            closed.append("client")
+
+    class FakeAsyncHTTPClient:
+        async def aclose(self) -> None:
+            closed.append("http")
+
+    fake_module = _make_fake_litellm_module(acompletion=lambda **_: None)
+    fake_litellm_module = cast("Any", fake_module)
+    fake_litellm_module.in_memory_llm_clients_cache = SimpleNamespace(
+        cache_dict={
+            "openai": FakeAsyncOpenAI(),
+            "wrapper": SimpleNamespace(client=FakeAsyncHTTPClient()),
+        }
+    )
+    fake_litellm_module.aclient_session = FakeAsyncHTTPClient()
+    monkeypatch.setitem(sys.modules, "litellm", fake_module)
+
+    await litellm_module.close_litellm_async_clients()
+
+    assert closed == ["client", "http", "http"]
+    assert fake_litellm_module.in_memory_llm_clients_cache.cache_dict == {}
+    assert fake_litellm_module.aclient_session is None
 
 
 @pytest.mark.asyncio
@@ -652,17 +668,18 @@ def test_log_prompt_payload_once_sanitizes_nested_payloads(monkeypatch: pytest.M
     ],
 )
 def test_optional_dependency_loaders_raise_configuration_error(
-    loader: Any,
+    loader: Callable[[], object],
     dependency_name: str,
     message: str,
-    patch_import_failure,
+    patch_import_failure: ImportFailurePatcher,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     if dependency_name == "torch":
 
         def _fake_import_module(name: str) -> object:
             if name == "torch":
-                raise ImportError("missing torch")
+                error_message = "missing torch"
+                raise _import_error(error_message)
             return __import__(name)
 
         monkeypatch.setattr("churro_ocr.providers.hf.import_module", _fake_import_module)
