@@ -5,8 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from PIL import Image
 
@@ -49,15 +48,16 @@ from churro_ocr.templates import (
     OCRConversation,
     OCRPromptTemplateLike,
 )
+from churro_ocr.types import MetadataDict
 
 if TYPE_CHECKING:
-    pass
+    from pathlib import Path
 
 
 OCRProvider = Literal["litellm", "openai-compatible", "azure", "mistral", "hf"]
 MistralOCRModel = Literal["mistral-ocr-2505", "mistral-ocr-2512"]
 ImagePreprocessor = Callable[[Image.Image], Image.Image]
-TextPostprocessorResult = str | tuple[str, dict[str, Any]]
+TextPostprocessorResult = str | tuple[str, MetadataDict]
 TextPostprocessor = Callable[[str], TextPostprocessorResult]
 VisionInputBuilder = Callable[[OCRConversation], object]
 DEFAULT_OCR_MAX_TOKENS = 25_000
