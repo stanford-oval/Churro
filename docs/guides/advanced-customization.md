@@ -47,6 +47,7 @@ Use the [templates API](../api/templates.md) for exact signatures.
 | `DEEPSEEK_OCR_2_OCR_TEMPLATE` | Built-in template for `deepseek-ai/DeepSeek-OCR-2`. |
 | `DOTS_OCR_1_5_OCR_TEMPLATE` | Built-in template for `kristaller486/dots.ocr-1.5`. |
 | `DOTS_MOCR_OCR_TEMPLATE` | Built-in template for `rednote-hilab/dots.mocr`. |
+| `INFINITY_PARSER_7B_OCR_TEMPLATE` | Built-in markdown-conversion template for `infly/Infinity-Parser-7B`. |
 | `MINERU2_5_2509_1_2B_OCR_TEMPLATE` | Built-in OCR template for `opendatalab/MinerU2.5-2509-1.2B`. |
 | `MINERU2_5_2509_1_2B_LAYOUT_TEMPLATE` | MinerU2.5 layout-detection prompt template used by the built-in two-step backends. |
 | `MINERU2_5_2509_1_2B_TABLE_TEMPLATE` | MinerU2.5 table-recognition prompt template used for block extraction. |

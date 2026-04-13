@@ -17,6 +17,7 @@ from churro_ocr.prompts import (
     parse_chandra_response,
     parse_olmocr_response,
     strip_ocr_output_tag,
+    strip_rich_ocr_markup_to_plain_text,
 )
 from churro_ocr.templates import (
     CHANDRA_OCR_2_MODEL_ID,
@@ -31,6 +32,10 @@ from churro_ocr.templates import (
     DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    INFINITY_PARSER_7B_MODEL_ID,
+    INFINITY_PARSER_7B_OCR_PROMPT,
+    INFINITY_PARSER_7B_OCR_TEMPLATE,
+    INFINITY_PARSER_7B_SYSTEM_PROMPT,
     LFM2_5_VL_1_6B_MODEL_ID,
     LFM2_5_VL_1_6B_OCR_TEMPLATE,
     MINERU2_5_2509_1_2B_MODEL_ID,
@@ -58,8 +63,11 @@ VisionInputBuilder = Callable[[OCRConversation], object]
 DEFAULT_OCR_MAX_TOKENS = 20_000
 CHANDRA_OCR_MAX_TOKENS = 12_384
 DEEPSEEK_OCR_2_MAX_TOKENS = 8_192
+INFINITY_PARSER_7B_MAX_TOKENS = 8_192
 OLMOCR_MAX_TOKENS = 8_000
 PADDLEOCR_VL_MAX_TOKENS = 4_096
+INFINITY_PARSER_7B_MIN_PIXELS = 256 * 28 * 28
+INFINITY_PARSER_7B_MAX_PIXELS = 2304 * 28 * 28
 CHANDRA_MAX_IMAGE_SIZE = (3_072, 2_048)
 CHANDRA_MIN_IMAGE_SIZE = (1_792, 28)
 CHANDRA_IMAGE_GRID_SIZE = 28
@@ -191,6 +199,21 @@ def lfm2_5_vl_text_postprocessor(text: str) -> str:
     prompt = getattr(LFM2_5_VL_1_6B_OCR_TEMPLATE, "user_prompt", None)
     cleaned = _strip_leading_chat_scaffold(text, prompts=[prompt] if isinstance(prompt, str) else [])
     return strip_ocr_output_tag(cleaned, output_tag=DEFAULT_OCR_OUTPUT_TAG)
+
+
+def infinity_parser_7b_text_postprocessor(text: str) -> TextPostprocessorResult:
+    """Normalize Infinity-Parser markdown output to plain text and preserve raw markdown."""
+    cleaned = _strip_leading_chat_scaffold(
+        text,
+        prompts=[
+            INFINITY_PARSER_7B_OCR_PROMPT,
+            INFINITY_PARSER_7B_SYSTEM_PROMPT,
+        ],
+    )
+    raw_markdown = cleaned.strip()
+    return strip_rich_ocr_markup_to_plain_text(raw_markdown), {
+        "raw_markdown": raw_markdown,
+    }
 
 
 def deepseek_ocr_2_text_postprocessor(text: str) -> str:
@@ -518,6 +541,33 @@ def paddleocr_vl_1_5_profile() -> OCRModelProfile:
     )
 
 
+def infinity_parser_7b_profile() -> OCRModelProfile:
+    """Return the built-in ``infly/Infinity-Parser-7B`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=INFINITY_PARSER_7B_MODEL_ID,
+        template=INFINITY_PARSER_7B_OCR_TEMPLATE,
+        image_preprocessor=ensure_rgb,
+        text_postprocessor=infinity_parser_7b_text_postprocessor,
+        display_name="Infinity-Parser-7B",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": INFINITY_PARSER_7B_MAX_TOKENS,
+                "temperature": 0.0,
+                "top_p": 0.95,
+            }
+        ),
+        huggingface=HuggingFaceOptions(
+            processor_kwargs={
+                "min_pixels": INFINITY_PARSER_7B_MIN_PIXELS,
+                "max_pixels": INFINITY_PARSER_7B_MAX_PIXELS,
+            },
+            generation_kwargs={
+                "max_new_tokens": 4_096,
+            },
+        ),
+    )
+
+
 def mineru2_5_2509_1_2b_profile() -> OCRModelProfile:
     """Return the built-in ``opendatalab/MinerU2.5-2509-1.2B`` OCR profile."""
     return OCRModelProfile(
@@ -599,6 +649,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
     deepseek_profile = deepseek_ocr_2_profile()
     dots_mocr = dots_mocr_profile()
     dots_profile = dots_ocr_1_5_profile()
+    infinity_parser_profile = infinity_parser_7b_profile()
     lfm2_5_vl_profile = lfm2_5_vl_1_6b_profile()
     mineru2_5_profile = mineru2_5_2509_1_2b_profile()
     olmocr_profile = olmocr_2_7b_1025_profile()
@@ -611,6 +662,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
         deepseek_profile.profile_name: deepseek_profile,
         dots_mocr.profile_name: dots_mocr,
         dots_profile.profile_name: dots_profile,
+        infinity_parser_profile.profile_name: infinity_parser_profile,
         lfm2_5_vl_profile.profile_name: lfm2_5_vl_profile,
         mineru2_5_profile.profile_name: mineru2_5_profile,
         olmocr_profile.profile_name: olmocr_profile,
@@ -658,6 +710,8 @@ __all__ = [
     "default_ocr_profile",
     "default_ocr_text_postprocessor",
     "HuggingFaceOptions",
+    "infinity_parser_7b_profile",
+    "infinity_parser_7b_text_postprocessor",
     "identity_text_postprocessor",
     "lfm2_5_vl_text_postprocessor",
     "lfm2_5_vl_1_6b_profile",

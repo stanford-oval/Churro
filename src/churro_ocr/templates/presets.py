@@ -15,6 +15,7 @@ CHANDRA_OCR_2_MODEL_ID = "datalab-to/chandra-ocr-2"
 DEEPSEEK_OCR_2_MODEL_ID = "deepseek-ai/DeepSeek-OCR-2"
 DOTS_OCR_1_5_MODEL_ID = "kristaller486/dots.ocr-1.5"
 DOTS_MOCR_MODEL_ID = "rednote-hilab/dots.mocr"
+INFINITY_PARSER_7B_MODEL_ID = "infly/Infinity-Parser-7B"
 MINERU2_5_2509_1_2B_MODEL_ID = "opendatalab/MinerU2.5-2509-1.2B"
 PADDLEOCR_VL_1_5_MODEL_ID = "PaddlePaddle/PaddleOCR-VL-1.5"
 OLMOCR_2_7B_1025_MODEL_ID = "allenai/olmOCR-2-7B-1025"
@@ -47,6 +48,21 @@ DOTS_MOCR_OCR_PROMPT = DOTS_OCR_1_5_OCR_PROMPT
 DOTS_MOCR_OCR_TEMPLATE = HFChatTemplate(
     system_message=None,
     user_prompt=DOTS_MOCR_OCR_PROMPT,
+)
+INFINITY_PARSER_7B_SYSTEM_PROMPT = "You are a helpful assistant."
+INFINITY_PARSER_7B_OCR_PROMPT = (
+    "Convert this document page to Markdown.\n"
+    "- Transcribe all visible text accurately without guessing.\n"
+    "- Preserve the reading order and the document structure, including headings, paragraphs, and lists.\n"
+    "- Convert mathematical expressions to LaTeX, using \\(...\\) for inline math and "
+    "\\[...\\] for display math.\n"
+    "- Convert tables to HTML wrapped in <table>...</table>.\n"
+    "- Ignore figures and other purely graphical content instead of describing them.\n"
+    "- Return only the converted Markdown with no extra commentary."
+)
+INFINITY_PARSER_7B_OCR_TEMPLATE = HFChatTemplate(
+    system_message=INFINITY_PARSER_7B_SYSTEM_PROMPT,
+    user_prompt=INFINITY_PARSER_7B_OCR_PROMPT,
 )
 MINERU2_5_2509_1_2B_SYSTEM_PROMPT = "You are a helpful assistant."
 MINERU2_5_2509_1_2B_LAYOUT_PROMPT = "\nLayout Detection:"
@@ -105,6 +121,10 @@ __all__ = [
     "DOTS_OCR_1_5_MODEL_ID",
     "DOTS_OCR_1_5_OCR_PROMPT",
     "DOTS_OCR_1_5_OCR_TEMPLATE",
+    "INFINITY_PARSER_7B_MODEL_ID",
+    "INFINITY_PARSER_7B_OCR_PROMPT",
+    "INFINITY_PARSER_7B_OCR_TEMPLATE",
+    "INFINITY_PARSER_7B_SYSTEM_PROMPT",
     "MINERU2_5_2509_1_2B_FORMULA_PROMPT",
     "MINERU2_5_2509_1_2B_FORMULA_TEMPLATE",
     "MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT",

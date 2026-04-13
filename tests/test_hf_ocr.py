@@ -39,6 +39,7 @@ from churro_ocr.providers.hf import (
 from churro_ocr.providers.specs import (
     DEFAULT_OCR_MAX_TOKENS,
     deepseek_ocr_2_text_postprocessor,
+    infinity_parser_7b_text_postprocessor,
     lfm2_5_vl_text_postprocessor,
 )
 from churro_ocr.templates import (
@@ -54,6 +55,10 @@ from churro_ocr.templates import (
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_PROMPT,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    INFINITY_PARSER_7B_MODEL_ID,
+    INFINITY_PARSER_7B_OCR_PROMPT,
+    INFINITY_PARSER_7B_OCR_TEMPLATE,
+    INFINITY_PARSER_7B_SYSTEM_PROMPT,
     LFM2_5_VL_1_6B_MODEL_ID,
     LFM2_5_VL_1_6B_OCR_TEMPLATE,
     MINERU2_5_2509_1_2B_FORMULA_PROMPT,
@@ -122,6 +127,18 @@ def test_deepseek_ocr_2_template_builds_image_before_prompt() -> None:
     assert conversation[0]["role"] == "user"
     assert conversation[0]["content"][0]["type"] == "image"
     assert conversation[0]["content"][1]["text"] == DEEPSEEK_OCR_2_OCR_PROMPT
+
+
+def test_infinity_parser_template_matches_documented_prompt_shape() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = INFINITY_PARSER_7B_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "system"
+    assert conversation[0]["content"][0]["text"] == INFINITY_PARSER_7B_SYSTEM_PROMPT
+    assert conversation[1]["role"] == "user"
+    assert conversation[1]["content"][0]["type"] == "image"
+    assert conversation[1]["content"][1]["text"] == INFINITY_PARSER_7B_OCR_PROMPT
 
 
 def test_mineru2_5_template_matches_upstream_prompt_shape() -> None:
@@ -260,6 +277,27 @@ def test_lfm25_text_postprocessor_strips_role_only_prefix() -> None:
     assert lfm2_5_vl_text_postprocessor("assistant:\nplain text") == "plain text"
 
 
+def test_infinity_parser_text_postprocessor_strips_prompt_echo_and_preserves_raw_markdown() -> None:
+    processed = infinity_parser_7b_text_postprocessor(
+        f"{INFINITY_PARSER_7B_OCR_PROMPT}\n"
+        "assistant:\n"
+        "# Heading\n\n"
+        "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+        "Paragraph with [note](https://example.test).\n"
+    )
+    assert isinstance(processed, tuple)
+    text, metadata = processed
+
+    assert text == "Heading\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert metadata == {
+        "raw_markdown": (
+            "# Heading\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test)."
+        ),
+    }
+
+
 def test_deepseek_ocr_2_text_postprocessor_strips_prompt_echo_and_stop_token() -> None:
     assert (
         deepseek_ocr_2_text_postprocessor(
@@ -331,6 +369,34 @@ def test_build_ocr_backend_uses_olmocr_profile_defaults_for_hf() -> None:
         "do_sample": True,
     }
     assert backend.image_preprocessor(Image.new("RGB", (5_000, 3_000), color="white")).size == (1_288, 772)
+
+
+def test_build_ocr_backend_uses_infinity_parser_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=INFINITY_PARSER_7B_MODEL_ID,
+            )
+        ),
+    )
+
+    assert type(backend) is HuggingFaceVisionOCRBackend
+    assert backend.template == INFINITY_PARSER_7B_OCR_TEMPLATE
+    assert backend.model_name == "Infinity-Parser-7B"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+    }
+    assert backend.processor_kwargs == {
+        "min_pixels": 200_704,
+        "max_pixels": 1_806_336,
+    }
+    assert backend.trust_remote_code is False
+    assert backend.model_kwargs == {}
+    preprocessed_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    assert preprocessed_image.size == (32, 16)
+    assert preprocessed_image.mode == "RGB"
 
 
 def test_build_ocr_backend_uses_lfm25_profile_defaults_for_hf() -> None:

@@ -59,7 +59,9 @@ backend = build_ocr_backend(
 )
 ```
 
-Built-in model-specific profiles are resolved automatically for known models such as `stanford-oval/churro-3B`, `datalab-to/chandra-ocr-2`, `deepseek-ai/DeepSeek-OCR-2`, `kristaller486/dots.ocr-1.5`, `rednote-hilab/dots.mocr`, `opendatalab/MinerU2.5-2509-1.2B`, `PaddlePaddle/PaddleOCR-VL-1.5`, `LiquidAI/LFM2.5-VL-1.6B`, and the supported `olmOCR` checkpoints.
+Built-in model-specific profiles are resolved automatically for known models such as `stanford-oval/churro-3B`, `datalab-to/chandra-ocr-2`, `deepseek-ai/DeepSeek-OCR-2`, `kristaller486/dots.ocr-1.5`, `rednote-hilab/dots.mocr`, `infly/Infinity-Parser-7B`, `opendatalab/MinerU2.5-2509-1.2B`, `PaddlePaddle/PaddleOCR-VL-1.5`, `LiquidAI/LFM2.5-VL-1.6B`, and the supported `olmOCR` checkpoints.
+
+For `infly/Infinity-Parser-7B`, the built-in `hf` and `openai-compatible` backends use the documented markdown-conversion prompt and treat the response as markdown or embedded HTML. The OCR result preserves the raw markdown in metadata, and repo-local benchmark evaluation normalizes that markdown or HTML back to plain text before metrics are computed.
 
 For `opendatalab/MinerU2.5-2509-1.2B`, the built-in `hf` and `openai-compatible` backends both run the model's two-step layout-plus-block pipeline and return markdown with embedded HTML tables when needed. Repo-local benchmark evaluation normalizes that markdown or HTML back to plain text before metrics are computed.
 
