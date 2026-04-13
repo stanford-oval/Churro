@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
 from contextlib import suppress
@@ -161,7 +162,7 @@ class LiteLLMTransport:
         *,
         model: str,
         messages: list[dict[str, Any]],
-        timeout_seconds: int = 600,
+        timeout_seconds: float = 600,
         output_json: bool = False,
         allow_empty: bool = False,
     ) -> str:
@@ -196,7 +197,10 @@ class LiteLLMTransport:
                     f"LiteLLM request exceeded the total timeout of {timeout_seconds} seconds."
                 )
             attempt_kwargs["timeout"] = remaining_timeout_seconds
-            return await acompletion(**attempt_kwargs)
+            return await asyncio.wait_for(
+                acompletion(**attempt_kwargs),
+                timeout=remaining_timeout_seconds,
+            )
 
         try:
             response = await retry_api_call(
@@ -351,7 +355,7 @@ async def complete_text(
     api_base: str | None = None,
     api_key: str | None = None,
     api_version: str | None = None,
-    timeout_seconds: int = 600,
+    timeout_seconds: float = 600,
     output_json: bool = False,
     allow_empty: bool = False,
     completion_kwargs: dict[str, object] | None = None,

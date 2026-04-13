@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import sys
 from base64 import b64encode
@@ -441,6 +442,38 @@ async def test_transport_complete_text_uses_remaining_total_timeout_budget(
         "max_attempts": retry_module.DEFAULT_MAX_ATTEMPTS,
         "max_total_seconds": 10.0,
     }
+
+
+@pytest.mark.asyncio
+async def test_transport_complete_text_enforces_wall_clock_timeout_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"acompletion": 0}
+
+    async def _hanging_acompletion(**kwargs: object) -> object:
+        calls["acompletion"] += 1
+        await asyncio.sleep(float(cast(float, kwargs["timeout"])) * 10)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="late"))],
+            _hidden_params={},
+        )
+
+    fake_module = _make_fake_litellm_module(acompletion=_hanging_acompletion)
+    monkeypatch.setitem(sys.modules, "litellm", fake_module)
+    monkeypatch.setattr(litellm_module, "_INITIALIZED", False)
+
+    transport = LiteLLMTransport()
+    with pytest.raises(
+        ProviderError,
+        match="LiteLLM request failed for model 'example/model':",
+    ):
+        await transport.complete_text(
+            model="example/model",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+            timeout_seconds=0.01,
+        )
+
+    assert calls == {"acompletion": 1}
 
 
 @pytest.mark.asyncio

@@ -1109,3 +1109,130 @@ async def test_predict_texts_logs_first_submitted_output_once_for_non_batch_back
         {"text": "page-2", "metadata": {"page_width": 2}},
     ]
     assert logged_messages == ["First benchmark OCR output for backend=azure model=<default>:\npage-3"]
+
+
+@pytest.mark.asyncio
+async def test_predict_texts_continues_after_non_batch_page_failure(monkeypatch) -> None:
+    dataset: list[BenchmarkDatasetExample] = [
+        _benchmark_example("0", size=(3, 3), transcription="alpha"),
+        _benchmark_example("1", size=(1, 1), transcription="beta"),
+        _benchmark_example("2", size=(2, 2), transcription="gamma"),
+    ]
+    logged_messages: list[str] = []
+
+    class FakeLogger:
+        def info(self, _message: str, *args: object) -> None:  # noqa: ANN001
+            return None
+
+        def exception(self, message: str, *args: object) -> None:
+            logged_messages.append(message % args if args else message)
+
+    class FakeOCRBackend:
+        async def ocr(self, page):  # noqa: ANN001
+            if page.width == 1:
+                raise RuntimeError("timed out")
+            return OCRResult(
+                text=f"page-{page.width}",
+                provider_name="fake",
+                model_name="fake-model",
+                metadata={"page_width": page.width},
+            )
+
+    monkeypatch.setattr(benchmark, "logger", FakeLogger())
+    monkeypatch.setattr(benchmark, "_build_ocr_backend", lambda _: FakeOCRBackend())
+
+    options = benchmark.BenchmarkOptions(
+        backend="azure",
+        dataset_split="dev",
+        endpoint="https://example.invalid",
+        api_key="secret",
+        max_concurrency=2,
+    )
+
+    evaluation_examples, predictions = await benchmark._predict_texts(
+        dataset,
+        options,
+        total_pages=3,
+    )
+
+    assert evaluation_examples == [benchmark._build_evaluation_example(example) for example in dataset]
+    assert predictions == [
+        {"text": "page-3", "metadata": {"page_width": 3}},
+        {
+            "text": "",
+            "metadata": {"benchmark_error": {"type": "RuntimeError", "message": "timed out"}},
+        },
+        {"text": "page-2", "metadata": {"page_width": 2}},
+    ]
+    assert logged_messages == [
+        "Benchmark OCR failed for example_id=1 dataset_id=dataset-1 backend=azure model=<default>; "
+        "treating prediction as empty."
+    ]
+
+
+@pytest.mark.asyncio
+async def test_predict_texts_continues_after_batch_failure(monkeypatch) -> None:
+    dataset: list[BenchmarkDatasetExample] = [
+        _benchmark_example("0", size=(3, 3), transcription="alpha"),
+        _benchmark_example("1", size=(1, 1), transcription="beta"),
+        _benchmark_example("2", size=(2, 2), transcription="gamma"),
+    ]
+    logged_messages: list[str] = []
+    call_count = {"ocr_batch": 0}
+
+    class FakeLogger:
+        def info(self, _message: str, *args: object) -> None:  # noqa: ANN001
+            return None
+
+        def exception(self, message: str, *args: object) -> None:
+            logged_messages.append(message % args if args else message)
+
+    class FakeBatchBackend:
+        async def ocr_batch(self, pages):  # noqa: ANN001
+            call_count["ocr_batch"] += 1
+            if call_count["ocr_batch"] == 1:
+                raise RuntimeError("batch timed out")
+            return [
+                OCRResult(
+                    text=f"page-{page.width}",
+                    provider_name="fake",
+                    model_name="fake-model",
+                    metadata={"page_width": page.width},
+                )
+                for page in pages
+            ]
+
+    monkeypatch.setattr(benchmark, "logger", FakeLogger())
+    monkeypatch.setattr(benchmark, "_build_ocr_backend", lambda _: FakeBatchBackend())
+
+    options = benchmark.BenchmarkOptions(
+        backend="hf",
+        dataset_split="dev",
+        model="kristaller486/dots.ocr-1.5",
+        max_concurrency=2,
+    )
+
+    evaluation_examples, predictions = await benchmark._predict_texts(
+        dataset,
+        options,
+        total_pages=3,
+    )
+
+    assert evaluation_examples == [benchmark._build_evaluation_example(example) for example in dataset]
+    assert predictions == [
+        {
+            "text": "",
+            "metadata": {"benchmark_error": {"type": "RuntimeError", "message": "batch timed out"}},
+        },
+        {
+            "text": "",
+            "metadata": {"benchmark_error": {"type": "RuntimeError", "message": "batch timed out"}},
+        },
+        {"text": "page-2", "metadata": {"page_width": 2}},
+    ]
+    assert logged_messages == [
+        "Benchmark OCR failed for example_id=0 dataset_id=dataset-0 backend=hf "
+        "model=kristaller486/dots.ocr-1.5; treating prediction as empty.",
+        "Benchmark OCR failed for example_id=1 dataset_id=dataset-1 backend=hf "
+        "model=kristaller486/dots.ocr-1.5; treating prediction as empty.",
+    ]

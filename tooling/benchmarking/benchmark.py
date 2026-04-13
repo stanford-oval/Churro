@@ -315,6 +315,41 @@ def _log_first_benchmark_output(*, options: BenchmarkOptions, text: str) -> None
     )
 
 
+def _failure_metadata(exc: BaseException) -> dict[str, Any]:
+    message = str(exc).strip()
+    metadata: dict[str, Any] = {
+        "benchmark_error": {
+            "type": type(exc).__name__,
+        }
+    }
+    if message:
+        metadata["benchmark_error"]["message"] = message
+    return metadata
+
+
+def _empty_prediction_for_failure(exc: BaseException) -> BenchmarkPrediction:
+    return {
+        "text": "",
+        "metadata": _failure_metadata(exc),
+    }
+
+
+def _log_prediction_failure(
+    *,
+    options: BenchmarkOptions,
+    example: BenchmarkDatasetExample,
+    exc: BaseException,
+) -> None:
+    logger.exception(
+        "Benchmark OCR failed for example_id=%s dataset_id=%s backend=%s model=%s; "
+        "treating prediction as empty.",
+        example["example_id"],
+        example["dataset_id"],
+        options.backend,
+        options.model or "<default>",
+    )
+
+
 async def _predict_texts(
     dataset: Iterable[BenchmarkDatasetExample],
     options: BenchmarkOptions,
@@ -350,35 +385,45 @@ async def _predict_texts(
                     break
 
                 progress.set_postfix(submitted=submitted_pages, in_flight=len(pages), refresh=False)
-                batch_results = await ocr_backend.ocr_batch(pages)
-                assert len(batch_results) == len(pages), (
-                    f"HF OCR batch returned {len(batch_results)} results for {len(pages)} pages."
-                )
-                if not has_logged_first_output and batch_results:
-                    _log_first_benchmark_output(
-                        options=options,
-                        text=batch_results[0].text or "",
+                try:
+                    batch_results = await ocr_backend.ocr_batch(pages)
+                    assert len(batch_results) == len(pages), (
+                        f"HF OCR batch returned {len(batch_results)} results for {len(pages)} pages."
                     )
-                    has_logged_first_output = True
-                predictions.extend(
-                    {
-                        "text": result.text or "",
-                        "metadata": dict(result.metadata),
-                    }
-                    for result in batch_results
-                )
-                progress.update(len(batch_results))
+                    if not has_logged_first_output and batch_results:
+                        _log_first_benchmark_output(
+                            options=options,
+                            text=batch_results[0].text or "",
+                        )
+                        has_logged_first_output = True
+                    predictions.extend(
+                        {
+                            "text": result.text or "",
+                            "metadata": dict(result.metadata),
+                        }
+                        for result in batch_results
+                    )
+                except Exception as exc:
+                    for example in batch_examples:
+                        _log_prediction_failure(options=options, example=example, exc=exc)
+                    predictions.extend(_empty_prediction_for_failure(exc) for _ in pages)
+                progress.update(len(pages))
                 progress.set_postfix(submitted=submitted_pages, in_flight=0, refresh=False)
 
         return evaluation_examples, predictions
 
-    async def _predict(index: int, image: Image.Image) -> tuple[int, BenchmarkPrediction]:
+    async def _predict(index: int, example: BenchmarkDatasetExample) -> tuple[int, BenchmarkPrediction]:
+        image = example["image"]
         page = DocumentPage(page_index=index, source_index=0, image=image)
-        if callable(ocr_backend) and not isinstance(ocr_backend, OCRBackend):
-            result = await ocr_backend(page)
-        else:
-            assert isinstance(ocr_backend, OCRBackend)
-            result = await ocr_backend.ocr(page)
+        try:
+            if callable(ocr_backend) and not isinstance(ocr_backend, OCRBackend):
+                result = await ocr_backend(page)
+            else:
+                assert isinstance(ocr_backend, OCRBackend)
+                result = await ocr_backend.ocr(page)
+        except Exception as exc:
+            _log_prediction_failure(options=options, example=example, exc=exc)
+            return index, _empty_prediction_for_failure(exc)
         return index, {
             "text": result.text or "",
             "metadata": dict(result.metadata),
@@ -424,7 +469,7 @@ async def _predict_texts(
                     assert isinstance(image, Image.Image)
                     evaluation_examples.append(_build_evaluation_example(example))
                     predictions.append({"text": "", "metadata": {}})
-                    pending_tasks.add(asyncio.create_task(_predict(next_index, image)))
+                    pending_tasks.add(asyncio.create_task(_predict(next_index, example)))
                     next_index += 1
                     _update_progress_status(progress)
 
