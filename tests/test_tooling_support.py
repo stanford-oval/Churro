@@ -310,6 +310,7 @@ def test_batch_evaluate_initializes_worker_metrics_for_multi_example(
             return map(func, iterable)
 
     monkeypatch.setattr(evaluate_page_module, "initialize_metrics", fake_initialize_metrics)
+    monkeypatch.setattr(evaluate_page_module, "_should_use_multiprocessing_pool", lambda: True)
     monkeypatch.setattr(evaluate_page_module.multiprocessing, "cpu_count", lambda: 2)
     monkeypatch.setattr(evaluate_page_module.multiprocessing, "Pool", _FakePool)
     monkeypatch.setattr(
@@ -357,6 +358,71 @@ def test_batch_evaluate_initializes_worker_metrics_for_multi_example(
 
     assert captured_initializer is fake_initialize_metrics
     assert init_calls == 2
+    assert aggregate == {"normalized_levenshtein_similarity": 1.0, "is_empty": 0.0}
+    assert [row["example_id"] for row in rows] == ["row-1", "row-2"]
+
+
+def test_batch_evaluate_uses_in_process_path_when_multiprocessing_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    init_calls = 0
+
+    def fake_initialize_metrics() -> None:
+        nonlocal init_calls
+        init_calls += 1
+
+    def _unexpected_pool(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise AssertionError("multiprocessing pool should not be used")
+
+    monkeypatch.setattr(evaluate_page_module, "initialize_metrics", fake_initialize_metrics)
+    monkeypatch.setattr(evaluate_page_module, "_should_use_multiprocessing_pool", lambda: False)
+    monkeypatch.setattr(evaluate_page_module.multiprocessing, "Pool", _unexpected_pool)
+    monkeypatch.setattr(evaluate_page_module, "tqdm", lambda iterable, **_kwargs: iterable)
+    monkeypatch.setattr(
+        evaluate_page_module,
+        "evaluate_page",
+        lambda inputs: cast(
+            "PageEvaluationResult",
+            {
+                "example_id": inputs[0]["example_id"],
+                "normalized_levenshtein_similarity": 1.0,
+                "is_empty": 0.0,
+            },
+        ),
+    )
+
+    aggregate, rows = evaluate_page_module.batch_evaluate(
+        dataset=[
+            cast(
+                "BenchmarkDatasetExample",
+                {
+                    "image": "image",
+                    "cleaned_transcription": "",
+                    "dataset_id": "dataset-1",
+                    "document_type": "print",
+                    "example_id": "row-1",
+                    "main_language": "English",
+                    "main_script": "Latin",
+                },
+            ),
+            cast(
+                "BenchmarkDatasetExample",
+                {
+                    "image": "image",
+                    "cleaned_transcription": "",
+                    "dataset_id": "dataset-2",
+                    "document_type": "print",
+                    "example_id": "row-2",
+                    "main_language": "English",
+                    "main_script": "Latin",
+                },
+            ),
+        ],
+        predicted_texts=["predicted-1", "predicted-2"],
+    )
+
+    assert init_calls == 1
     assert aggregate == {"normalized_levenshtein_similarity": 1.0, "is_empty": 0.0}
     assert [row["example_id"] for row in rows] == ["row-1", "row-2"]
 

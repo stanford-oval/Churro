@@ -207,6 +207,14 @@ def aggregate_results(
     return averaged, results
 
 
+def _should_use_multiprocessing_pool() -> bool:
+    """Use the process pool only when the runtime is already using fork."""
+    try:
+        return multiprocessing.get_start_method() == "fork"
+    except RuntimeError:
+        return False
+
+
 def batch_evaluate(
     dataset: list[EvaluationExample],
     predicted_texts: list[str],
@@ -215,6 +223,16 @@ def batch_evaluate(
     initialize_metrics()
     if len(dataset) <= 1:
         results = [evaluate_page(pair) for pair in zip(dataset, predicted_texts, strict=False)]
+        return aggregate_results(results)
+
+    if not _should_use_multiprocessing_pool():
+        results = list(
+            tqdm(
+                map(evaluate_page, zip(dataset, predicted_texts, strict=False)),
+                total=len(dataset),
+                mininterval=0.5,
+            )
+        )
         return aggregate_results(results)
 
     processes = min(8, max(1, multiprocessing.cpu_count()))
