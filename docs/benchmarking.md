@@ -49,7 +49,7 @@ That means for example `--language Arabic --offset 100 --input-size 50` selects 
 
 ## Example Commands
 
-If you want to benchmark a model using vLLM, run a vLLM server separately and point `--backend openai-compatible` at its OpenAI-compatible endpoint. See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html).
+If you want to benchmark a model using vLLM or llama.cpp, run the server separately and point `--backend openai-compatible` at its OpenAI-compatible endpoint. See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html) or the [official llama.cpp serving docs](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
 
 | Model | Model ID | Backend | Full command |
 | --- | --- | --- | --- |

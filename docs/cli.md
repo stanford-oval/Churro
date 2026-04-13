@@ -79,8 +79,8 @@ churro-ocr transcribe \
   --base-url http://127.0.0.1:8000/v1
 ```
 
-For vLLM, serve the model separately with its OpenAI-compatible server and then use this same `openai-compatible` route.
-See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html).
+For vLLM or llama.cpp, serve the model separately with its OpenAI-compatible server and then use this same `openai-compatible` route.
+See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html) or the [official llama.cpp serving docs](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
 
 ## `extract-pages` Examples
 

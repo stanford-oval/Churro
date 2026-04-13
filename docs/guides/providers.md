@@ -41,7 +41,7 @@ Pass `--torch-backend <name>` when you need a specific build, for example `churr
 | local OCR with no API account | `hf` + `stanford-oval/churro-3B` | matches the quickest credential-free onboarding path |
 | hosted OCR | `litellm` + `vertex_ai/gemini-2.5-flash` | easiest hosted path with the standard builder interface |
 | layout-heavy local OCR | `hf` + `datalab-to/chandra-ocr-2` | built-in profile matches Chandra's layout-oriented defaults |
-| higher-throughput local serving | `openai-compatible` + your own OpenAI-style server | good when you already run a served local backend such as vLLM |
+| higher-throughput local serving | `openai-compatible` + your own OpenAI-style server | good when you already run a served local backend such as vLLM or llama.cpp |
 | managed OCR APIs | `azure` or `mistral` | provider-managed OCR without local model weights |
 
 ## Minimal Provider Examples
@@ -94,8 +94,8 @@ backend = build_ocr_backend(
 )
 ```
 
-If you want to use vLLM, serve it separately and point this backend at that server's OpenAI-compatible endpoint.
-See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html).
+If you want to use vLLM or llama.cpp, serve it separately and point this backend at that server's OpenAI-compatible endpoint.
+See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html) or the [official llama.cpp serving docs](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
 
 ### Azure Document Intelligence
 
