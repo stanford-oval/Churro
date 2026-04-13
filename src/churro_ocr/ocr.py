@@ -19,6 +19,14 @@ if TYPE_CHECKING:
     from churro_ocr.types import MetadataDict
 
 
+def _assertion_error(message: str) -> AssertionError:
+    return AssertionError(message)
+
+
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
+
+
 @dataclass(slots=True)
 class OCRResult:
     """Provider-agnostic OCR result.
@@ -179,7 +187,8 @@ def _page_from_image_input(
     metadata: MetadataDict | None,
 ) -> DocumentPage:
     if (image is None) == (image_path is None):
-        raise ConfigurationError("OCR image helpers require exactly one of `image` or `image_path`.")
+        message = "OCR image helpers require exactly one of `image` or `image_path`."
+        raise _configuration_error(message)
     if image is not None:
         return DocumentPage.from_image(
             image,
@@ -194,4 +203,5 @@ def _page_from_image_input(
             source_index=source_index,
             metadata=metadata,
         )
-    raise AssertionError("Unreachable exact-one image input guard.")
+    message = "Unreachable exact-one image input guard."
+    raise _assertion_error(message)

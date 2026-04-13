@@ -17,9 +17,11 @@ def _local_name(tag: str) -> str:
 def _remove_tag(xml_content: str, tag_name: str) -> str:
     if f"<{tag_name}" not in xml_content:
         return xml_content
-    xml_content = re.sub(rf"<{tag_name}\b[^>]*>.*?</{tag_name}>", "", xml_content, flags=re.DOTALL)
-    xml_content = re.sub(rf"<{tag_name}\b[^>]*/>", "", xml_content)
-    return xml_content
+    return re.sub(
+        rf"<{tag_name}\b[^>]*/>",
+        "",
+        re.sub(rf"<{tag_name}\b[^>]*>.*?</{tag_name}>", "", xml_content, flags=re.DOTALL),
+    )
 
 
 def extract_actual_text_from_xml(xml_content: str) -> str:

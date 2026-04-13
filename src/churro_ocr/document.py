@@ -22,6 +22,10 @@ if TYPE_CHECKING:
     from churro_ocr.types import MetadataDict
 
 
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
+
+
 @dataclass(slots=True)
 class DocumentOCRResult:
     """Document OCR output across all detected pages.
@@ -84,7 +88,8 @@ class DocumentOCRPipeline:
         :raises ConfigurationError: If ``max_concurrency`` is less than 1.
         """
         if max_concurrency < 1:
-            raise ConfigurationError("DocumentOCRPipeline max_concurrency must be at least 1.")
+            message = "DocumentOCRPipeline max_concurrency must be at least 1."
+            raise _configuration_error(message)
         self._ocr_client = OCRClient(ocr_backend)
         self._page_detector = page_detector or DocumentPageDetector(backend=detection_backend)
         self.max_concurrency = max_concurrency

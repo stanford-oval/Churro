@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from collections.abc import Callable
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from churro_ocr.prompts import strip_rich_ocr_markup_to_plain_text
+
+
+def _missing_dependency_error(message: str) -> ModuleNotFoundError:
+    return ModuleNotFoundError(message)
 
 
 normalize_hamza: Callable[..., str] | None
@@ -19,17 +25,25 @@ strip_tatweel: Callable[..., str] | None
 try:  # pragma: no cover - optional dependency
     from pyarabic.araby import (
         normalize_hamza as _normalize_hamza,
+    )
+    from pyarabic.araby import (
         strip_harakat as _strip_harakat,
+    )
+    from pyarabic.araby import (
         strip_lastharaka as _strip_lastharaka,
+    )
+    from pyarabic.araby import (
         strip_tashkeel as _strip_tashkeel,
+    )
+    from pyarabic.araby import (
         strip_tatweel as _strip_tatweel,
     )
 
-    normalize_hamza = cast(Callable[..., str], _normalize_hamza)
-    strip_harakat = cast(Callable[..., str], _strip_harakat)
-    strip_lastharaka = cast(Callable[..., str], _strip_lastharaka)
-    strip_tashkeel = cast(Callable[..., str], _strip_tashkeel)
-    strip_tatweel = cast(Callable[..., str], _strip_tatweel)
+    normalize_hamza = cast("Callable[..., str]", _normalize_hamza)
+    strip_harakat = cast("Callable[..., str]", _strip_harakat)
+    strip_lastharaka = cast("Callable[..., str]", _strip_lastharaka)
+    strip_tashkeel = cast("Callable[..., str]", _strip_tashkeel)
+    strip_tatweel = cast("Callable[..., str]", _strip_tatweel)
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
     normalize_hamza = None
     strip_harakat = None
@@ -63,9 +77,11 @@ def normalize_characters(text: str, *, keep_long_s: bool = True) -> str:
     if keep_long_s:
         text = text.replace(placeholder, "ſ")
 
-    text = SUBSTITUTION_PATTERN.sub(lambda match: SUBSTITUTIONS[match.group(0)], text)
-    text = re.sub(r"(^|\s)~(?=\w)", r"\1", text)
-    return text
+    return re.sub(
+        r"(^|\s)~(?=\w)",
+        r"\1",
+        SUBSTITUTION_PATTERN.sub(lambda match: SUBSTITUTIONS[match.group(0)], text),
+    )
 
 
 def normalize_text_for_evaluation(text: str, *, normalize_arabic: bool = False) -> str:
@@ -80,14 +96,13 @@ def normalize_text_for_evaluation(text: str, *, normalize_arabic: bool = False) 
             or strip_tatweel is None
             or normalize_hamza is None
         ):
-            raise ModuleNotFoundError(
-                "Arabic normalization requires the optional dependency 'pyarabic'."
-            )
-        strip_tashkeel_fn = cast(Callable[[str], str], strip_tashkeel)
-        strip_harakat_fn = cast(Callable[[str], str], strip_harakat)
-        strip_lastharaka_fn = cast(Callable[[str], str], strip_lastharaka)
-        strip_tatweel_fn = cast(Callable[[str], str], strip_tatweel)
-        normalize_hamza_fn = cast(Callable[[str], str], normalize_hamza)
+            message = "Arabic normalization requires the optional dependency 'pyarabic'."
+            raise _missing_dependency_error(message)
+        strip_tashkeel_fn = cast("Callable[[str], str]", strip_tashkeel)
+        strip_harakat_fn = cast("Callable[[str], str]", strip_harakat)
+        strip_lastharaka_fn = cast("Callable[[str], str]", strip_lastharaka)
+        strip_tatweel_fn = cast("Callable[[str], str]", strip_tatweel)
+        normalize_hamza_fn = cast("Callable[[str], str]", normalize_hamza)
 
         text = strip_tashkeel_fn(text)
         text = strip_harakat_fn(text)
@@ -103,6 +118,4 @@ def normalize_text_for_evaluation(text: str, *, normalize_arabic: bool = False) 
     text = re.sub(r"\s+([.,?!;:])", r"\1", text)
     text = re.sub(r"(\w+)-\s*\n\s*(\w+)", r"\1\2", text)
     text = text.strip("-")
-    text = normalize_characters(text, keep_long_s=False)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    return re.sub(r"\s+", " ", normalize_characters(text, keep_long_s=False)).strip()

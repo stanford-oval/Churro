@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
-from collections.abc import Sequence
 import json
+from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from churro_ocr._internal.logging import logger
 from tooling.evaluation.evaluate_page import batch_evaluate
-from tooling.evaluation.types import (
-    BenchmarkOutputRow,
-    BenchmarkPrediction,
-    EvaluationExample,
-    PageEvaluationResult,
-)
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from tooling.evaluation.types import (
+        BenchmarkOutputRow,
+        BenchmarkPrediction,
+        EvaluationExample,
+        PageEvaluationResult,
+    )
 
 
 def _get_llm_total_cost() -> float:
@@ -70,8 +73,7 @@ def calculate_language_and_type_metrics(
         for document_type, values in type_to_metrics.items()
     }
     averaged_language_type = {
-        key: sum(values) / len(values) if values else 0.0
-        for key, values in language_type_to_metrics.items()
+        key: sum(values) / len(values) if values else 0.0 for key, values in language_type_to_metrics.items()
     }
     return averaged_language, averaged_type, averaged_language_type
 

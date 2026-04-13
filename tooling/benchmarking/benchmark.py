@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from collections.abc import Iterable
-from dataclasses import dataclass
-from pathlib import Path
 import sys
 import threading
+from dataclasses import dataclass
+from pathlib import Path
 from time import time
-from typing import Any
+from typing import TYPE_CHECKING, cast
 
 from PIL import Image
 from tqdm import tqdm
@@ -21,33 +20,37 @@ if _REPO_SRC_PATH_STR in sys.path:
     sys.path.remove(_REPO_SRC_PATH_STR)
 sys.path.insert(0, _REPO_SRC_PATH_STR)
 
-from churro_ocr._internal.litellm import close_litellm_async_clients
-from churro_ocr._internal.logging import logger
-from churro_ocr.errors import ConfigurationError
-from churro_ocr.ocr import BatchOCRBackend, OCRBackend, OCRBackendLike
-from churro_ocr.page_detection import DocumentPage
-from churro_ocr.providers import (
+from churro_ocr._internal.litellm import close_litellm_async_clients  # noqa: E402
+from churro_ocr._internal.logging import logger  # noqa: E402
+from churro_ocr.errors import ConfigurationError  # noqa: E402
+from churro_ocr.ocr import BatchOCRBackend, OCRBackend, OCRBackendLike  # noqa: E402
+from churro_ocr.page_detection import DocumentPage  # noqa: E402
+from churro_ocr.providers import (  # noqa: E402
     AzureDocumentIntelligenceOptions,
-    build_ocr_backend,
     HuggingFaceOptions,
     LiteLLMTransportConfig,
     MistralOptions,
     OCRBackendSpec,
     OpenAICompatibleOptions,
+    build_ocr_backend,
 )
-from churro_ocr.providers.specs import MISTRAL_OCR_MODEL_IDS, validate_mistral_ocr_model
-from tooling.benchmarking.dataset import (
+from churro_ocr.providers.specs import MISTRAL_OCR_MODEL_IDS, validate_mistral_ocr_model  # noqa: E402
+from tooling.benchmarking.dataset import (  # noqa: E402
     DatasetSelection,
     DatasetSubset,
     load_dataset_split,
 )
-from tooling.evaluation.metrics import compute_metrics
-from tooling.evaluation.types import (
-    BenchmarkDatasetExample,
-    BenchmarkPrediction,
-    EvaluationExample,
-    to_evaluation_example,
-)
+from tooling.evaluation.metrics import compute_metrics  # noqa: E402
+from tooling.evaluation.types import to_evaluation_example  # noqa: E402
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from tooling.evaluation.types import (
+        BenchmarkDatasetExample,
+        BenchmarkPrediction,
+        EvaluationExample,
+    )
 
 CHURRO_DATASET_ID = "stanford-oval/churro-dataset"
 VALID_DATASET_SPLITS = {"dev", "test"}
@@ -62,6 +65,13 @@ BENCHMARK_DATASET_COLUMNS = (
     "example_id",
     "main_language",
     "main_script",
+)
+_PREDICTION_FAILURES = (
+    AssertionError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
 )
 
 
@@ -201,8 +211,11 @@ def create_output_prefix(options: BenchmarkOptions) -> str:
     return str(output_dir)
 
 
-def _load_dataset(dataset_id: str, *, split: str) -> Any:
-    return load_dataset_split(dataset_id, split, columns=BENCHMARK_DATASET_COLUMNS)
+def _load_dataset(dataset_id: str, *, split: str) -> Iterable[BenchmarkDatasetExample]:
+    return cast(
+        "Iterable[BenchmarkDatasetExample]",
+        load_dataset_split(dataset_id, split, columns=BENCHMARK_DATASET_COLUMNS),
+    )
 
 
 def _default_litellm_cache_dir() -> Path:
@@ -316,9 +329,9 @@ def _log_first_benchmark_output(*, options: BenchmarkOptions, text: str) -> None
     )
 
 
-def _failure_metadata(exc: BaseException) -> dict[str, Any]:
+def _failure_metadata(exc: BaseException) -> dict[str, object]:
     message = str(exc).strip()
-    metadata: dict[str, Any] = {
+    metadata: dict[str, object] = {
         "benchmark_error": {
             "type": type(exc).__name__,
         }
@@ -341,6 +354,7 @@ def _log_prediction_failure(
     example: BenchmarkDatasetExample,
     exc: BaseException,
 ) -> None:
+    del exc
     logger.exception(
         "Benchmark OCR failed for example_id=%s dataset_id=%s backend=%s model=%s; "
         "treating prediction as empty.",
@@ -404,7 +418,7 @@ async def _predict_texts(
                         }
                         for result in batch_results
                     )
-                except Exception as exc:
+                except _PREDICTION_FAILURES as exc:
                     for example in batch_examples:
                         _log_prediction_failure(options=options, example=example, exc=exc)
                     predictions.extend(_empty_prediction_for_failure(exc) for _ in pages)
@@ -422,7 +436,7 @@ async def _predict_texts(
             else:
                 assert isinstance(ocr_backend, OCRBackend)
                 result = await ocr_backend.ocr(page)
-        except Exception as exc:
+        except _PREDICTION_FAILURES as exc:
             _log_prediction_failure(options=options, example=example, exc=exc)
             return index, _empty_prediction_for_failure(exc)
         return index, {

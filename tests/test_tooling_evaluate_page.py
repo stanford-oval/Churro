@@ -2,23 +2,52 @@ from __future__ import annotations
 
 import importlib
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pytest
 
-from tooling.evaluation.types import EvaluationExample, MetricInputExample
+if TYPE_CHECKING:
+    from tooling.evaluation.types import EvaluationExample, MetricInputExample
 
 evaluate_page_module = importlib.import_module("tooling.evaluation.evaluate_page")
 
 
-def test_evaluate_page_supports_current_example_fields(monkeypatch) -> None:
-    example: EvaluationExample = {
-        "example_id": "ahisto/1069_69",
-        "cleaned_transcription": "<xml>clean</xml>",
-        "main_language": "Czech",
-        "main_script": "Latin",
-        "document_type": "print",
-        "dataset_id": "ahisto",
+def _evaluation_example(
+    example_id: str = "ahisto/1069_69",
+    *,
+    cleaned_transcription: str = "<xml>clean</xml>",
+    main_language: str = "Czech",
+    main_script: str = "Latin",
+    document_type: str = "print",
+    dataset_id: str = "ahisto",
+) -> EvaluationExample:
+    return {
+        "example_id": example_id,
+        "cleaned_transcription": cleaned_transcription,
+        "main_language": main_language,
+        "main_script": main_script,
+        "document_type": document_type,
+        "dataset_id": dataset_id,
     }
+
+
+def _metric_input_example(
+    example_id: str = "ahisto/1069_69",
+    *,
+    cleaned_transcription: str = "gold",
+    main_language: str = "Czech",
+    main_script: str = "Latin",
+) -> MetricInputExample:
+    return {
+        "example_id": example_id,
+        "cleaned_transcription": cleaned_transcription,
+        "main_language": main_language,
+        "main_script": main_script,
+    }
+
+
+def test_evaluate_page_supports_current_example_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    example = _evaluation_example()
 
     monkeypatch.setattr(
         evaluate_page_module,
@@ -37,7 +66,7 @@ def test_evaluate_page_supports_current_example_fields(monkeypatch) -> None:
     assert result["dataset_id"] == "ahisto"
 
 
-def test_calculate_metrics_uses_cleaned_transcription(monkeypatch) -> None:
+def test_calculate_metrics_uses_cleaned_transcription(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, str] = {}
 
     def fake_core(predicted_text: str, gold_text: str, language: str, script: str) -> dict[str, object]:
@@ -49,12 +78,7 @@ def test_calculate_metrics_uses_cleaned_transcription(monkeypatch) -> None:
 
     monkeypatch.setattr(evaluate_page_module, "_compute_text_metrics_core", fake_core)
 
-    example: MetricInputExample = {
-        "example_id": "ahisto/1069_69",
-        "cleaned_transcription": "new",
-        "main_language": "Czech",
-        "main_script": "Latin",
-    }
+    example = _metric_input_example(cleaned_transcription="new")
 
     result = evaluate_page_module.calculate_metrics((example, "pred"))
 
@@ -76,7 +100,7 @@ def test_calculate_metrics_uses_cleaned_transcription(monkeypatch) -> None:
     ],
 )
 def test_calculate_metrics_strips_output_tags_before_normalization(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     predicted_text: str,
     expected: str,
 ) -> None:
@@ -87,19 +111,16 @@ def test_calculate_metrics_strips_output_tags_before_normalization(
         SimpleNamespace(compute=lambda *_args, **_kwargs: {"bleu": 0.0}),
     )
 
-    example: MetricInputExample = {
-        "example_id": "ahisto/1069_69",
-        "cleaned_transcription": "gold",
-        "main_language": "Czech",
-        "main_script": "Latin",
-    }
+    example = _metric_input_example()
 
     result = evaluate_page_module.calculate_metrics((example, predicted_text))
 
     assert result["normalized_predicted_text"] == expected
 
 
-def test_calculate_metrics_from_text_lazily_initializes_bleu_metric(monkeypatch) -> None:
+def test_calculate_metrics_from_text_lazily_initializes_bleu_metric(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     init_calls = 0
     fake_metric = SimpleNamespace(compute=lambda *_args, **_kwargs: {"bleu": 0.25})
 

@@ -19,6 +19,14 @@ if TYPE_CHECKING:
     from churro_ocr.types import BoundingBox, MetadataDict, Polygon
 
 
+def _assertion_error(message: str) -> AssertionError:
+    return AssertionError(message)
+
+
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
+
+
 @dataclass(slots=True)
 class PageCandidate:
     """Intermediate page candidate returned by a page detector.
@@ -168,12 +176,14 @@ class PageDetectionRequest:
             ``image_path`` are provided.
         """
         if (self.image is None) == (self.image_path is None):
-            raise ConfigurationError("PageDetectionRequest requires exactly one of `image` or `image_path`.")
+            message = "PageDetectionRequest requires exactly one of `image` or `image_path`."
+            raise _configuration_error(message)
         if self.image is not None:
             return self.image.copy()
         if self.image_path is not None:
             return load_image(self.image_path)
-        raise AssertionError("Unreachable exact-one image input guard.")
+        message = "Unreachable exact-one image input guard."
+        raise _assertion_error(message)
 
 
 @dataclass(slots=True)

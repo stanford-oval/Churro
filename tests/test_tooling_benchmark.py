@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from datasets import Dataset
@@ -10,7 +9,6 @@ from PIL import Image
 
 from churro_ocr.ocr import OCRResult
 from churro_ocr.providers.hf import HuggingFaceVisionOCRBackend
-from churro_ocr.providers.ocr import LiteLLMVisionOCRBackend
 from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
 from churro_ocr.templates import (
     CHURRO_3B_XML_TEMPLATE,
@@ -22,7 +20,17 @@ from churro_ocr.templates import (
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
 )
 from tooling.benchmarking import benchmark
-from tooling.evaluation.types import BenchmarkDatasetExample
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from pathlib import Path
+
+    from churro_ocr.providers.ocr import LiteLLMVisionOCRBackend
+    from tooling.evaluation.types import BenchmarkDatasetExample
+
+
+def _benchmark_runtime_error(message: str) -> RuntimeError:
+    return RuntimeError(message)
 
 
 def _benchmark_example(
@@ -640,7 +648,7 @@ def test_build_ocr_backend_aligns_hf_and_openai_compatible_templates_for_generic
 
 
 @pytest.mark.asyncio
-async def test_run_executes_pipeline(monkeypatch, tmp_path: Path) -> None:
+async def test_run_executes_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     dataset: list[BenchmarkDatasetExample] = [
         _benchmark_example("0", transcription="first"),
         _benchmark_example(
@@ -659,14 +667,19 @@ async def test_run_executes_pipeline(monkeypatch, tmp_path: Path) -> None:
         ),
     ]
 
-    def fake_load_dataset(dataset_id: str, *, split: str):  # noqa: ANN001
+    def fake_load_dataset(dataset_id: str, *, split: str) -> list[BenchmarkDatasetExample]:
         assert dataset_id == benchmark.CHURRO_DATASET_ID
         assert split == "dev"
         return dataset
 
     monkeypatch.setattr(benchmark, "_load_dataset", fake_load_dataset)
 
-    async def fake_predict(ds, options, *, total_pages):  # noqa: ANN001
+    async def fake_predict(
+        ds: Iterable[BenchmarkDatasetExample],
+        options: benchmark.BenchmarkOptions,
+        *,
+        total_pages: int | None,
+    ) -> tuple[list[object], list[dict[str, object]]]:
         selected = list(ds)
         assert len(selected) == 1
         assert selected[0]["example_id"] == "1"
@@ -692,7 +705,12 @@ async def test_run_executes_pipeline(monkeypatch, tmp_path: Path) -> None:
 
     captured: dict[str, object] = {}
 
-    def fake_compute_metrics(ds, predictions, output_prefix, elapsed_time):  # noqa: ANN001
+    def fake_compute_metrics(
+        ds: list[object],
+        predictions: list[dict[str, object]],
+        output_prefix: str,
+        elapsed_time: float,
+    ) -> dict[str, str]:
         call_order.append("compute_metrics")
         captured["dataset"] = ds
         captured["predictions"] = predictions
@@ -840,7 +858,9 @@ def test_selected_dataset_examples_filters_materialized_dataset() -> None:
 
 
 @pytest.mark.asyncio
-async def test_predict_texts_updates_progress_and_preserves_order(monkeypatch) -> None:
+async def test_predict_texts_updates_progress_and_preserves_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     dataset: list[BenchmarkDatasetExample] = [
         _benchmark_example("0", size=(3, 3), transcription="alpha"),
         _benchmark_example(
@@ -922,7 +942,7 @@ async def test_predict_texts_updates_progress_and_preserves_order(monkeypatch) -
         return progress_bar
 
     class FakeOCRBackend:
-        async def ocr(self, page):  # noqa: ANN001
+        async def ocr(self, page: benchmark.DocumentPage) -> OCRResult:
             await asyncio.sleep(page.width / 1000)
             return OCRResult(
                 text=f"page-{page.width}",
@@ -970,7 +990,9 @@ async def test_predict_texts_updates_progress_and_preserves_order(monkeypatch) -
 
 
 @pytest.mark.asyncio
-async def test_predict_texts_uses_batch_backend_with_max_concurrency_as_batch_size(monkeypatch) -> None:
+async def test_predict_texts_uses_batch_backend_with_max_concurrency_as_batch_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     dataset: list[BenchmarkDatasetExample] = [
         _benchmark_example("0", size=(3, 3), transcription="alpha"),
         _benchmark_example(
@@ -993,7 +1015,7 @@ async def test_predict_texts_uses_batch_backend_with_max_concurrency_as_batch_si
     captured_batch_sizes: list[int] = []
 
     class FakeBatchBackend:
-        async def ocr_batch(self, pages):  # noqa: ANN001
+        async def ocr_batch(self, pages: list[benchmark.DocumentPage]) -> list[OCRResult]:
             captured_batch_sizes.append(len(pages))
             return [
                 OCRResult(
@@ -1030,7 +1052,7 @@ async def test_predict_texts_uses_batch_backend_with_max_concurrency_as_batch_si
 
 
 @pytest.mark.asyncio
-async def test_predict_texts_logs_first_batch_output_once(monkeypatch) -> None:
+async def test_predict_texts_logs_first_batch_output_once(monkeypatch: pytest.MonkeyPatch) -> None:
     dataset = [
         _benchmark_example("0", size=(3, 3), transcription="alpha"),
         _benchmark_example("1", size=(1, 1), transcription="beta"),
@@ -1042,7 +1064,7 @@ async def test_predict_texts_logs_first_batch_output_once(monkeypatch) -> None:
             logged_messages.append(message % args if args else message)
 
     class FakeBatchBackend:
-        async def ocr_batch(self, pages):  # noqa: ANN001
+        async def ocr_batch(self, pages: list[benchmark.DocumentPage]) -> list[OCRResult]:
             return [
                 OCRResult(
                     text=f"page-{page.width}",
@@ -1079,7 +1101,9 @@ async def test_predict_texts_logs_first_batch_output_once(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_predict_texts_logs_first_submitted_output_once_for_non_batch_backend(monkeypatch) -> None:
+async def test_predict_texts_logs_first_submitted_output_once_for_non_batch_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     dataset: list[BenchmarkDatasetExample] = [
         _benchmark_example("0", size=(3, 3), transcription="alpha"),
         _benchmark_example("1", size=(1, 1), transcription="beta"),
@@ -1092,7 +1116,7 @@ async def test_predict_texts_logs_first_submitted_output_once_for_non_batch_back
             logged_messages.append(message % args if args else message)
 
     class FakeOCRBackend:
-        async def ocr(self, page):  # noqa: ANN001
+        async def ocr(self, page: benchmark.DocumentPage) -> OCRResult:
             await asyncio.sleep(page.width / 1000)
             return OCRResult(
                 text=f"page-{page.width}",
@@ -1127,7 +1151,9 @@ async def test_predict_texts_logs_first_submitted_output_once_for_non_batch_back
 
 
 @pytest.mark.asyncio
-async def test_predict_texts_continues_after_non_batch_page_failure(monkeypatch) -> None:
+async def test_predict_texts_continues_after_non_batch_page_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     dataset: list[BenchmarkDatasetExample] = [
         _benchmark_example("0", size=(3, 3), transcription="alpha"),
         _benchmark_example("1", size=(1, 1), transcription="beta"),
@@ -1136,16 +1162,17 @@ async def test_predict_texts_continues_after_non_batch_page_failure(monkeypatch)
     logged_messages: list[str] = []
 
     class FakeLogger:
-        def info(self, _message: str, *args: object) -> None:  # noqa: ANN001
+        def info(self, _message: str, *_args: object) -> None:
             return None
 
         def exception(self, message: str, *args: object) -> None:
             logged_messages.append(message % args if args else message)
 
     class FakeOCRBackend:
-        async def ocr(self, page):  # noqa: ANN001
+        async def ocr(self, page: benchmark.DocumentPage) -> OCRResult:
             if page.width == 1:
-                raise RuntimeError("timed out")
+                message = "timed out"
+                raise _benchmark_runtime_error(message)
             return OCRResult(
                 text=f"page-{page.width}",
                 provider_name="fake",
@@ -1186,7 +1213,9 @@ async def test_predict_texts_continues_after_non_batch_page_failure(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_predict_texts_continues_after_batch_failure(monkeypatch) -> None:
+async def test_predict_texts_continues_after_batch_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     dataset: list[BenchmarkDatasetExample] = [
         _benchmark_example("0", size=(3, 3), transcription="alpha"),
         _benchmark_example("1", size=(1, 1), transcription="beta"),
@@ -1196,17 +1225,18 @@ async def test_predict_texts_continues_after_batch_failure(monkeypatch) -> None:
     call_count = {"ocr_batch": 0}
 
     class FakeLogger:
-        def info(self, _message: str, *args: object) -> None:  # noqa: ANN001
+        def info(self, _message: str, *_args: object) -> None:
             return None
 
         def exception(self, message: str, *args: object) -> None:
             logged_messages.append(message % args if args else message)
 
     class FakeBatchBackend:
-        async def ocr_batch(self, pages):  # noqa: ANN001
+        async def ocr_batch(self, pages: list[benchmark.DocumentPage]) -> list[OCRResult]:
             call_count["ocr_batch"] += 1
             if call_count["ocr_batch"] == 1:
-                raise RuntimeError("batch timed out")
+                message = "batch timed out"
+                raise _benchmark_runtime_error(message)
             return [
                 OCRResult(
                     text=f"page-{page.width}",
