@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from contextlib import suppress
 from importlib import import_module
 from pathlib import Path
+from time import monotonic
 from typing import Any, cast
 
 from PIL import Image
@@ -174,7 +175,6 @@ class LiteLLMTransport:
         kwargs: dict[str, object] = {
             "model": model,
             "messages": messages,
-            "timeout": timeout_seconds,
         }
         if self._config.api_base:
             kwargs["api_base"] = self._config.api_base
@@ -186,12 +186,24 @@ class LiteLLMTransport:
             kwargs["response_format"] = {"type": "json_object"}
         if self._config.completion_kwargs:
             kwargs.update(self._config.completion_kwargs)
+        deadline = monotonic() + float(timeout_seconds)
+
+        async def _run_completion() -> Any:
+            attempt_kwargs = dict(kwargs)
+            remaining_timeout_seconds = max(0.0, deadline - monotonic())
+            if remaining_timeout_seconds <= 0:
+                raise TimeoutError(
+                    f"LiteLLM request exceeded the total timeout of {timeout_seconds} seconds."
+                )
+            attempt_kwargs["timeout"] = remaining_timeout_seconds
+            return await acompletion(**attempt_kwargs)
 
         try:
             response = await retry_api_call(
-                lambda: acompletion(**kwargs),
+                _run_completion,
                 operation_name="LiteLLM request",
                 context=f"for model '{model}'",
+                max_total_seconds=float(timeout_seconds),
             )
         except Exception as exc:  # pragma: no cover - provider-specific failure path
             raise ProviderError(f"LiteLLM request failed for model '{model}': {exc}") from exc

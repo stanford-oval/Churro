@@ -346,6 +346,104 @@ async def test_transport_complete_text_retries_transient_errors(
 
 
 @pytest.mark.asyncio
+async def test_retry_api_call_stops_after_total_time_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"count": 0}
+    sleep_calls: list[float] = []
+    now = {"value": 100.0}
+
+    async def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+        now["value"] += delay
+
+    async def _always_fail() -> object:
+        calls["count"] += 1
+        raise ConnectionError("still failing")
+
+    monkeypatch.setattr(retry_module, "retry_sleep", _fake_sleep)
+    monkeypatch.setattr(retry_module, "monotonic", lambda: now["value"])
+
+    with pytest.raises(ConnectionError, match="still failing"):
+        await retry_module.retry_api_call(
+            _always_fail,
+            operation_name="test operation",
+            max_attempts=6,
+            max_total_seconds=3.0,
+        )
+
+    assert calls == {"count": 3}
+    assert sleep_calls == [1.0, 2.0]
+
+
+@pytest.mark.asyncio
+async def test_transport_complete_text_uses_remaining_total_timeout_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"acompletion": 0}
+    captured_retry: dict[str, object] = {}
+    attempt_timeouts: list[float] = []
+    now = {"value": 100.0}
+
+    class FakeLiteLLMError(Exception):
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+            self.headers = {}
+            self.raw_response = SimpleNamespace(headers=self.headers)
+            super().__init__(f"Status {status_code}")
+
+    async def _flaky_acompletion(**kwargs: object) -> object:
+        calls["acompletion"] += 1
+        attempt_timeouts.append(float(cast(float, kwargs["timeout"])))
+        if calls["acompletion"] == 1:
+            now["value"] = 103.0
+            raise FakeLiteLLMError(429)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+            _hidden_params={},
+        )
+
+    async def _fake_retry_api_call(
+        fn: Any,
+        *,
+        operation_name: str,
+        context: str | None = None,
+        max_attempts: int = retry_module.DEFAULT_MAX_ATTEMPTS,
+        max_total_seconds: float | None = None,
+        **_: object,
+    ) -> object:
+        captured_retry["operation_name"] = operation_name
+        captured_retry["context"] = context
+        captured_retry["max_attempts"] = max_attempts
+        captured_retry["max_total_seconds"] = max_total_seconds
+        try:
+            return await fn()
+        except FakeLiteLLMError:
+            return await fn()
+
+    fake_module = _make_fake_litellm_module(acompletion=_flaky_acompletion)
+    monkeypatch.setitem(sys.modules, "litellm", fake_module)
+    monkeypatch.setattr(litellm_module, "_INITIALIZED", False)
+    monkeypatch.setattr(litellm_module, "retry_api_call", _fake_retry_api_call)
+    monkeypatch.setattr(litellm_module, "monotonic", lambda: now["value"])
+
+    transport = LiteLLMTransport()
+    result = await transport.complete_text(
+        model="example/model",
+        messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+        timeout_seconds=10,
+    )
+
+    assert result == "ok"
+    assert calls == {"acompletion": 2}
+    assert attempt_timeouts == [10.0, 7.0]
+    assert captured_retry == {
+        "operation_name": "LiteLLM request",
+        "context": "for model 'example/model'",
+        "max_attempts": retry_module.DEFAULT_MAX_ATTEMPTS,
+        "max_total_seconds": 10.0,
+    }
+
+
+@pytest.mark.asyncio
 async def test_transport_complete_text_rejects_empty_output(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _empty_acompletion(**_: object) -> object:
         return SimpleNamespace(
