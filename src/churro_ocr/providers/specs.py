@@ -60,7 +60,7 @@ ImagePreprocessor = Callable[[Image.Image], Image.Image]
 TextPostprocessorResult = str | tuple[str, dict[str, Any]]
 TextPostprocessor = Callable[[str], TextPostprocessorResult]
 VisionInputBuilder = Callable[[OCRConversation], object]
-DEFAULT_OCR_MAX_TOKENS = 20_000
+DEFAULT_OCR_MAX_TOKENS = 25_000
 CHANDRA_OCR_MAX_TOKENS = 12_384
 DEEPSEEK_OCR_2_MAX_TOKENS = 8_192
 INFINITY_PARSER_7B_MAX_TOKENS = 8_192
@@ -142,6 +142,10 @@ _CHAT_ROLE_PREFIXES = {
     "<｜system｜>",
     "<｜system｜>:",
 }
+_OUTER_FENCED_CODE_BLOCK_RE = re.compile(
+    r"^(?P<fence>`{3,}|~{3,})(?P<info>[^\n]*)\n(?P<body>.*)\n(?P=fence)$",
+    flags=re.DOTALL,
+)
 
 
 def _strip_leading_chat_scaffold(text: str, *, prompts: Sequence[str]) -> str:
@@ -178,6 +182,15 @@ def _strip_leading_chat_scaffold(text: str, *, prompts: Sequence[str]) -> str:
     return cleaned.strip()
 
 
+def _strip_outer_fenced_code_block(text: str) -> str:
+    """Unwrap a single outer fenced code block while preserving its inner content."""
+    cleaned = text.strip()
+    match = _OUTER_FENCED_CODE_BLOCK_RE.fullmatch(cleaned)
+    if match is None:
+        return cleaned
+    return match.group("body").strip()
+
+
 def olmocr_image_preprocessor(image: Image.Image) -> Image.Image:
     """Resize an image to olmOCR's expected 1288px longest side and normalize to RGB."""
     return ensure_rgb(
@@ -210,7 +223,7 @@ def infinity_parser_7b_text_postprocessor(text: str) -> TextPostprocessorResult:
             INFINITY_PARSER_7B_SYSTEM_PROMPT,
         ],
     )
-    raw_markdown = cleaned.strip()
+    raw_markdown = _strip_outer_fenced_code_block(cleaned)
     return strip_rich_ocr_markup_to_plain_text(raw_markdown), {
         "raw_markdown": raw_markdown,
     }

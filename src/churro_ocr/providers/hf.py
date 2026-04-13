@@ -305,7 +305,10 @@ def _default_dots_ocr_1_5_model_kwargs() -> dict[str, object]:
     if not torch.cuda.is_available():
         return model_kwargs
 
-    free_bytes, _ = torch.cuda.mem_get_info()
+    try:
+        free_bytes, _ = torch.cuda.mem_get_info()
+    except RuntimeError:
+        return model_kwargs
     free_gib = max(1, int(free_bytes / (1024**3)) - 1)
     if free_gib < 8:
         return {"dtype": "float32"}

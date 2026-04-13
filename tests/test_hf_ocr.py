@@ -298,6 +298,24 @@ def test_infinity_parser_text_postprocessor_strips_prompt_echo_and_preserves_raw
     }
 
 
+def test_infinity_parser_text_postprocessor_strips_outer_markdown_fence() -> None:
+    processed = infinity_parser_7b_text_postprocessor(
+        f"{INFINITY_PARSER_7B_OCR_PROMPT}\n"
+        "assistant:\n"
+        "```markdown\n"
+        "169\n\n"
+        "které wětšj gsau nynj žigjejch;\n"
+        "```"
+    )
+    assert isinstance(processed, tuple)
+    text, metadata = processed
+
+    assert text == "169\n\nkteré wětšj gsau nynj žigjejch;"
+    assert metadata == {
+        "raw_markdown": "169\n\nkteré wětšj gsau nynj žigjejch;",
+    }
+
+
 def test_deepseek_ocr_2_text_postprocessor_strips_prompt_echo_and_stop_token() -> None:
     assert (
         deepseek_ocr_2_text_postprocessor(
@@ -2342,6 +2360,25 @@ def test_default_dots_ocr_1_5_model_kwargs_handles_cuda_variants(
     monkeypatch.setitem(sys.modules, "torch", torch_module)
 
     assert hf_module._default_dots_ocr_1_5_model_kwargs() == expected
+
+
+def test_default_dots_ocr_1_5_model_kwargs_falls_back_when_mem_probe_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeCuda:
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @staticmethod
+        def mem_get_info() -> tuple[int, int]:
+            raise RuntimeError("cudaMemGetInfo failed")
+
+    torch_module = ModuleType("torch")
+    cast(Any, torch_module).cuda = _FakeCuda
+    monkeypatch.setitem(sys.modules, "torch", torch_module)
+
+    assert hf_module._default_dots_ocr_1_5_model_kwargs() == {"dtype": "auto"}
 
 
 @pytest.mark.asyncio
