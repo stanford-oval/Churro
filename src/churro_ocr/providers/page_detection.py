@@ -6,7 +6,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from io import BytesIO
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from PIL import Image, ImageDraw, ImageOps
 
@@ -28,6 +28,8 @@ from churro_ocr.providers.specs import LiteLLMTransportConfig
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
 
+    from churro_ocr.types import BoundingBox, Polygon
+
 _BORDER_FRACTION = 0.05
 _PROCESSED_MAX_DIM = 2500
 _PAGE_DETECTION_BOX_WIDTH = 10
@@ -46,13 +48,42 @@ _EDGE_NAMES = ("left", "top", "right", "bottom")
 LiteLLMTransportLike = LiteLLMTransportConfig | LiteLLMTransport | None
 
 
+class _AzurePageLike(Protocol):
+    polygon: object
+    width: object
+    height: object
+    page_number: object
+    unit: object
+    angle: object
+
+
+class _AzureAnalyzeResultLike(Protocol):
+    pages: Sequence[_AzurePageLike] | None
+
+
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
+
+
+def _provider_error(message: str) -> ProviderError:
+    return ProviderError(message)
+
+
+def _type_error(message: str) -> TypeError:
+    return TypeError(message)
+
+
+def _value_error(message: str) -> ValueError:
+    return ValueError(message)
+
+
 def _full_image_candidate(image: Image.Image) -> PageCandidate:
     return PageCandidate(bbox=(0.0, 0.0, float(image.width), float(image.height)))
 
 
 def _bbox_from_polygon(
-    polygon: tuple[tuple[float, float], ...],
-) -> tuple[float, float, float, float]:
+    polygon: Polygon,
+) -> BoundingBox:
     xs = [point[0] for point in polygon]
     ys = [point[1] for point in polygon]
     return (min(xs), min(ys), max(xs), max(ys))
@@ -60,7 +91,7 @@ def _bbox_from_polygon(
 
 def _normalize_polygon(
     coordinates: Sequence[float] | None,
-) -> tuple[tuple[float, float], ...]:
+) -> Polygon:
     if not coordinates or len(coordinates) < 6:
         return ()
     pairs = [
@@ -74,7 +105,7 @@ def _normalize_polygon(
 
 def _clamp_normalized(value: float) -> int:
     clamped = max(_NORMALIZED_MIN_COORD, min(_NORMALIZED_MAX_COORD, value))
-    rounded = int(round(clamped))
+    rounded = round(clamped)
     return max(0, min(1000, rounded))
 
 
@@ -87,7 +118,7 @@ class _PageDetectionTransform:
     scale_x: float
     scale_y: float
 
-    def map_box_to_original(self, box: _PageBox) -> tuple[float, float, float, float]:
+    def map_box_to_original(self, box: _PageBox) -> BoundingBox:
         processed_width, processed_height = self.processed_size
         original_width, original_height = self.original_size
         border_width, border_height = self.border
@@ -119,14 +150,16 @@ class _PageBox:
     @classmethod
     def from_json(cls, payload: dict[str, Any]) -> _PageBox:
         if "page_index" not in payload:
-            raise ValueError("Expected 'page_index' key in page-detection response.")
+            message = "Expected 'page_index' key in page-detection response."
+            raise _value_error(message)
         required_keys = {"left", "top", "right", "bottom"}
         if not required_keys.issubset(payload):
             missing = required_keys - set(payload)
-            raise ValueError(
+            message = (
                 f"Page-detection response must include keys {sorted(required_keys)}, "
                 f"missing {sorted(missing)}."
             )
+            raise _value_error(message)
         return cls(
             page_index=int(payload["page_index"]),
             ymin=_clamp_normalized(float(payload["top"])),
@@ -136,10 +169,10 @@ class _PageBox:
         )
 
     def denormalize(self, width: int, height: int) -> tuple[int, int, int, int]:
-        top = max(0, min(height, int(round(self.ymin * height / 1000))))
-        left = max(0, min(width, int(round(self.xmin * width / 1000))))
-        bottom = max(0, min(height, int(round(self.ymax * height / 1000))))
-        right = max(0, min(width, int(round(self.xmax * width / 1000))))
+        top = max(0, min(height, round(self.ymin * height / 1000)))
+        left = max(0, min(width, round(self.xmin * width / 1000)))
+        bottom = max(0, min(height, round(self.ymax * height / 1000)))
+        right = max(0, min(width, round(self.xmax * width / 1000)))
         return left, top, right, bottom
 
 
@@ -168,8 +201,8 @@ def _add_white_border(
 ) -> tuple[Image.Image, int, int]:
     if fraction <= 0:
         return image, 0, 0
-    border_width = max(1, int(round(image.width * fraction)))
-    border_height = max(1, int(round(image.height * fraction)))
+    border_width = max(1, round(image.width * fraction))
+    border_height = max(1, round(image.height * fraction))
     expanded = ImageOps.expand(
         image,
         border=(border_width, border_height, border_width, border_height),
@@ -184,7 +217,7 @@ def _resize_image_to_fit(image: Image.Image, *, max_dim: int = _PROCESSED_MAX_DI
     if longest_side <= max_dim:
         return image
     scale = max_dim / longest_side
-    return image.resize((max(1, int(round(width * scale))), max(1, int(round(height * scale)))))
+    return image.resize((max(1, round(width * scale)), max(1, round(height * scale))))
 
 
 def _prepare_detection_image(image: Image.Image) -> tuple[Image.Image, _PageDetectionTransform]:
@@ -219,23 +252,28 @@ def _parse_page_boxes_json(output: str) -> list[_PageBox]:
     try:
         payload = json.loads(response_text)
     except json.JSONDecodeError as exc:
-        raise ProviderError("LLM page detection returned invalid JSON.") from exc
+        message = "LLM page detection returned invalid JSON."
+        raise _provider_error(message) from exc
 
     if not isinstance(payload, dict):
-        raise ProviderError("LLM page detection response must be a JSON object.")
+        message = "LLM page detection response must be a JSON object."
+        raise _provider_error(message)
 
     pages = payload.get("pages")
     if not isinstance(pages, list):
-        raise ProviderError("LLM page detection response must include a `pages` list.")
+        message = "LLM page detection response must include a `pages` list."
+        raise _provider_error(message)
 
     boxes: list[_PageBox] = []
     for page_index, page in enumerate(pages):
         if not isinstance(page, dict):
-            raise ProviderError(f"LLM page detection entry {page_index} must be an object.")
+            message = f"LLM page detection entry {page_index} must be an object."
+            raise _provider_error(message)
         try:
             boxes.append(_PageBox.from_json(cast("dict[str, Any]", page)))
         except (TypeError, ValueError) as exc:
-            raise ProviderError(f"LLM page detection entry {page_index} is invalid: {exc}") from exc
+            message = f"LLM page detection entry {page_index} is invalid: {exc}"
+            raise _provider_error(message) from exc
     return sorted(boxes, key=lambda box: box.page_index)
 
 
@@ -262,17 +300,20 @@ def _parse_target_box_json(
     try:
         payload = json.loads(response_text)
     except json.JSONDecodeError as exc:
-        raise ProviderError(f"{error_context} returned invalid JSON.") from exc
+        message = f"{error_context} returned invalid JSON."
+        raise _provider_error(message) from exc
 
     if not isinstance(payload, dict):
-        raise ProviderError(f"{error_context} response must be a JSON object.")
+        message = f"{error_context} response must be a JSON object."
+        raise _provider_error(message)
     payload_dict = cast("dict[str, Any]", payload)
 
     if {"left", "top", "right", "bottom"}.issubset(payload_dict):
         try:
             return _build_target_box_from_payload(payload_dict, target_index=1)
         except (TypeError, ValueError) as exc:
-            raise ProviderError(f"{error_context} bbox is invalid: {exc}") from exc
+            message = f"{error_context} bbox is invalid: {exc}"
+            raise _provider_error(message) from exc
 
     raw_target = payload_dict.get(target_key)
     if raw_target is None:
@@ -281,9 +322,11 @@ def _parse_target_box_json(
         try:
             return _build_target_box_from_payload(cast("dict[str, Any]", raw_target), target_index=1)
         except (TypeError, ValueError) as exc:
-            raise ProviderError(f"{error_context} bbox is invalid: {exc}") from exc
+            message = f"{error_context} bbox is invalid: {exc}"
+            raise _provider_error(message) from exc
     if raw_target is not None:
-        raise ProviderError(f"{error_context} response `{target_key}` must be an object or null.")
+        message = f"{error_context} response `{target_key}` must be an object or null."
+        raise _provider_error(message)
 
     if (
         payload_dict.get(found_key) is False
@@ -293,10 +336,11 @@ def _parse_target_box_json(
     ):
         return None
 
-    raise ProviderError(
+    message = (
         f"{error_context} response must include a `{target_key}` object "
         f"or explicitly mark `{found_key}` false."
     )
+    raise _provider_error(message)
 
 
 def _parse_text_block_box_json(output: str) -> _PageBox | None:
@@ -314,24 +358,28 @@ def _parse_edge_review_decision(
     edge_name: str,
 ) -> _EdgeReviewDecision:
     if not isinstance(payload, dict):
-        raise ValueError(f"Review edge '{edge_name}' must be an object.")
+        message = f"Review edge '{edge_name}' must be an object."
+        raise _type_error(message)
     payload_dict = cast("dict[str, object]", payload)
 
     raw_action = payload_dict.get("action")
     if raw_action is None:
         raw_action = payload_dict.get("decision")
     if not isinstance(raw_action, str):
-        raise ValueError(f"Review edge '{edge_name}' must include string 'action'.")
+        message = f"Review edge '{edge_name}' must include string 'action'."
+        raise _type_error(message)
     action = raw_action.strip().lower()
     if action not in {"expand", "shrink", "no_change"}:
-        raise ValueError(f"Review edge '{edge_name}' action must be one of 'expand', 'shrink', 'no_change'.")
+        message = f"Review edge '{edge_name}' action must be one of 'expand', 'shrink', 'no_change'."
+        raise _value_error(message)
     action_literal = cast("EdgeDecisionAction", action)
 
     try:
         raw_amount = payload_dict.get("amount")
-        amount = 0 if raw_amount is None else int(round(float(cast("Any", raw_amount))))
+        amount = 0 if raw_amount is None else round(float(cast("Any", raw_amount)))
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"Review edge '{edge_name}' amount must be numeric.") from exc
+        message = f"Review edge '{edge_name}' amount must be numeric."
+        raise _value_error(message) from exc
     amount = max(0, min(1000, amount))
     if action_literal == "no_change":
         amount = 0
@@ -344,19 +392,24 @@ def _parse_single_edge_review_decision_json(
     try:
         payload = json.loads(_strip_code_fence(output))
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Failed to decode edge-review response as JSON: {exc}") from exc
+        message = f"Failed to decode edge-review response as JSON: {exc}"
+        raise _value_error(message) from exc
 
     if not isinstance(payload, dict):
-        raise ValueError("Edge-review response must be a JSON object.")
+        message = "Edge-review response must be a JSON object."
+        raise _type_error(message)
     if "page_index" not in payload:
-        raise ValueError("Edge-review response must include 'page_index'.")
+        message = "Edge-review response must include 'page_index'."
+        raise _value_error(message)
 
     raw_edge = payload.get("edge")
     if not isinstance(raw_edge, str):
-        raise ValueError("Edge-review response must include string 'edge'.")
+        message = "Edge-review response must include string 'edge'."
+        raise _type_error(message)
     edge_name = raw_edge.strip().lower()
     if edge_name not in _EDGE_NAMES:
-        raise ValueError("Edge-review response 'edge' must be left/top/right/bottom.")
+        message = "Edge-review response 'edge' must be left/top/right/bottom."
+        raise _value_error(message)
 
     decision_payload = payload.get("decision")
     if not isinstance(decision_payload, dict):
@@ -381,18 +434,22 @@ def _parse_text_block_edge_review_decision_json(
     try:
         payload = json.loads(_strip_code_fence(output))
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Failed to decode text-block edge-review response as JSON: {exc}") from exc
+        message = f"Failed to decode text-block edge-review response as JSON: {exc}"
+        raise _value_error(message) from exc
 
     if not isinstance(payload, dict):
-        raise ValueError("Text-block edge-review response must be a JSON object.")
+        message = "Text-block edge-review response must be a JSON object."
+        raise _type_error(message)
     payload_dict = cast("dict[str, object]", payload)
 
     raw_edge = payload_dict.get("edge")
     if not isinstance(raw_edge, str):
-        raise ValueError("Text-block edge-review response must include string 'edge'.")
+        message = "Text-block edge-review response must include string 'edge'."
+        raise _type_error(message)
     edge_name = raw_edge.strip().lower()
     if edge_name not in _EDGE_NAMES:
-        raise ValueError("Text-block edge-review response 'edge' must be left/top/right/bottom.")
+        message = "Text-block edge-review response 'edge' must be left/top/right/bottom."
+        raise _value_error(message)
 
     decision_payload = payload_dict.get("decision")
     if not isinstance(decision_payload, dict):
@@ -419,8 +476,8 @@ def _boxes_equal(left_boxes: Sequence[_PageBox], right_boxes: Sequence[_PageBox]
 
 
 def _bbox_to_polygon(
-    bbox: tuple[float, float, float, float],
-) -> tuple[tuple[float, float], ...]:
+    bbox: BoundingBox,
+) -> Polygon:
     left, top, right, bottom = bbox
     return ((left, top), (right, top), (right, bottom), (left, bottom))
 
@@ -428,7 +485,7 @@ def _bbox_to_polygon(
 def _normalize_pixel_coord(value: int, size: int) -> int:
     if size <= 0:
         return 0
-    return max(0, min(1000, int(round(value * 1000 / size))))
+    return max(0, min(1000, round(value * 1000 / size)))
 
 
 def _build_box_review_preview(
@@ -443,8 +500,8 @@ def _build_box_review_preview(
 
     box_width = max(1, right - left)
     box_height = max(1, bottom - top)
-    margin_x = max(outline_width * 2, int(round(box_width * margin_fraction)))
-    margin_y = max(outline_width * 2, int(round(box_height * margin_fraction)))
+    margin_x = max(outline_width * 2, round(box_width * margin_fraction))
+    margin_y = max(outline_width * 2, round(box_height * margin_fraction))
 
     crop_left = max(0, left - margin_x)
     crop_top = max(0, top - margin_y)
@@ -474,10 +531,10 @@ def _build_edge_strip_review_preview(
     box_width = max(1, right - left)
     box_height = max(1, bottom - top)
 
-    band_half_x = max(outline_width * 3, int(round(box_width * 0.18)))
-    band_half_y = max(outline_width * 3, int(round(box_height * 0.18)))
-    orthogonal_pad_x = max(outline_width * 2, int(round(box_width * 0.06)))
-    orthogonal_pad_y = max(outline_width * 2, int(round(box_height * 0.06)))
+    band_half_x = max(outline_width * 3, round(box_width * 0.18))
+    band_half_y = max(outline_width * 3, round(box_height * 0.18))
+    orthogonal_pad_x = max(outline_width * 2, round(box_width * 0.06))
+    orthogonal_pad_y = max(outline_width * 2, round(box_height * 0.06))
 
     if edge_name == "left":
         x0 = max(0, left - band_half_x)
@@ -500,10 +557,12 @@ def _build_edge_strip_review_preview(
         y0 = max(0, bottom - band_half_y)
         y1 = min(height, bottom + band_half_y)
     else:
-        raise ValueError(f"Unsupported edge '{edge_name}'. Expected left/top/right/bottom.")
+        message = f"Unsupported edge '{edge_name}'. Expected left/top/right/bottom."
+        raise _value_error(message)
 
     if x0 >= x1 or y0 >= y1:
-        raise ValueError(f"Invalid strip bounds for edge '{edge_name}'.")
+        message = f"Invalid strip bounds for edge '{edge_name}'."
+        raise _value_error(message)
     return image.crop((x0, y0, x1, y1)), (x0, y0, x1, y1)
 
 
@@ -576,7 +635,8 @@ def _merge_instruction_prompts(*parts: str | None) -> str:
     """Merge one or more instruction strings into a single non-empty user prompt."""
     merged_parts = [part.strip() for part in parts if isinstance(part, str) and part.strip()]
     if not merged_parts:
-        raise ValueError("Expected at least one non-empty instruction prompt.")
+        message = "Expected at least one non-empty instruction prompt."
+        raise _value_error(message)
     return "\n\n".join(merged_parts)
 
 
@@ -641,7 +701,8 @@ async def _review_single_edge_from_strip(
 ) -> _EdgeReviewDecision:
     strip_axis_pixels = _strip_axis_size_pixels(strip_bounds, edge_name=edge_name)
     if strip_axis_pixels <= 0:
-        raise ValueError(f"Invalid strip axis size for edge '{edge_name}'.")
+        message = f"Invalid strip axis size for edge '{edge_name}'."
+        raise _value_error(message)
 
     prompt = build_boundary_review_prompt(
         edge_name=edge_name,
@@ -709,7 +770,8 @@ async def _review_single_text_block_edge_from_strip(
 ) -> _EdgeReviewDecision:
     strip_axis_pixels = _strip_axis_size_pixels(strip_bounds, edge_name=edge_name)
     if strip_axis_pixels <= 0:
-        raise ValueError(f"Invalid strip axis size for edge '{edge_name}'.")
+        message = f"Invalid strip axis size for edge '{edge_name}'."
+        raise _value_error(message)
 
     prompt = build_text_block_boundary_review_prompt(
         edge_name=edge_name,
@@ -1074,7 +1136,7 @@ async def locate_text_block_bbox_with_llm(
     model: str,
     transport: LiteLLMTransportLike = None,
     max_review_rounds: int = 0,
-) -> tuple[float, float, float, float] | None:
+) -> BoundingBox | None:
     """Locate the tight bbox of a specific rendered text block via a multimodal LLM.
 
     :param image: Source page image containing the rendered block.
@@ -1090,11 +1152,13 @@ async def locate_text_block_bbox_with_llm(
     """
     normalized_block_text = block_text.strip()
     if not normalized_block_text:
-        raise ValueError("block_text must not be blank.")
+        message = "block_text must not be blank."
+        raise _value_error(message)
 
     normalized_block_tag = block_tag.strip()
     if not normalized_block_tag:
-        raise ValueError("block_tag must not be blank.")
+        message = "block_tag must not be blank."
+        raise _value_error(message)
 
     processed_image, transform = _prepare_detection_image(image)
     llm_transport = transport if isinstance(transport, LiteLLMTransport) else LiteLLMTransport(transport)
@@ -1152,7 +1216,7 @@ def locate_text_block_bbox_with_llm_sync(
     model: str,
     transport: LiteLLMTransportLike = None,
     max_review_rounds: int = 0,
-) -> tuple[float, float, float, float] | None:
+) -> BoundingBox | None:
     """Synchronously locate the tight bbox of a specific rendered text block via a multimodal LLM.
 
     :param image: Source page image containing the rendered block.
@@ -1203,9 +1267,8 @@ class AzurePageDetector(PageDetectionBackend):
             from azure.ai.documentintelligence.aio import DocumentIntelligenceClient
             from azure.core.credentials import AzureKeyCredential
         except ImportError as exc:  # pragma: no cover - optional extra path
-            raise ConfigurationError(
-                f"Azure page detection requires the `azure` runtime. {install_command_hint('azure')}"
-            ) from exc
+            message = f"Azure page detection requires the `azure` runtime. {install_command_hint('azure')}"
+            raise _configuration_error(message) from exc
 
         buffer = BytesIO()
         image.convert("RGB").save(buffer, format="JPEG")
@@ -1216,13 +1279,13 @@ class AzurePageDetector(PageDetectionBackend):
         try:
             image_bytes = buffer.getvalue()
 
-            async def _analyze_document() -> Any:
+            async def _analyze_document() -> _AzureAnalyzeResultLike:
                 poller = await client.begin_analyze_document(
                     model_id=self.model_id,
                     body=BytesIO(image_bytes),
                     content_type="application/octet-stream",
                 )
-                return await poller.result()
+                return cast("_AzureAnalyzeResultLike", await poller.result())
 
             result = await retry_api_call(
                 _analyze_document,
@@ -1251,7 +1314,9 @@ class AzurePageDetector(PageDetectionBackend):
         return candidates or [_full_image_candidate(image)]
 
 
-def _normalize_azure_page_polygon(page: Any, *, image: Image.Image) -> tuple[tuple[float, float], ...]:
+def _normalize_azure_page_polygon(
+    page: _AzurePageLike, *, image: Image.Image
+) -> Polygon:
     raw_polygon = getattr(page, "polygon", None)
     polygon = _normalize_polygon(raw_polygon)
     if not polygon:
@@ -1478,7 +1543,7 @@ def _convert_strip_delta_to_local_delta(
     if strip_delta_normalized <= 0 or strip_axis_pixels <= 0 or local_axis_pixels <= 0:
         return 0
     delta_pixels = strip_delta_normalized * strip_axis_pixels / 1000
-    local_delta = int(round(delta_pixels * 1000 / local_axis_pixels))
+    local_delta = round(delta_pixels * 1000 / local_axis_pixels)
     return max(0, min(1000, local_delta))
 
 

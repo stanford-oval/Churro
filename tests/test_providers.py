@@ -4,7 +4,7 @@ import base64
 import json
 import sys
 from types import ModuleType, SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from PIL import Image
@@ -32,10 +32,8 @@ from churro_ocr.providers import (
     locate_text_block_bbox_with_llm,
     resolve_ocr_profile,
 )
-from churro_ocr.providers.hf import HuggingFaceVisionOCRBackend
 from churro_ocr.providers.ocr import (
     AzureDocumentIntelligenceOCRBackend,
-    LiteLLMVisionOCRBackend,
     MinerU25OpenAICompatibleOCRBackend,
     MistralOCRBackend,
     OpenAICompatibleOCRBackend,
@@ -68,6 +66,13 @@ from churro_ocr.templates import (
     PADDLEOCR_VL_1_5_OCR_PROMPT,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
+    from churro_ocr.providers.hf import HuggingFaceVisionOCRBackend
+    from churro_ocr.providers.ocr import LiteLLMVisionOCRBackend
+    from tests._types import HasKey, ReadableBody
 
 
 def _extract_user_text_parts(messages: list[dict[str, Any]]) -> list[str]:
@@ -103,7 +108,7 @@ async def test_litellm_ocr_backend_uses_transport(monkeypatch: pytest.MonkeyPatc
         return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
 
     async def _fake_complete_text(
-        self: LiteLLMTransport,
+        _transport: LiteLLMTransport,
         *,
         model: str,
         messages: list[dict[str, object]],
@@ -111,7 +116,7 @@ async def test_litellm_ocr_backend_uses_transport(monkeypatch: pytest.MonkeyPatc
         output_json: bool = False,
         allow_empty: bool = False,
     ) -> str:
-        captured["transport"] = self
+        captured["transport"] = _transport
         captured["model"] = model
         captured["messages"] = messages
         captured["timeout_seconds"] = timeout_seconds
@@ -155,7 +160,7 @@ async def test_litellm_ocr_backend_logs_prompt_only_once(monkeypatch: pytest.Mon
         def debug(self, message: str, *args: object) -> None:
             prompt_logs.append(message % args if args else message)
 
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return "ok"
 
     monkeypatch.setattr(
@@ -217,7 +222,7 @@ async def test_litellm_transport_tracks_total_cost(monkeypatch: pytest.MonkeyPat
 async def test_litellm_ocr_backend_strips_default_output_tags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return f"<{DEFAULT_OCR_OUTPUT_TAG}>\ntranscribed text\n</{DEFAULT_OCR_OUTPUT_TAG}>"
 
     monkeypatch.setattr(
@@ -242,7 +247,7 @@ async def test_litellm_ocr_backend_strips_default_output_tags(
 async def test_litellm_ocr_backend_accepts_empty_transport_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return ""
 
     monkeypatch.setattr(
@@ -267,7 +272,7 @@ async def test_litellm_ocr_backend_accepts_empty_transport_output(
 async def test_openai_compatible_backend_reports_display_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return "openai compatible text"
 
     monkeypatch.setattr("churro_ocr._internal.litellm.LiteLLMTransport.complete_text", _fake_complete_text)
@@ -304,21 +309,21 @@ async def test_azure_ocr_backend_reuses_client(monkeypatch: pytest.MonkeyPatch) 
             return SimpleNamespace(content="azure text")
 
     class FakeClient:
-        def __init__(self, *, endpoint: str, credential: Any) -> None:
+        def __init__(self, *, endpoint: str, credential: object) -> None:
             calls["client_inits"] += 1
             assert endpoint == "https://example.test"
-            assert credential.key == "secret"
+            assert cast("HasKey", credential).key == "secret"
 
         async def begin_analyze_document(
             self,
             *,
             model_id: str,
-            body: Any,
+            body: object,
             content_type: str,
         ) -> FakePoller:
             calls["requests"] += 1
             assert model_id == "prebuilt-layout"
-            assert body.read() == b"image-bytes"
+            assert cast("ReadableBody", body).read() == b"image-bytes"
             assert content_type == "application/octet-stream"
             return FakePoller()
 
@@ -387,21 +392,21 @@ async def test_azure_ocr_backend_retries_transient_errors(
             return SimpleNamespace(content="azure text")
 
     class FakeClient:
-        def __init__(self, *, endpoint: str, credential: Any) -> None:
+        def __init__(self, *, endpoint: str, credential: object) -> None:
             calls["client_inits"] += 1
             assert endpoint == "https://example.test"
-            assert credential.key == "secret"
+            assert cast("HasKey", credential).key == "secret"
 
         async def begin_analyze_document(
             self,
             *,
             model_id: str,
-            body: Any,
+            body: object,
             content_type: str,
         ) -> FakePoller:
             calls["requests"] += 1
             assert model_id == "prebuilt-layout"
-            assert body.read() == b"image-bytes"
+            assert cast("ReadableBody", body).read() == b"image-bytes"
             assert content_type == "application/octet-stream"
             if calls["requests"] < 3:
                 raise FakeAzureError(503)
@@ -607,7 +612,7 @@ async def test_mistral_ocr_backend_retries_request_timeouts(
     async def _fake_sleep(delay: float) -> None:
         sleep_calls.append(delay)
 
-    async def _fake_wait_for(awaitable: Any, **kwargs: float) -> Any:
+    async def _fake_wait_for(awaitable: Awaitable[SimpleNamespace], **kwargs: float) -> SimpleNamespace:
         calls["wait_for"] += 1
         timeout = kwargs["timeout"]
         assert timeout == 60.0
@@ -847,7 +852,7 @@ def test_build_ocr_backend_uses_mineru2_5_profile_defaults_for_openai_compatible
 
 
 def test_build_ocr_backend_rejects_mineru2_5_for_litellm() -> None:
-    with pytest.raises(ConfigurationError, match="MinerU2.5 requires the built-in two-step pipeline"):
+    with pytest.raises(ConfigurationError, match=r"MinerU2\.5 requires the built-in two-step pipeline"):
         build_ocr_backend(
             OCRBackendSpec(
                 provider="litellm",
@@ -911,7 +916,7 @@ async def test_openai_compatible_backend_uses_deepseek_ocr_2_prompt_and_postproc
         return conversation
 
     async def _fake_complete_text(
-        self: LiteLLMTransport,
+        _transport: LiteLLMTransport,
         *,
         model: str,
         messages: list[dict[str, object]],
@@ -972,7 +977,7 @@ async def test_openai_compatible_backend_uses_olmocr_prompt_and_plain_text_postp
         return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
 
     async def _fake_complete_text(
-        self: LiteLLMTransport,
+        _transport: LiteLLMTransport,
         *,
         model: str,
         messages: list[dict[str, object]],
@@ -985,7 +990,7 @@ async def test_openai_compatible_backend_uses_olmocr_prompt_and_plain_text_postp
         captured["timeout_seconds"] = timeout_seconds
         captured["output_json"] = output_json
         captured["allow_empty"] = allow_empty
-        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        captured["completion_kwargs"] = dict(_transport.config.completion_kwargs)
         return (
             "---\n"
             "primary_language: en\n"
@@ -1072,7 +1077,7 @@ async def test_openai_compatible_backend_uses_infinity_parser_prompt_and_markdow
         return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
 
     async def _fake_complete_text(
-        self: LiteLLMTransport,
+        _transport: LiteLLMTransport,
         *,
         model: str,
         messages: list[dict[str, object]],
@@ -1085,7 +1090,7 @@ async def test_openai_compatible_backend_uses_infinity_parser_prompt_and_markdow
         captured["timeout_seconds"] = timeout_seconds
         captured["output_json"] = output_json
         captured["allow_empty"] = allow_empty
-        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        captured["completion_kwargs"] = dict(_transport.config.completion_kwargs)
         return (
             f"{INFINITY_PARSER_7B_OCR_PROMPT}\n"
             "assistant:\n"
@@ -1325,7 +1330,7 @@ async def test_openai_compatible_backend_uses_mineru2_5_two_step_pipeline(
         return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
 
     async def _fake_complete_text(
-        self: LiteLLMTransport,
+        _transport: LiteLLMTransport,
         *,
         model: str,
         messages: list[dict[str, object]],
@@ -1421,7 +1426,7 @@ async def test_openai_compatible_backend_uses_mineru2_5_two_step_pipeline(
 async def test_llm_page_detector_uses_prompt_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return json.dumps(
             {
                 "pages": [
@@ -1446,7 +1451,7 @@ async def test_llm_page_detector_uses_prompt_transport(
 async def test_llm_page_detector_rejects_malformed_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return '{"pages":"oops"}'
 
     monkeypatch.setattr("churro_ocr._internal.litellm.LiteLLMTransport.complete_text", _fake_complete_text)
@@ -1504,7 +1509,7 @@ async def test_llm_page_detector_applies_iterative_review(
     )
     prompts: list[str | None] = []
 
-    async def _fake_complete_text(self, **kwargs: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **kwargs: object) -> str:
         messages = cast("list[dict[str, Any]]", kwargs["messages"])
         user_text_parts = _extract_user_text_parts(messages)
         assert len(messages) == 1
@@ -1534,7 +1539,7 @@ async def test_locate_text_block_bbox_with_llm_uses_block_prompt_transport(
 ) -> None:
     prompts: list[str | None] = []
 
-    async def _fake_complete_text(self, **kwargs: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **kwargs: object) -> str:
         messages = cast("list[dict[str, Any]]", kwargs["messages"])
         user_text_parts = _extract_user_text_parts(messages)
         assert len(messages) == 1
@@ -1614,7 +1619,7 @@ async def test_locate_text_block_bbox_with_llm_accepts_shared_transport_instance
 async def test_locate_text_block_bbox_with_llm_returns_none_when_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return json.dumps({"block_found": False, "block": None})
 
     monkeypatch.setattr("churro_ocr._internal.litellm.LiteLLMTransport.complete_text", _fake_complete_text)
@@ -1733,7 +1738,7 @@ async def test_locate_text_block_bbox_with_llm_applies_iterative_review(
     )
     prompts: list[str | None] = []
 
-    async def _fake_complete_text(self, **kwargs: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **kwargs: object) -> str:
         messages = cast("list[dict[str, Any]]", kwargs["messages"])
         user_text_parts = _extract_user_text_parts(messages)
         assert len(messages) == 1
@@ -1797,22 +1802,22 @@ async def test_azure_page_detector_detects_pages_and_closes_client(monkeypatch: 
             )
 
     class FakeClient:
-        def __init__(self, *, endpoint: str, credential: Any) -> None:
+        def __init__(self, *, endpoint: str, credential: object) -> None:
             calls["client_inits"] += 1
             assert endpoint == "https://example.test"
-            assert credential.key == "secret"
+            assert cast("HasKey", credential).key == "secret"
 
         async def begin_analyze_document(
             self,
             *,
             model_id: str,
-            body: Any,
+            body: object,
             content_type: str,
         ) -> FakePoller:
             calls["requests"] += 1
             assert model_id == "prebuilt-layout"
             assert content_type == "application/octet-stream"
-            assert body.read()
+            assert cast("ReadableBody", body).read()
             return FakePoller()
 
         async def close(self) -> None:
@@ -1823,9 +1828,9 @@ async def test_azure_page_detector_detects_pages_and_closes_client(monkeypatch: 
             self.key = key
 
     azure_document_module = ModuleType("azure.ai.documentintelligence.aio")
-    cast(Any, azure_document_module).DocumentIntelligenceClient = FakeClient
+    cast("Any", azure_document_module).DocumentIntelligenceClient = FakeClient
     azure_credentials_module = ModuleType("azure.core.credentials")
-    cast(Any, azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
+    cast("Any", azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
     monkeypatch.setitem(sys.modules, "azure.ai.documentintelligence.aio", azure_document_module)
     monkeypatch.setitem(sys.modules, "azure.core.credentials", azure_credentials_module)
 
@@ -1863,14 +1868,14 @@ async def test_azure_page_detector_returns_full_image_when_service_returns_no_pa
             return SimpleNamespace(pages=[])
 
     class FakeClient:
-        def __init__(self, *, endpoint: str, credential: Any) -> None:
+        def __init__(self, *, endpoint: str, credential: object) -> None:
             del endpoint, credential
 
         async def begin_analyze_document(
             self,
             *,
             model_id: str,
-            body: Any,
+            body: object,
             content_type: str,
         ) -> FakePoller:
             del model_id, body, content_type
@@ -1884,9 +1889,9 @@ async def test_azure_page_detector_returns_full_image_when_service_returns_no_pa
             self.key = key
 
     azure_document_module = ModuleType("azure.ai.documentintelligence.aio")
-    cast(Any, azure_document_module).DocumentIntelligenceClient = FakeClient
+    cast("Any", azure_document_module).DocumentIntelligenceClient = FakeClient
     azure_credentials_module = ModuleType("azure.core.credentials")
-    cast(Any, azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
+    cast("Any", azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
     monkeypatch.setitem(sys.modules, "azure.ai.documentintelligence.aio", azure_document_module)
     monkeypatch.setitem(sys.modules, "azure.core.credentials", azure_credentials_module)
 
@@ -1930,21 +1935,21 @@ async def test_azure_page_detector_retries_transient_errors(
             )
 
     class FakeClient:
-        def __init__(self, *, endpoint: str, credential: Any) -> None:
+        def __init__(self, *, endpoint: str, credential: object) -> None:
             calls["client_inits"] += 1
             assert endpoint == "https://example.test"
-            assert credential.key == "secret"
+            assert cast("HasKey", credential).key == "secret"
 
         async def begin_analyze_document(
             self,
             *,
             model_id: str,
-            body: Any,
+            body: object,
             content_type: str,
         ) -> FakePoller:
             calls["requests"] += 1
             assert model_id == "prebuilt-layout"
-            assert body.read()
+            assert cast("ReadableBody", body).read()
             assert content_type == "application/octet-stream"
             if calls["requests"] == 1:
                 raise FakeAzureError(429, headers={"retry-after": "4"})
@@ -1961,9 +1966,9 @@ async def test_azure_page_detector_retries_transient_errors(
         sleep_calls.append(delay)
 
     azure_document_module = ModuleType("azure.ai.documentintelligence.aio")
-    cast(Any, azure_document_module).DocumentIntelligenceClient = FakeClient
+    cast("Any", azure_document_module).DocumentIntelligenceClient = FakeClient
     azure_credentials_module = ModuleType("azure.core.credentials")
-    cast(Any, azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
+    cast("Any", azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
     monkeypatch.setitem(sys.modules, "azure.ai.documentintelligence.aio", azure_document_module)
     monkeypatch.setitem(sys.modules, "azure.core.credentials", azure_credentials_module)
     monkeypatch.setattr(retry_module, "retry_sleep", _fake_sleep)

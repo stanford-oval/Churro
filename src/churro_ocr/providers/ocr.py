@@ -7,9 +7,7 @@ import base64
 from dataclasses import dataclass, field
 from io import BytesIO
 from threading import Lock
-from typing import Any
-
-from PIL import Image
+from typing import TYPE_CHECKING, Protocol, cast
 
 from churro_ocr._internal.image import ensure_rgb, image_to_base64
 from churro_ocr._internal.install import install_command_hint
@@ -51,7 +49,60 @@ from churro_ocr.templates import (
     build_ocr_conversation,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from PIL import Image
+
+
+class _AzureAnalyzeResultLike(Protocol):
+    content: object
+
+
+class _AzurePollerLike(Protocol):
+    async def result(self) -> _AzureAnalyzeResultLike: ...
+
+
+class _AzureDocumentIntelligenceClientLike(Protocol):
+    async def begin_analyze_document(
+        self,
+        *,
+        model_id: str,
+        body: BytesIO,
+        content_type: str,
+    ) -> _AzurePollerLike: ...
+
+
+class _MistralOCRPageLike(Protocol):
+    markdown: str
+
+
+class _MistralOCRResponseLike(Protocol):
+    pages: Sequence[_MistralOCRPageLike] | None
+
+
+class _MistralOCRNamespaceLike(Protocol):
+    async def process_async(
+        self,
+        *,
+        model: str,
+        document: dict[str, str],
+    ) -> _MistralOCRResponseLike: ...
+
+
+class _MistralClientLike(Protocol):
+    ocr: _MistralOCRNamespaceLike
+
+
 _MISTRAL_REQUEST_TIMEOUT_SECONDS = 60.0
+
+
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
+
+
+def _provider_error(message: str) -> ProviderError:
+    return ProviderError(message)
 
 
 def _with_default_ocr_completion_kwargs(config: LiteLLMTransportConfig) -> LiteLLMTransportConfig:
@@ -227,11 +278,11 @@ class MinerU25OpenAICompatibleOCRBackend(OpenAICompatibleOCRBackend):
     """Two-step MinerU2.5 OCR backend for OpenAI-compatible servers such as vLLM."""
 
     __slots__ = (
-        "layout_template",
-        "table_template",
+        "_helper",
         "formula_template",
         "image_analysis_template",
-        "_helper",
+        "layout_template",
+        "table_template",
     )
 
     layout_template: OCRPromptTemplateLike
@@ -364,10 +415,7 @@ class MinerU25OpenAICompatibleOCRBackend(OpenAICompatibleOCRBackend):
 
     async def ocr_batch(self, pages: list[DocumentPage]) -> list[OCRResult]:
         """Run the MinerU2.5 two-step OCR pipeline for multiple pages."""
-        results: list[OCRResult] = []
-        for page in pages:
-            results.append(await self.ocr(page))
-        return results
+        return [await self.ocr(page) for page in pages]
 
 
 @dataclass(slots=True)
@@ -388,12 +436,12 @@ class AzureDocumentIntelligenceOCRBackend(OCRBackend):
     model_name: str | None = None
     image_preprocessor: ImagePreprocessor = default_ocr_image_preprocessor
     text_postprocessor: TextPostprocessor = identity_text_postprocessor
-    _client: Any | None = field(default=None, init=False, repr=False)
+    _client: _AzureDocumentIntelligenceClientLike | None = field(default=None, init=False, repr=False)
     _client_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
     _has_logged_prompt: bool = field(default=False, init=False, repr=False)
     _prompt_log_lock: Lock = field(default_factory=Lock, init=False, repr=False)
 
-    async def _get_client(self) -> Any:
+    async def _get_client(self) -> _AzureDocumentIntelligenceClientLike:
         client = self._client
         if client is not None:
             return client
@@ -406,13 +454,15 @@ class AzureDocumentIntelligenceOCRBackend(OCRBackend):
                 from azure.ai.documentintelligence.aio import DocumentIntelligenceClient
                 from azure.core.credentials import AzureKeyCredential
             except ImportError as exc:  # pragma: no cover - optional extra path
-                raise ConfigurationError(
-                    f"Azure OCR requires the `azure` runtime. {install_command_hint('azure')}"
-                ) from exc
+                message = f"Azure OCR requires the `azure` runtime. {install_command_hint('azure')}"
+                raise _configuration_error(message) from exc
 
-            client = DocumentIntelligenceClient(
-                endpoint=self.endpoint,
-                credential=AzureKeyCredential(self.api_key),
+            client = cast(
+                "_AzureDocumentIntelligenceClientLike",
+                DocumentIntelligenceClient(
+                    endpoint=self.endpoint,
+                    credential=AzureKeyCredential(self.api_key),
+                ),
             )
             self._client = client
             return client
@@ -444,7 +494,7 @@ class AzureDocumentIntelligenceOCRBackend(OCRBackend):
         )
         client = await self._get_client()
 
-        async def _analyze_document() -> Any:
+        async def _analyze_document() -> _AzureAnalyzeResultLike:
             poller = await client.begin_analyze_document(
                 model_id=self.model_id,
                 body=BytesIO(image_bytes),
@@ -458,7 +508,8 @@ class AzureDocumentIntelligenceOCRBackend(OCRBackend):
             context=f"for model {self.model_id}",
         )
         if not isinstance(result.content, str):
-            raise ProviderError("Azure Document Intelligence returned no OCR text.")
+            message = "Azure Document Intelligence returned no OCR text."
+            raise _provider_error(message)
         return build_ocr_result(
             result.content,
             provider_name="azure-document-intelligence",
@@ -483,7 +534,7 @@ class MistralOCRBackend(OCRBackend):
     model_name: str | None = None
     image_preprocessor: ImagePreprocessor = default_ocr_image_preprocessor
     text_postprocessor: TextPostprocessor = identity_text_postprocessor
-    _client: Any | None = field(default=None, init=False, repr=False)
+    _client: _MistralClientLike | None = field(default=None, init=False, repr=False)
     _client_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
     _has_logged_prompt: bool = field(default=False, init=False, repr=False)
     _prompt_log_lock: Lock = field(default_factory=Lock, init=False, repr=False)
@@ -492,7 +543,7 @@ class MistralOCRBackend(OCRBackend):
         """Reject unsupported Mistral OCR aliases and unpinned model ids."""
         validate_mistral_ocr_model(self.model, context="Mistral OCR backend")
 
-    async def _get_client(self) -> Any:
+    async def _get_client(self) -> _MistralClientLike:
         client = self._client
         if client is not None:
             return client
@@ -504,11 +555,10 @@ class MistralOCRBackend(OCRBackend):
             try:
                 from mistralai import Mistral
             except ImportError as exc:  # pragma: no cover - optional extra path
-                raise ConfigurationError(
-                    f"Mistral OCR requires the `mistral` runtime. {install_command_hint('mistral')}"
-                ) from exc
+                message = f"Mistral OCR requires the `mistral` runtime. {install_command_hint('mistral')}"
+                raise _configuration_error(message) from exc
 
-            client = Mistral(api_key=self.api_key)
+            client = cast("_MistralClientLike", Mistral(api_key=self.api_key))
             self._client = client
             return client
 
@@ -539,7 +589,7 @@ class MistralOCRBackend(OCRBackend):
         client = await self._get_client()
         document = {"type": "image_url", "image_url": image_url}
 
-        async def _process_ocr() -> Any:
+        async def _process_ocr() -> _MistralOCRResponseLike:
             return await asyncio.wait_for(
                 client.ocr.process_async(
                     model=self.model,
@@ -554,7 +604,8 @@ class MistralOCRBackend(OCRBackend):
             context=f"for model {self.model}",
         )
         if not response.pages:
-            raise ProviderError("Mistral OCR returned no pages.")
+            message = "Mistral OCR returned no pages."
+            raise _provider_error(message)
         return build_ocr_result(
             response.pages[0].markdown,
             provider_name="mistral",

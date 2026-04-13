@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 
@@ -92,7 +93,7 @@ def _save_detection_overlay(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_llm_page_detector_live_vertex_gemini_31_pro(test_artifact_dir_path) -> None:
+async def test_llm_page_detector_live_vertex_gemini_31_pro(test_artifact_dir_path: Path) -> None:
     if os.getenv(_LIVE_FLAG) != "1":
         pytest.skip(f"Set {_LIVE_FLAG}=1 to run live Vertex page-detection integration tests.")
 
@@ -101,7 +102,7 @@ async def test_llm_page_detector_live_vertex_gemini_31_pro(test_artifact_dir_pat
     if missing:
         pytest.skip(f"Missing required Vertex env vars: {', '.join(missing)}")
 
-    test_artifact_dir_path.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(test_artifact_dir_path.mkdir, parents=True, exist_ok=True)
     image_path = test_artifact_dir_path / "vertex-page-detection.png"
     width, height = _write_synthetic_page_image(image_path)
 

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
 import pytest
 
 from churro_ocr.document import DocumentOCRPipeline
 from churro_ocr.providers import HuggingFaceOptions, OCRBackendSpec, build_ocr_backend
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _LIVE_FLAG = "CHURRO_RUN_LIVE_HF_TESTS"
 _ALLOW_CPU_FLAG = "CHURRO_ALLOW_CPU_HF_TESTS"
@@ -15,7 +19,10 @@ _DEFAULT_MODEL_ID = "stanford-oval/churro-3B"
 
 
 @pytest.mark.integration
-def test_churro_3b_live_hf_ocr_on_minimal_pdf(minimal_pdf_path, test_artifact_dir_path) -> None:
+def test_churro_3b_live_hf_ocr_on_minimal_pdf(
+    minimal_pdf_path: Path,
+    test_artifact_dir_path: Path,
+) -> None:
     if os.getenv(_LIVE_FLAG) != "1":
         pytest.skip(f"Set {_LIVE_FLAG}=1 to run live Hugging Face OCR integration tests.")
 

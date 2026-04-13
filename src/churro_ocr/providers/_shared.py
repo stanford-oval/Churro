@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from churro_ocr.types import MetadataDict
 
 
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
+
+
 def preprocess_backend_page(
     page: DocumentPage,
     *,
@@ -56,10 +60,11 @@ def render_ocr_prompt(
         )
         return rendered, conversation
 
-    raise ConfigurationError(
+    message = (
         "OCR prompt rendering requires either `processor.apply_chat_template(...)`, "
         "or `processor.tokenizer.apply_chat_template(...)`."
     )
+    raise _configuration_error(message)
 
 
 def normalize_media_inputs(media_inputs: object | None) -> object | None:

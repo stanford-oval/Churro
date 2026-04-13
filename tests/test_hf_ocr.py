@@ -806,7 +806,9 @@ async def test_lfm25_huggingface_backend_uses_tokenized_chat_template_and_ties_l
             )
 
         def __call__(self, **kwargs: object) -> object:
-            raise AssertionError("processor(...) should not be used for LFM2.5-VL")
+            del kwargs
+            message = "processor(...) should not be used for LFM2.5-VL"
+            raise AssertionError(message)
 
         def batch_decode(
             self,
@@ -950,7 +952,9 @@ async def test_lfm25_huggingface_backend_batches_pages_with_tokenized_chat_templ
             )
 
         def __call__(self, **kwargs: object) -> object:
-            raise AssertionError("processor(...) should not be used for LFM2.5-VL batches")
+            del kwargs
+            message = "processor(...) should not be used for LFM2.5-VL batches"
+            raise AssertionError(message)
 
         def batch_decode(
             self,
@@ -1256,6 +1260,7 @@ async def test_dots_ocr_15_backend_uses_expected_runtime_and_prompt(
             skip_special_tokens: bool,
             clean_up_tokenization_spaces: bool,
         ) -> list[str]:
+            del skip_special_tokens, clean_up_tokenization_spaces
             captured["generated_ids"] = generated_ids
             return ["dots transcription"]
 
@@ -1392,18 +1397,18 @@ async def test_mineru2_5_huggingface_backend_uses_two_step_generation_contract(
                 user_content = cast("list[dict[str, object]]", conversation_messages[1]["content"])
                 prompt = cast("str", user_content[1]["text"])
                 return (f"<rendered:{prompt}>",)
-            raise AssertionError("tokenized chat template should not be used for MinerU2.5")
+            message = "tokenized chat template should not be used for MinerU2.5"
+            raise AssertionError(message)
 
         def __call__(self, **kwargs: object) -> FakeBatch:
             captured.setdefault("processor_call_kwargs", []).append(kwargs)
-            batch = FakeBatch(
+            return FakeBatch(
                 {
                     "input_ids": object(),
                     "attention_mask": object(),
                     "pixel_values": object(),
                 }
             )
-            return batch
 
     class FakeProcessorCls:
         @staticmethod
@@ -1687,7 +1692,9 @@ async def test_paddleocr_vl_15_backend_uses_tokenized_chat_template_and_profile_
             )
 
         def __call__(self, **kwargs: object) -> object:
-            raise AssertionError("processor(...) should not be used for PaddleOCR-VL")
+            del kwargs
+            message = "processor(...) should not be used for PaddleOCR-VL"
+            raise AssertionError(message)
 
         def batch_decode(
             self,
@@ -1919,6 +1926,7 @@ def test_patch_dots_ocr_prepare_inputs_for_generation_skips_wrapped_dots_method(
             num_logits_to_keep: object = None,
             **kwargs: object,
         ) -> dict[str, object]:
+            del past_key_values, inputs_embeds, num_logits_to_keep, kwargs
             if cast("Any", cache_position)[0] == 0:
                 return {"pixel_values": pixel_values}
             return {
@@ -2063,7 +2071,8 @@ def test_dots_ocr_15_backend_batch_strips_unused_mm_token_type_ids(monkeypatch: 
             tokenize: bool,
         ) -> str:
             del add_generation_prompt, tokenize
-            image = cast(Image.Image, cast(list[dict[str, object]], conversation[0]["content"])[0]["image"])
+            image_content = cast("list[dict[str, object]]", conversation[0]["content"])
+            image = cast("Image.Image", image_content[0]["image"])
             return f"<dots-rendered:{image.width}>"
 
         def __call__(self, **kwargs: object) -> FakeBatch:
@@ -2252,15 +2261,15 @@ def test_hf_runtime_loaders_use_installed_modules(
 ) -> None:
     process_vision_info = object()
     qwen_module = ModuleType("qwen_vl_utils")
-    cast(Any, qwen_module).process_vision_info = process_vision_info
+    cast("Any", qwen_module).process_vision_info = process_vision_info
 
     processor_cls = object()
     image_text_model_cls = object()
     causal_model_cls = object()
     transformers_module = ModuleType("transformers")
-    cast(Any, transformers_module).AutoProcessor = processor_cls
-    cast(Any, transformers_module).AutoModelForImageTextToText = image_text_model_cls
-    cast(Any, transformers_module).AutoModelForCausalLM = causal_model_cls
+    cast("Any", transformers_module).AutoProcessor = processor_cls
+    cast("Any", transformers_module).AutoModelForImageTextToText = image_text_model_cls
+    cast("Any", transformers_module).AutoModelForCausalLM = causal_model_cls
 
     monkeypatch.setitem(sys.modules, "torch", ModuleType("torch"))
     monkeypatch.setitem(sys.modules, "qwen_vl_utils", qwen_module)
@@ -2309,8 +2318,8 @@ def test_prepare_dots_ocr_model_dir_downloads_and_patches(
     patched_paths: list[Path] = []
 
     huggingface_hub_module = ModuleType("huggingface_hub")
-    cast(Any, huggingface_hub_module).snapshot_download = lambda *, repo_id, local_dir: download_calls.append(
-        (repo_id, local_dir)
+    cast("Any", huggingface_hub_module).snapshot_download = lambda *, repo_id, local_dir: (
+        download_calls.append((repo_id, local_dir))
     )
     monkeypatch.setitem(sys.modules, "huggingface_hub", huggingface_hub_module)
     monkeypatch.setattr(hf_module.Path, "home", lambda: tmp_path)
@@ -2356,7 +2365,7 @@ def test_default_dots_ocr_1_5_model_kwargs_handles_cuda_variants(
             return free_bytes, 0
 
     torch_module = ModuleType("torch")
-    cast(Any, torch_module).cuda = _FakeCuda
+    cast("Any", torch_module).cuda = _FakeCuda
     monkeypatch.setitem(sys.modules, "torch", torch_module)
 
     assert hf_module._default_dots_ocr_1_5_model_kwargs() == expected
@@ -2372,10 +2381,11 @@ def test_default_dots_ocr_1_5_model_kwargs_falls_back_when_mem_probe_fails(
 
         @staticmethod
         def mem_get_info() -> tuple[int, int]:
-            raise RuntimeError("cudaMemGetInfo failed")
+            message = "cudaMemGetInfo failed"
+            raise RuntimeError(message)
 
     torch_module = ModuleType("torch")
-    cast(Any, torch_module).cuda = _FakeCuda
+    cast("Any", torch_module).cuda = _FakeCuda
     monkeypatch.setitem(sys.modules, "torch", torch_module)
 
     assert hf_module._default_dots_ocr_1_5_model_kwargs() == {"dtype": "auto"}
@@ -2426,8 +2436,8 @@ async def test_huggingface_vision_ocr_backend_batches_pages_with_custom_vision_i
             tokenize: bool,
         ) -> str:
             chat_calls.append((add_generation_prompt, tokenize))
-            user_content = cast(list[dict[str, object]], conversation[0]["content"])
-            image = cast(Image.Image, user_content[0]["image"])
+            user_content = cast("list[dict[str, object]]", conversation[0]["content"])
+            image = cast("Image.Image", user_content[0]["image"])
             return f"prompt:{image.width}"
 
         def __call__(self, **kwargs: object) -> FakeBatch:
@@ -2497,8 +2507,8 @@ async def test_huggingface_vision_ocr_backend_batches_pages_with_custom_vision_i
     monkeypatch.setattr("churro_ocr._internal.prompt_logging.logger", FakeLogger())
 
     def _vision_input_builder(conversation: list[dict[str, object]]) -> tuple[str, str]:
-        user_content = cast(list[dict[str, object]], conversation[0]["content"])
-        image = cast(Image.Image, user_content[0]["image"])
+        user_content = cast("list[dict[str, object]]", conversation[0]["content"])
+        image = cast("Image.Image", user_content[0]["image"])
         return f"image:{image.width}", f"video:{image.width}"
 
     backend = HuggingFaceVisionOCRBackend(
@@ -2535,10 +2545,10 @@ async def test_huggingface_vision_ocr_backend_batches_pages_with_custom_vision_i
         "padding": True,
     }
     assert captured["device"] == "cuda:0"
-    fake_pixel_values = cast(Any, captured["pixel_values"])
+    fake_pixel_values = cast("Any", captured["pixel_values"])
     assert fake_pixel_values.to_calls == ["float16"]
     assert captured["sum_dim"] == 1
-    generate_kwargs = cast(dict[str, object], captured["generate_kwargs"])
+    generate_kwargs = cast("dict[str, object]", captured["generate_kwargs"])
     assert generate_kwargs["temperature"] == 0.1
     assert generate_kwargs["max_new_tokens"] == DEFAULT_OCR_MAX_TOKENS
     assert generate_kwargs["attention_mask"].__class__.__name__ == ("FakeAttentionMask")
@@ -2587,7 +2597,7 @@ def test_dots_ocr_15_backend_get_model_sets_sdpa_on_vision_config(
             return object()
 
     transformers_module = ModuleType("transformers")
-    cast(Any, transformers_module).AutoConfig = FakeAutoConfig
+    cast("Any", transformers_module).AutoConfig = FakeAutoConfig
     monkeypatch.setitem(sys.modules, "transformers", transformers_module)
     monkeypatch.setattr(
         hf_module,

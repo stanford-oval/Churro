@@ -9,9 +9,7 @@ from importlib import import_module
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import MethodType
-from typing import Any, cast
-
-from PIL import Image
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from churro_ocr._internal.image import ensure_rgb
 from churro_ocr._internal.install import install_command_hint
@@ -70,10 +68,25 @@ from churro_ocr.templates import (
     build_ocr_conversation,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from PIL import Image
+
+    from churro_ocr.types import OCRConversationContentItem
+
 _HF_EXTRA_INSTALL_HINT = install_command_hint("hf")
 _HF_TORCH_INSTALL_HINT = (
     f"Hugging Face OCR requires a separately installed PyTorch runtime. {_HF_EXTRA_INSTALL_HINT}"
 )
+
+
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
+
+
+def _provider_error(message: str) -> ProviderError:
+    return ProviderError(message)
 
 
 @dataclass(slots=True)
@@ -83,11 +96,68 @@ class _HFRuntime:
     process_vision_info: Any
 
 
+class _HFProcessorCallable(Protocol):
+    def __call__(self, **kwargs: object) -> object: ...
+
+
+class _HFProcessorDecoder(Protocol):
+    def batch_decode(
+        self,
+        token_ids: object,
+        *,
+        skip_special_tokens: bool,
+        clean_up_tokenization_spaces: bool,
+    ) -> list[str]: ...
+
+
+class _HFChatTemplateProcessor(Protocol):
+    def apply_chat_template(
+        self,
+        conversations: object,
+        **kwargs: object,
+    ) -> dict[str, object]: ...
+
+
+class _HFGenerativeModel(Protocol):
+    def generate(self, **kwargs: object) -> object: ...
+
+
+class _TorchCudaNamespace(Protocol):
+    def is_available(self) -> bool: ...
+
+    def mem_get_info(self) -> tuple[int, int]: ...
+
+
+class _TorchModuleLike(Protocol):
+    cuda: _TorchCudaNamespace
+    bfloat16: object
+
+
 def _ensure_hf_torch_runtime() -> None:
     try:
         import_module("torch")
     except ImportError as exc:  # pragma: no cover - optional extra path
         raise ConfigurationError(_HF_TORCH_INSTALL_HINT) from exc
+
+
+def _load_torch_module() -> _TorchModuleLike:
+    return cast("_TorchModuleLike", import_module("torch"))
+
+
+def _call_processor(processor: object, **kwargs: object) -> dict[str, object]:
+    return cast("dict[str, object]", cast("_HFProcessorCallable", processor)(**kwargs))
+
+
+def _generate_with_model(model: object, **kwargs: object) -> object:
+    return cast("_HFGenerativeModel", model).generate(**kwargs)
+
+
+def _apply_chat_template(
+    processor: object,
+    conversations: object,
+    **kwargs: object,
+) -> dict[str, object]:
+    return cast("_HFChatTemplateProcessor", processor).apply_chat_template(conversations, **kwargs)
 
 
 def _load_hf_runtime() -> _HFRuntime:
@@ -96,9 +166,8 @@ def _load_hf_runtime() -> _HFRuntime:
         from qwen_vl_utils import process_vision_info
         from transformers import AutoModelForImageTextToText, AutoProcessor
     except ImportError as exc:  # pragma: no cover - optional extra path
-        raise ConfigurationError(
-            f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
-        ) from exc
+        message = f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
+        raise _configuration_error(message) from exc
 
     return _HFRuntime(
         processor_cls=AutoProcessor,
@@ -113,9 +182,8 @@ def _load_hf_causal_runtime() -> _HFRuntime:
         from qwen_vl_utils import process_vision_info
         from transformers import AutoModelForCausalLM, AutoProcessor
     except ImportError as exc:  # pragma: no cover - optional extra path
-        raise ConfigurationError(
-            f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
-        ) from exc
+        message = f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
+        raise _configuration_error(message) from exc
 
     return _HFRuntime(
         processor_cls=AutoProcessor,
@@ -129,9 +197,8 @@ def _load_hf_auto_model_runtime() -> _HFRuntime:
     try:
         from transformers import AutoModel, AutoTokenizer
     except ImportError as exc:  # pragma: no cover - optional extra path
-        raise ConfigurationError(
-            f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
-        ) from exc
+        message = f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
+        raise _configuration_error(message) from exc
 
     return _HFRuntime(
         processor_cls=AutoTokenizer,
@@ -145,9 +212,8 @@ def _load_hf_auto_processor_model_runtime() -> _HFRuntime:
     try:
         from transformers import AutoModel, AutoProcessor
     except ImportError as exc:  # pragma: no cover - optional extra path
-        raise ConfigurationError(
-            f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
-        ) from exc
+        message = f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
+        raise _configuration_error(message) from exc
 
     return _HFRuntime(
         processor_cls=AutoProcessor,
@@ -156,14 +222,15 @@ def _load_hf_auto_processor_model_runtime() -> _HFRuntime:
     )
 
 
-def _ensure_deepseek_ocr_2_cuda_runtime() -> Any:
+def _ensure_deepseek_ocr_2_cuda_runtime() -> _TorchModuleLike:
     _ensure_hf_torch_runtime()
-    torch = import_module("torch")
+    torch = _load_torch_module()
     if not torch.cuda.is_available():
-        raise ConfigurationError(
+        message = (
             "DeepSeek-OCR-2 HF backend requires a CUDA-capable PyTorch runtime because "
             "the upstream `infer(...)` implementation moves inputs to CUDA."
         )
+        raise _configuration_error(message)
     return torch
 
 
@@ -220,9 +287,8 @@ def _prepare_dots_ocr_model_dir(model_id: str) -> str:
     try:
         from huggingface_hub import snapshot_download
     except ImportError as exc:  # pragma: no cover - transitively provided by transformers
-        raise ConfigurationError(
-            f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
-        ) from exc
+        message = f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
+        raise _configuration_error(message) from exc
 
     model_dir = (
         Path.home()
@@ -237,7 +303,7 @@ def _prepare_dots_ocr_model_dir(model_id: str) -> str:
     return str(model_dir)
 
 
-def _patch_dots_ocr_prepare_inputs_for_generation(model: Any) -> None:
+def _patch_dots_ocr_prepare_inputs_for_generation(model: object) -> None:
     prepare_inputs_for_generation = getattr(model, "prepare_inputs_for_generation", None)
     if not callable(prepare_inputs_for_generation):
         return
@@ -260,7 +326,7 @@ def _patch_dots_ocr_prepare_inputs_for_generation(model: Any) -> None:
         return
 
     def _patched_prepare_inputs_for_generation(
-        self: Any,
+        _self: object,
         input_ids: object,
         past_key_values: object = None,
         inputs_embeds: object = None,
@@ -269,7 +335,7 @@ def _patch_dots_ocr_prepare_inputs_for_generation(model: Any) -> None:
         cache_position: object = None,
         num_logits_to_keep: object = None,
         **kwargs: object,
-    ) -> Any:
+    ) -> object:
         model_inputs = base_prepare_inputs_for_generation(
             input_ids,
             past_key_values=past_key_values,
@@ -284,21 +350,22 @@ def _patch_dots_ocr_prepare_inputs_for_generation(model: Any) -> None:
         if cache_position is not None:
             try:
                 first_cache_position = int(cast("Any", cache_position)[0])
-            except Exception:
+            except (IndexError, TypeError, ValueError):
                 first_cache_position = None
         if first_cache_position in (None, 0):
             model_inputs["pixel_values"] = pixel_values
 
         return model_inputs
 
-    model.prepare_inputs_for_generation = MethodType(_patched_prepare_inputs_for_generation, model)
-    model._churro_dots_prepare_inputs_patched = True
+    model_any = cast("Any", model)
+    model_any.prepare_inputs_for_generation = MethodType(_patched_prepare_inputs_for_generation, model)
+    model_any._churro_dots_prepare_inputs_patched = True
 
 
 def _default_dots_ocr_1_5_model_kwargs() -> dict[str, object]:
     model_kwargs: dict[str, object] = {"dtype": "auto"}
     try:
-        torch = import_module("torch")
+        torch = _load_torch_module()
     except ImportError:  # pragma: no cover - torch is installed separately for local HF use
         return model_kwargs
 
@@ -324,7 +391,7 @@ def _default_chandra_ocr_2_model_kwargs() -> dict[str, object]:
         "dtype": "auto",
     }
     try:
-        torch = import_module("torch")
+        torch = _load_torch_module()
     except ImportError:  # pragma: no cover - torch is installed separately for local HF use
         return model_kwargs
 
@@ -363,18 +430,19 @@ def _deepseek_ocr_2_prompt_from_conversation(conversation: OCRConversation) -> s
     has_image = False
     for message in conversation:
         if message.get("role") == "system":
-            content_items = cast("list[dict[str, object]]", message["content"])
+            content_items = cast("list[OCRConversationContentItem]", message["content"])
             system_text = "\n".join(
                 cast("str", item["text"]).strip()
                 for item in content_items
                 if item.get("type") == "text" and isinstance(item.get("text"), str)
             ).strip()
             if system_text:
-                raise ConfigurationError("DeepSeek-OCR-2 does not support system prompts in the HF backend.")
+                message = "DeepSeek-OCR-2 does not support system prompts in the HF backend."
+                raise _configuration_error(message)
             continue
         if message.get("role") != "user":
             continue
-        content_items = cast("list[dict[str, object]]", message["content"])
+        content_items = cast("list[OCRConversationContentItem]", message["content"])
         for item in content_items:
             if item.get("type") == "image":
                 has_image = True
@@ -385,26 +453,30 @@ def _deepseek_ocr_2_prompt_from_conversation(conversation: OCRConversation) -> s
                     prompt_lines.append(text)
     prompt_text = "\n".join(prompt_lines).strip()
     if not prompt_text:
-        raise ConfigurationError("DeepSeek-OCR-2 requires a non-empty OCR prompt.")
+        message = "DeepSeek-OCR-2 requires a non-empty OCR prompt."
+        raise _configuration_error(message)
     if has_image:
         return f"<image>\n{prompt_text}"
     return prompt_text
 
 
-def _move_batch_to_model(batch: Any, model: Any) -> Any:
+def _move_batch_to_model(batch: dict[str, object], model: object) -> dict[str, object]:
     model_device = getattr(model, "device", None)
     if hasattr(batch, "to") and model_device is not None:
-        batch = batch.to(model_device)
+        batch = cast("dict[str, object]", cast("Any", batch).to(model_device))
     model_dtype = getattr(model, "dtype", None)
     if model_dtype is not None:
-        batch_mapping = cast(dict[str, object], batch)
-        for key, value in batch_mapping.items():
+        for key, value in batch.items():
             if hasattr(value, "dtype") and getattr(value.dtype, "is_floating_point", False):
-                batch_mapping[key] = cast(Any, value).to(dtype=model_dtype)
+                batch[key] = cast("Any", value).to(dtype=model_dtype)
     return batch
 
 
-def _decode_completion_texts(processor: Any, batch: Any, generated_ids: Any) -> list[str]:
+def _decode_completion_texts(
+    processor: object,
+    batch: Mapping[str, object],
+    generated_ids: object,
+) -> list[str]:
     return _decode_completion_texts_with_options(
         processor,
         batch,
@@ -413,35 +485,34 @@ def _decode_completion_texts(processor: Any, batch: Any, generated_ids: Any) -> 
     )
 
 
-def _completion_ids_from_generated_ids(batch: Any, generated_ids: Any) -> Any:
-    batch_mapping = cast(dict[str, object], batch)
-    attention_mask = batch_mapping.get("attention_mask")
+def _completion_ids_from_generated_ids(batch: Mapping[str, object], generated_ids: object) -> object:
+    attention_mask = batch.get("attention_mask")
     if attention_mask is not None and hasattr(attention_mask, "sum"):
-        prompt_lengths = cast(Any, attention_mask).sum(dim=1).tolist()
+        prompt_lengths = cast("Any", attention_mask).sum(dim=1).tolist()
         return [
             output_ids[int(prompt_length) :]
-            for prompt_length, output_ids in zip(prompt_lengths, generated_ids, strict=True)
+            for prompt_length, output_ids in zip(prompt_lengths, cast("Any", generated_ids), strict=True)
         ]
-    prompt_length = cast(Any, batch_mapping["input_ids"]).shape[1]
-    return generated_ids[:, prompt_length:]
+    prompt_length = cast("Any", batch["input_ids"]).shape[1]
+    return cast("Any", generated_ids)[:, prompt_length:]
 
 
 def _decode_completion_texts_with_options(
-    processor: Any,
-    batch: Any,
-    generated_ids: Any,
+    processor: object,
+    batch: Mapping[str, object],
+    generated_ids: object,
     *,
     skip_special_tokens: bool,
 ) -> list[str]:
     completion_ids = _completion_ids_from_generated_ids(batch, generated_ids)
-    return processor.batch_decode(
+    return cast("_HFProcessorDecoder", processor).batch_decode(
         completion_ids,
         skip_special_tokens=skip_special_tokens,
         clean_up_tokenization_spaces=False,
     )
 
 
-def _resolve_model_max_length(model: Any) -> int | None:
+def _resolve_model_max_length(model: object) -> int | None:
     config = getattr(model, "config", None)
     max_length = getattr(config, "max_position_embeddings", None)
     if isinstance(max_length, int):
@@ -480,7 +551,7 @@ _MINERU25_SCOPED_PREFIXES = (
 )
 
 
-def _paddleocr_vl_processor_kwargs(*, processor: Any, padding: bool) -> dict[str, object]:
+def _paddleocr_vl_processor_kwargs(*, processor: object, padding: bool) -> dict[str, object]:
     processor_kwargs: dict[str, object] = {
         "text_kwargs": {
             "padding": padding,
@@ -586,9 +657,10 @@ class HuggingFaceVisionOCRBackend(OCRBackend):
         normalized_video_inputs = normalize_media_inputs(video_inputs)
         if normalized_video_inputs is not None:
             batch_kwargs["videos"] = normalized_video_inputs
-        batch = processor(**batch_kwargs)
+        batch = _call_processor(processor, **batch_kwargs)
         batch = _move_batch_to_model(batch, model)
-        generated_ids = model.generate(
+        generated_ids = _generate_with_model(
+            model,
             **self._generation_inputs(batch),
             **self.generation_kwargs,
         )
@@ -645,9 +717,10 @@ class HuggingFaceVisionOCRBackend(OCRBackend):
         }
         if has_videos:
             batch_kwargs["videos"] = video_batch
-        batch = processor(**batch_kwargs)
+        batch = _call_processor(processor, **batch_kwargs)
         batch = _move_batch_to_model(batch, model)
-        generated_ids = model.generate(
+        generated_ids = _generate_with_model(
+            model,
             **self._generation_inputs(batch),
             **self.generation_kwargs,
         )
@@ -665,7 +738,7 @@ class HuggingFaceVisionOCRBackend(OCRBackend):
     def _load_runtime(self) -> _HFRuntime:
         return _load_hf_runtime()
 
-    def _generation_inputs(self, batch: Any) -> dict[str, object]:
+    def _generation_inputs(self, batch: object) -> dict[str, object]:
         return dict(cast("dict[str, object]", batch))
 
     def _resolve_model_source(self) -> str:
@@ -695,7 +768,7 @@ class HuggingFaceVisionOCRBackend(OCRBackend):
         )
         return image_inputs, video_inputs
 
-    def _get_processor(self, runtime: _HFRuntime) -> Any:
+    def _get_processor(self, runtime: _HFRuntime) -> object:
         if self._processor is None:
             with self._init_lock:
                 if self._processor is None:
@@ -706,7 +779,7 @@ class HuggingFaceVisionOCRBackend(OCRBackend):
                     )
         return self._processor
 
-    def _get_model(self, runtime: _HFRuntime) -> Any:
+    def _get_model(self, runtime: _HFRuntime) -> object:
         if self._model is None:
             with self._init_lock:
                 if self._model is None:
@@ -745,14 +818,14 @@ class ChandraOCR2OCRBackend(HuggingFaceVisionOCRBackend):
     template: OCRPromptTemplateLike = CHANDRA_OCR_2_OCR_TEMPLATE
     model_name: str | None = "chandra-ocr-2"
 
-    def _get_processor(self, runtime: _HFRuntime) -> Any:
+    def _get_processor(self, runtime: _HFRuntime) -> object:
         processor = super()._get_processor(runtime)
         tokenizer = getattr(processor, "tokenizer", None)
         if tokenizer is not None and getattr(tokenizer, "padding_side", None) != "left":
             tokenizer.padding_side = "left"
         return processor
 
-    def _get_model(self, runtime: _HFRuntime) -> Any:
+    def _get_model(self, runtime: _HFRuntime) -> object:
         if self._model is None:
             with self._init_lock:
                 if self._model is None:
@@ -770,11 +843,17 @@ class ChandraOCR2OCRBackend(HuggingFaceVisionOCRBackend):
                         eval_method()
         return self._model
 
-    def _build_chandra_batch(self, processor: Any, conversations: list[OCRConversation]) -> Any:
+    def _build_chandra_batch(
+        self,
+        processor: object,
+        conversations: list[OCRConversation],
+    ) -> dict[str, object]:
         processor_apply = getattr(processor, "apply_chat_template", None)
         if not callable(processor_apply):
-            raise ConfigurationError("Chandra OCR 2 requires `processor.apply_chat_template(...)` support.")
-        return processor_apply(
+            message = "Chandra OCR 2 requires `processor.apply_chat_template(...)` support."
+            raise _configuration_error(message)
+        return _apply_chat_template(
+            processor,
             conversations,
             add_generation_prompt=True,
             tokenize=True,
@@ -783,7 +862,7 @@ class ChandraOCR2OCRBackend(HuggingFaceVisionOCRBackend):
             padding=True,
         )
 
-    def _resolve_chandra_generation_kwargs(self, processor: Any, model: Any) -> dict[str, object]:
+    def _resolve_chandra_generation_kwargs(self, processor: object, model: object) -> dict[str, object]:
         generation_kwargs = dict(self.generation_kwargs)
         eos_token_ids: list[int] = []
         eos_token_id = getattr(getattr(model, "generation_config", None), "eos_token_id", None)
@@ -825,7 +904,8 @@ class ChandraOCR2OCRBackend(HuggingFaceVisionOCRBackend):
         )
         batch = self._build_chandra_batch(processor, [conversation])
         batch = _move_batch_to_model(batch, model)
-        generated_ids = model.generate(
+        generated_ids = _generate_with_model(
+            model,
             **batch,
             **self._resolve_chandra_generation_kwargs(processor, model),
         )
@@ -867,7 +947,8 @@ class ChandraOCR2OCRBackend(HuggingFaceVisionOCRBackend):
 
         batch = self._build_chandra_batch(processor, conversations)
         batch = _move_batch_to_model(batch, model)
-        generated_ids = model.generate(
+        generated_ids = _generate_with_model(
+            model,
             **batch,
             **self._resolve_chandra_generation_kwargs(processor, model),
         )
@@ -909,7 +990,7 @@ class DeepSeekOCR2OCRBackend(HuggingFaceVisionOCRBackend):
     def _load_runtime(self) -> _HFRuntime:
         return _load_hf_auto_model_runtime()
 
-    def _get_model(self, runtime: _HFRuntime) -> Any:
+    def _get_model(self, runtime: _HFRuntime) -> object:
         torch = _ensure_deepseek_ocr_2_cuda_runtime()
         if self._model is None:
             with self._init_lock:
@@ -932,15 +1013,15 @@ class DeepSeekOCR2OCRBackend(HuggingFaceVisionOCRBackend):
                         and "torch_dtype" not in model_kwargs
                         and "dtype" not in model_kwargs
                     ):
-                        model = to_method(torch.bfloat16)
+                        model = to_method(cast("Any", torch).bfloat16)
                     self._model = model
         return self._model
 
     def _infer_deepseek_page(
         self,
         *,
-        tokenizer: Any,
-        model: Any,
+        tokenizer: object,
+        model: object,
         page: DocumentPage,
         batch_size: int,
     ) -> OCRResult:
@@ -954,7 +1035,8 @@ class DeepSeekOCR2OCRBackend(HuggingFaceVisionOCRBackend):
 
         infer_method = getattr(model, "infer", None)
         if not callable(infer_method):
-            raise ConfigurationError("DeepSeek-OCR-2 requires a model object with `infer(...)` support.")
+            message = "DeepSeek-OCR-2 requires a model object with `infer(...)` support."
+            raise _configuration_error(message)
 
         with TemporaryDirectory(prefix="churro-deepseek-ocr-2-") as output_dir:
             image_path = Path(output_dir) / "page.png"
@@ -971,7 +1053,8 @@ class DeepSeekOCR2OCRBackend(HuggingFaceVisionOCRBackend):
                 eval_mode=True,
             )
         if not isinstance(text, str):
-            raise ProviderError("DeepSeek-OCR-2 returned no OCR text.")
+            message = "DeepSeek-OCR-2 returned no OCR text."
+            raise _provider_error(message)
         return build_ocr_result(
             text,
             provider_name=self.provider_name,
@@ -1035,7 +1118,7 @@ class DotsOCR15OCRBackend(HuggingFaceVisionOCRBackend):
     def _load_runtime(self) -> _HFRuntime:
         return _load_hf_causal_runtime()
 
-    def _generation_inputs(self, batch: Any) -> dict[str, object]:
+    def _generation_inputs(self, batch: object) -> dict[str, object]:
         generation_inputs = super()._generation_inputs(batch)
         generation_inputs.pop("mm_token_type_ids", None)
         return generation_inputs
@@ -1043,7 +1126,7 @@ class DotsOCR15OCRBackend(HuggingFaceVisionOCRBackend):
     def _resolve_model_source(self) -> str:
         return _prepare_dots_ocr_model_dir(self.model_id)
 
-    def _get_model(self, runtime: _HFRuntime) -> Any:
+    def _get_model(self, runtime: _HFRuntime) -> object:
         if self._model is None:
             with self._init_lock:
                 if self._model is None:
@@ -1113,7 +1196,7 @@ class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
     def _load_runtime(self) -> _HFRuntime:
         return _load_hf_runtime()
 
-    def _get_model(self, runtime: _HFRuntime) -> Any:
+    def _get_model(self, runtime: _HFRuntime) -> object:
         if self._model is None:
             with self._init_lock:
                 if self._model is None:
@@ -1144,10 +1227,12 @@ class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
     def _resolve_rendered_prompt(self, rendered: object) -> str:
         if isinstance(rendered, tuple):
             if not rendered:
-                raise ProviderError("MinerU2.5 returned an empty chat template render.")
+                message = "MinerU2.5 returned an empty chat template render."
+                raise _provider_error(message)
             rendered = rendered[0]
         if not isinstance(rendered, str):
-            raise ProviderError("MinerU2.5 chat template did not render text.")
+            message = "MinerU2.5 chat template did not render text."
+            raise _provider_error(message)
         return rendered
 
     def _resolve_step_sampling(self, step_key: str) -> MinerU25SamplingParams:
@@ -1163,7 +1248,7 @@ class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
                 changes[field_name] = step_value
         return replace_sampling_param(sampling, **changes) if changes else sampling
 
-    def _resolve_generation_kwargs(self, *, step_key: str, model: Any) -> dict[str, object]:
+    def _resolve_generation_kwargs(self, *, step_key: str, model: object) -> dict[str, object]:
         sampling = self._resolve_step_sampling(step_key)
         do_sample = ((sampling.temperature or 0.0) > 0.0) and ((sampling.top_k or 1) > 1)
 
@@ -1204,8 +1289,8 @@ class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
         self,
         *,
         runtime: _HFRuntime,
-        processor: Any,
-        model: Any,
+        processor: object,
+        model: object,
         image: Image.Image,
         step_key: str,
         batch_size: int,
@@ -1232,9 +1317,10 @@ class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
         normalized_video_inputs = normalize_media_inputs(video_inputs)
         if normalized_video_inputs is not None:
             batch_kwargs["videos"] = normalized_video_inputs
-        batch = processor(**batch_kwargs)
+        batch = _call_processor(processor, **batch_kwargs)
         batch = _move_batch_to_model(batch, model)
-        generated_ids = model.generate(
+        generated_ids = _generate_with_model(
+            model,
             **self._generation_inputs(batch),
             **self._resolve_generation_kwargs(step_key=step_key, model=model),
         )
@@ -1337,14 +1423,14 @@ class PaddleOCRVL15OCRBackend(HuggingFaceVisionOCRBackend):
         default_factory=lambda: {"max_new_tokens": 4_096, "do_sample": False}
     )
 
-    def _get_processor(self, runtime: _HFRuntime) -> Any:
+    def _get_processor(self, runtime: _HFRuntime) -> object:
         processor = super()._get_processor(runtime)
         tokenizer = getattr(processor, "tokenizer", None)
         if tokenizer is not None and getattr(tokenizer, "padding_side", None) != "left":
             tokenizer.padding_side = "left"
         return processor
 
-    def _get_model(self, runtime: _HFRuntime) -> Any:
+    def _get_model(self, runtime: _HFRuntime) -> object:
         model = super()._get_model(runtime)
         eval_method = getattr(model, "eval", None)
         if callable(eval_method):
@@ -1353,17 +1439,17 @@ class PaddleOCRVL15OCRBackend(HuggingFaceVisionOCRBackend):
 
     def _build_paddleocr_vl_batch(
         self,
-        processor: Any,
+        processor: object,
         conversations: OCRConversation | list[OCRConversation],
         *,
         padding: bool,
-    ) -> Any:
+    ) -> dict[str, object]:
         processor_apply = getattr(processor, "apply_chat_template", None)
         if not callable(processor_apply):
-            raise ConfigurationError(
-                "PaddleOCR-VL-1.5 requires `processor.apply_chat_template(...)` support."
-            )
-        return processor_apply(
+            message = "PaddleOCR-VL-1.5 requires `processor.apply_chat_template(...)` support."
+            raise _configuration_error(message)
+        return _apply_chat_template(
+            processor,
             conversations,
             add_generation_prompt=True,
             tokenize=True,
@@ -1397,7 +1483,7 @@ class PaddleOCRVL15OCRBackend(HuggingFaceVisionOCRBackend):
         )
         batch = self._build_paddleocr_vl_batch(processor, conversation, padding=False)
         batch = _move_batch_to_model(batch, model)
-        generated_ids = model.generate(**batch, **self.generation_kwargs)
+        generated_ids = _generate_with_model(model, **batch, **self.generation_kwargs)
         text = _decode_completion_texts(processor, batch, generated_ids)[0]
         return build_ocr_result(
             text,
@@ -1436,7 +1522,7 @@ class PaddleOCRVL15OCRBackend(HuggingFaceVisionOCRBackend):
 
         batch = self._build_paddleocr_vl_batch(processor, conversations, padding=True)
         batch = _move_batch_to_model(batch, model)
-        generated_ids = model.generate(**batch, **self.generation_kwargs)
+        generated_ids = _generate_with_model(model, **batch, **self.generation_kwargs)
         texts = _decode_completion_texts(processor, batch, generated_ids)
         return [
             build_ocr_result(
@@ -1458,14 +1544,14 @@ class LFM25VLOCRBackend(HuggingFaceVisionOCRBackend):
     model_name: str | None = "LFM2.5-VL-1.6B"
     _has_tied_lm_head: bool = field(default=False, init=False, repr=False)
 
-    def _get_processor(self, runtime: _HFRuntime) -> Any:
+    def _get_processor(self, runtime: _HFRuntime) -> object:
         processor = super()._get_processor(runtime)
         tokenizer = getattr(processor, "tokenizer", None)
         if tokenizer is not None and getattr(tokenizer, "padding_side", None) != "left":
             tokenizer.padding_side = "left"
         return processor
 
-    def _get_model(self, runtime: _HFRuntime) -> Any:
+    def _get_model(self, runtime: _HFRuntime) -> object:
         model = super()._get_model(runtime)
         if self._has_tied_lm_head:
             return model
@@ -1487,17 +1573,17 @@ class LFM25VLOCRBackend(HuggingFaceVisionOCRBackend):
 
     def _build_lfm_batch(
         self,
-        processor: Any,
+        processor: object,
         conversations: OCRConversation | list[OCRConversation],
         *,
         padding: bool,
-    ) -> Any:
+    ) -> dict[str, object]:
         processor_apply = getattr(processor, "apply_chat_template", None)
         if not callable(processor_apply):
-            raise ConfigurationError(
-                "Liquid LFM2.5-VL requires `processor.apply_chat_template(...)` support."
-            )
-        return processor_apply(
+            message = "Liquid LFM2.5-VL requires `processor.apply_chat_template(...)` support."
+            raise _configuration_error(message)
+        return _apply_chat_template(
+            processor,
             conversations,
             add_generation_prompt=True,
             tokenize=True,
@@ -1528,7 +1614,7 @@ class LFM25VLOCRBackend(HuggingFaceVisionOCRBackend):
         )
         batch = self._build_lfm_batch(processor, conversation, padding=False)
         batch = _move_batch_to_model(batch, model)
-        generated_ids = model.generate(**batch, **self.generation_kwargs)
+        generated_ids = _generate_with_model(model, **batch, **self.generation_kwargs)
         text = _decode_completion_texts(processor, batch, generated_ids)[0]
         return build_ocr_result(
             text,
@@ -1567,7 +1653,7 @@ class LFM25VLOCRBackend(HuggingFaceVisionOCRBackend):
 
         batch = self._build_lfm_batch(processor, conversations, padding=True)
         batch = _move_batch_to_model(batch, model)
-        generated_ids = model.generate(**batch, **self.generation_kwargs)
+        generated_ids = _generate_with_model(model, **batch, **self.generation_kwargs)
         texts = _decode_completion_texts(processor, batch, generated_ids)
         return [
             build_ocr_result(

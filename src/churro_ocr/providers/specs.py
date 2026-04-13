@@ -78,6 +78,10 @@ MISTRAL_OCR_MODEL_IDS: tuple[MistralOCRModel, ...] = (
 )
 
 
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
+
+
 def validate_mistral_ocr_model(
     model: str | None,
     *,
@@ -86,10 +90,12 @@ def validate_mistral_ocr_model(
     """Return a supported pinned Mistral OCR model id or raise a configuration error."""
     supported_models = ", ".join(MISTRAL_OCR_MODEL_IDS)
     if model is None:
-        raise ConfigurationError(f"{context} requires `model` to be one of: {supported_models}.")
+        message = f"{context} requires `model` to be one of: {supported_models}."
+        raise _configuration_error(message)
     if model not in MISTRAL_OCR_MODEL_IDS:
-        raise ConfigurationError(f"{context} only supports `model` values {supported_models}; got {model!r}.")
-    return cast(MistralOCRModel, model)
+        message = f"{context} only supports `model` values {supported_models}; got {model!r}."
+        raise _configuration_error(message)
+    return cast("MistralOCRModel", model)
 
 
 def identity_text_postprocessor(text: str) -> str:
@@ -704,7 +710,8 @@ def resolve_ocr_profile(
         try:
             return registry[profile]
         except KeyError as exc:
-            raise ValueError(f"Unknown OCR profile '{profile}'.") from exc
+            message = f"Unknown OCR profile '{profile}'."
+            raise ValueError(message) from exc
 
     if model_id is not None and model_id in registry:
         return registry[model_id]
@@ -712,8 +719,20 @@ def resolve_ocr_profile(
 
 
 __all__ = [
-    "AzureDocumentIntelligenceOptions",
     "DEFAULT_OCR_MAX_TOKENS",
+    "MISTRAL_OCR_MODEL_IDS",
+    "AzureDocumentIntelligenceOptions",
+    "HuggingFaceOptions",
+    "ImagePreprocessor",
+    "LiteLLMTransportConfig",
+    "MistralOCRModel",
+    "MistralOptions",
+    "OCRBackendSpec",
+    "OCRModelProfile",
+    "OCRProvider",
+    "OpenAICompatibleOptions",
+    "TextPostprocessor",
+    "VisionInputBuilder",
     "chandra_image_preprocessor",
     "chandra_ocr_2_profile",
     "chandra_text_postprocessor",
@@ -722,28 +741,16 @@ __all__ = [
     "default_ocr_image_preprocessor",
     "default_ocr_profile",
     "default_ocr_text_postprocessor",
-    "HuggingFaceOptions",
+    "identity_text_postprocessor",
     "infinity_parser_7b_profile",
     "infinity_parser_7b_text_postprocessor",
-    "identity_text_postprocessor",
-    "lfm2_5_vl_text_postprocessor",
     "lfm2_5_vl_1_6b_profile",
-    "ImagePreprocessor",
-    "LiteLLMTransportConfig",
-    "MistralOCRModel",
-    "MISTRAL_OCR_MODEL_IDS",
-    "MistralOptions",
+    "lfm2_5_vl_text_postprocessor",
     "mineru2_5_2509_1_2b_profile",
     "olmocr_image_preprocessor",
     "olmocr_text_postprocessor",
     "paddleocr_vl_1_5_profile",
     "paddleocr_vl_text_postprocessor",
-    "OCRBackendSpec",
-    "OCRModelProfile",
-    "OCRProvider",
-    "OpenAICompatibleOptions",
     "resolve_ocr_profile",
-    "TextPostprocessor",
     "validate_mistral_ocr_model",
-    "VisionInputBuilder",
 ]

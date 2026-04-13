@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from importlib import import_module
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from churro_ocr.ocr import BatchOCRBackend
 
@@ -55,30 +55,35 @@ _LAZY_EXPORTS = {
 }
 
 __all__ = [
+    "DEFAULT_OCR_MAX_TOKENS",
     "AzureDocumentIntelligenceOptions",
     "AzurePageDetector",
     "BatchOCRBackend",
-    "build_ocr_backend",
-    "DEFAULT_OCR_MAX_TOKENS",
     "HuggingFaceOptions",
-    "LiteLLMTransportConfig",
     "LLMPageDetector",
-    "locate_text_block_bbox_with_llm",
-    "locate_text_block_bbox_with_llm_sync",
+    "LiteLLMTransportConfig",
     "MistralOptions",
     "OCRBackendSpec",
     "OCRModelProfile",
     "OpenAICompatibleOptions",
+    "build_ocr_backend",
+    "locate_text_block_bbox_with_llm",
+    "locate_text_block_bbox_with_llm_sync",
     "resolve_ocr_profile",
 ]
 
 
-def __getattr__(name: str) -> Any:
+def _attribute_error(message: str) -> AttributeError:
+    return AttributeError(message)
+
+
+def __getattr__(name: str) -> object:
     """Lazy-load provider exports to avoid circular imports during package init."""
     try:
         module_name, attr_name = _LAZY_EXPORTS[name]
     except KeyError as exc:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+        message = f"module {__name__!r} has no attribute {name!r}"
+        raise _attribute_error(message) from exc
 
     value = getattr(import_module(module_name), attr_name)
     globals()[name] = value

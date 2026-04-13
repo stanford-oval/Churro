@@ -9,12 +9,14 @@ import itertools
 import math
 import random
 import re
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from io import BytesIO
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from PIL import Image, ImageDraw, ImageFont
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 MINERU2_5_LAYOUT_IMAGE_SIZE = (1_036, 1_036)
 MINERU2_5_MIN_IMAGE_EDGE = 28
@@ -124,6 +126,22 @@ _SUPPORTED_BLOCK_TYPES = {
 }
 
 
+def _attribute_error(message: str) -> AttributeError:
+    return AttributeError(message)
+
+
+def _runtime_error(message: str) -> RuntimeError:
+    return RuntimeError(message)
+
+
+def _type_error(message: str) -> TypeError:
+    return TypeError(message)
+
+
+def _value_error(message: str) -> ValueError:
+    return ValueError(message)
+
+
 @dataclass(slots=True, frozen=True)
 class MinerU25SamplingParams:
     """Sampling parameters used by the MinerU2.5 two-step pipeline."""
@@ -161,9 +179,11 @@ class MinerU25ContentBlock(dict[str, object]):
     ) -> None:
         super().__init__()
         if type not in _SUPPORTED_BLOCK_TYPES:
-            raise ValueError(f"Unknown MinerU2.5 block type {type!r}.")
+            message = f"Unknown MinerU2.5 block type {type!r}."
+            raise _value_error(message)
         if len(bbox) != 4 or bbox[0] >= bbox[2] or bbox[1] >= bbox[3]:
-            raise ValueError(f"Invalid MinerU2.5 bbox {bbox!r}.")
+            message = f"Invalid MinerU2.5 bbox {bbox!r}."
+            raise _value_error(message)
         self["type"] = type
         self["bbox"] = bbox
         self["angle"] = angle
@@ -178,7 +198,8 @@ class MinerU25ContentBlock(dict[str, object]):
     @type.setter
     def type(self, value: str) -> None:
         if value not in _SUPPORTED_BLOCK_TYPES:
-            raise ValueError(f"Unknown MinerU2.5 block type {value!r}.")
+            message = f"Unknown MinerU2.5 block type {value!r}."
+            raise _value_error(message)
         merge_prev = self.get("merge_prev", False)
         self["type"] = value
         if value == "text":
@@ -190,7 +211,8 @@ class MinerU25ContentBlock(dict[str, object]):
     def bbox(self) -> list[float]:
         bbox = self["bbox"]
         if not isinstance(bbox, list):
-            raise TypeError(f"MinerU2.5 bbox payload must be a list, got {type(bbox).__name__}.")
+            message = f"MinerU2.5 bbox payload must be a list, got {type(bbox).__name__}."
+            raise _type_error(message)
         return [float(coord) for coord in cast("list[int | float]", bbox)]
 
     @bbox.setter
@@ -221,7 +243,8 @@ class MinerU25ContentBlock(dict[str, object]):
     @merge_prev.setter
     def merge_prev(self, value: bool) -> None:
         if self.type != "text":
-            raise AttributeError("merge_prev is only valid for MinerU2.5 text blocks.")
+            message = "merge_prev is only valid for MinerU2.5 text blocks."
+            raise _attribute_error(message)
         self["merge_prev"] = bool(value)
 
 
@@ -425,7 +448,7 @@ def _build_table_image_map(
         if best_table_index is not None:
             table_to_images[best_table_index].append(image_index)
 
-    for _table_index, image_indices in table_to_images.items():
+    for image_indices in table_to_images.values():
         image_indices.sort(key=lambda image_index: (blocks[image_index].bbox[1], blocks[image_index].bbox[0]))
     return table_to_images
 
@@ -540,7 +563,8 @@ def _mask_and_encode_table_image(
             continue
 
         if len(used_token_codes) >= max_token_count:
-            raise RuntimeError("Exhausted MinerU2.5 table image token space.")
+            message = "Exhausted MinerU2.5 table image token space."
+            raise _runtime_error(message)
 
         while True:
             token_code = _generate_uid()
