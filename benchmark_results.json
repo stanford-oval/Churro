@@ -48,7 +48,7 @@
     "modelName": "dots.mocr",
     "modelId": "rednote-hilab/dots.mocr",
     "modelUrl": "https://huggingface.co/rednote-hilab/dots.mocr",
-    "iconPath": null,
+    "iconPath": "_static/img/dots-logo.png",
     "printed": 81.2,
     "handwritten": 55.0,
     "total": 67.1
@@ -94,7 +94,7 @@
     "modelName": "NuMarkdown",
     "modelId": "numind/NuMarkdown-8B-Thinking",
     "modelUrl": "https://huggingface.co/numind/NuMarkdown-8B-Thinking",
-    "iconPath": null,
+    "iconPath": "_static/img/numarkdown-logo.png",
     "printed": 72.7318,
     "handwritten": 51.2224,
     "total": 61.1498
@@ -214,7 +214,7 @@
     "modelName": "LiquidAI LFM2.5 VL (1.6B)",
     "modelId": "LiquidAI/LFM2.5-VL-1.6B",
     "modelUrl": "https://huggingface.co/LiquidAI/LFM2.5-VL-1.6B",
-    "iconPath": null,
+    "iconPath": "_static/img/liquidai-logo.png",
     "printed": 40.2,
     "handwritten": 25.5,
     "total": 32.3
@@ -337,7 +337,7 @@
     "modelName": "MiMo VL",
     "modelId": "XiaomiMiMo/MiMo-VL-7B-RL-2508",
     "modelUrl": "https://huggingface.co/XiaomiMiMo/MiMo-VL-7B-RL-2508",
-    "iconPath": null,
+    "iconPath": "_static/img/mimo-logo.png",
     "printed": 54.8469,
     "handwritten": 34.6299,
     "total": 43.9608
@@ -374,7 +374,7 @@
     "modelName": "MiniCPM-V 4.5",
     "modelId": "openbmb/MiniCPM-V-4_5",
     "modelUrl": "https://huggingface.co/openbmb/MiniCPM-V-4_5",
-    "iconPath": null,
+    "iconPath": "_static/img/minicpm-logo.png",
     "printed": 49.7495,
     "handwritten": 32.0729,
     "total": 40.2314
@@ -411,7 +411,7 @@
     "modelName": "InternVL 3.5 (30B-A3B)",
     "modelId": "OpenGVLab/InternVL3_5-30B-A3B",
     "modelUrl": "https://huggingface.co/OpenGVLab/InternVL3_5-30B-A3B",
-    "iconPath": null,
+    "iconPath": "_static/img/internvl-logo.png",
     "printed": 35.8059,
     "handwritten": 26.3691,
     "total": 30.7246
@@ -457,7 +457,7 @@
     "modelName": "dots.ocr 1.5",
     "modelId": "kristaller486/dots.ocr-1.5",
     "modelUrl": "https://huggingface.co/kristaller486/dots.ocr-1.5",
-    "iconPath": null,
+    "iconPath": "_static/img/dots-logo.png",
     "printed": 22.2,
     "handwritten": 10.4,
     "total": 15.9
@@ -466,7 +466,7 @@
     "modelName": "Phi 4 Multimodal",
     "modelId": "microsoft/Phi-4-multimodal-instruct",
     "modelUrl": "https://huggingface.co/microsoft/Phi-4-multimodal-instruct",
-    "iconPath": null,
+    "iconPath": "_static/img/phi4-logo.png",
     "printed": 9.0269,
     "handwritten": 5.3393,
     "total": 7.0413
