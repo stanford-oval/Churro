@@ -54,6 +54,16 @@
     "total": 67.1
   },
   {
+    "modelName": "GPT-5.4",
+    "modelId": "gpt-5.4-2026-03-05",
+    "modelUrl": "https://platform.openai.com/docs/models/gpt-5.4",
+    "iconPath": "_static/img/openai-symbol.svg",
+    "iconInvertDark": true,
+    "printed": 78.4,
+    "handwritten": 55.2,
+    "total": 65.9
+  },
+  {
     "modelName": "Gemini 2.5 Flash",
     "modelId": "gemini-2.5-flash",
     "modelUrl": "https://ai.google.dev/gemini-api/docs/models",
