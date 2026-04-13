@@ -174,6 +174,15 @@
     "total": 55.4205
   },
   {
+    "modelName": "Qwen 3.5 (9B)",
+    "modelId": "Qwen/Qwen3.5-9B",
+    "modelUrl": "https://huggingface.co/Qwen/Qwen3.5-9B",
+    "iconPath": "_static/img/qwen-logo.svg",
+    "printed": 69.1,
+    "handwritten": 42.4,
+    "total": 54.7
+  },
+  {
     "modelName": "olmOCR",
     "modelId": "allenai/olmOCR-7B-0825",
     "modelUrl": "https://huggingface.co/allenai/olmOCR-7B-0825",
