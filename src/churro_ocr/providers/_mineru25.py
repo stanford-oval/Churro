@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Literal, cast
 
 from PIL import Image, ImageDraw, ImageFont
 
+from churro_ocr.providers._ocr_processing import strip_leading_chat_scaffold
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -43,29 +45,6 @@ _LAYOUT_RE = re.compile(
     r"(.*?)(?=<\|box_start\|>|$)",
     flags=re.DOTALL,
 )
-_CHAT_ROLE_PREFIXES = {
-    "assistant",
-    "assistant:",
-    "user",
-    "user:",
-    "system",
-    "system:",
-    "<assistant>",
-    "<user>",
-    "<system>",
-    "<|assistant|>",
-    "<|assistant|>:",
-    "<|user|>",
-    "<|user|>:",
-    "<|system|>",
-    "<|system|>:",
-    "<｜assistant｜>",
-    "<｜assistant｜>:",
-    "<｜user｜>",
-    "<｜user｜>:",
-    "<｜system｜>",
-    "<｜system｜>:",
-}
 _TABLE_IMAGE_TOKEN_TEMPLATE = "[{idx}]"
 _TABLE_IMAGE_TOKEN_LETTERS = "ACDGHKTWXYZ"
 _TABLE_IMAGE_TOKEN_NUMBERS = "2345678"
@@ -649,37 +628,6 @@ def _resize_image_by_need(
     return image
 
 
-def _strip_leading_chat_scaffold(text: str, *, prompts: list[str]) -> str:
-    cleaned = text.strip()
-    if not cleaned:
-        return ""
-    normalized_prompts = [prompt.strip() for prompt in prompts if prompt and prompt.strip()]
-    for _ in range(8):
-        previous = cleaned
-        lowered = cleaned.casefold()
-        stripped_prompt = False
-        for prompt in normalized_prompts:
-            if lowered.startswith(prompt.casefold()):
-                cleaned = cleaned[len(prompt) :].lstrip()
-                stripped_prompt = True
-                break
-        if stripped_prompt:
-            continue
-        lines = cleaned.splitlines()
-        if not lines:
-            return ""
-        first_line = lines[0].strip()
-        if first_line.casefold() in _CHAT_ROLE_PREFIXES:
-            cleaned = "\n".join(lines[1:]).lstrip()
-            continue
-        if re.fullmatch(r"<\|?(?:assistant|user|system)\|?>", first_line, flags=re.IGNORECASE):
-            cleaned = "\n".join(lines[1:]).lstrip()
-            continue
-        if cleaned == previous:
-            break
-    return cleaned.strip()
-
-
 def _trim_stop_strings(text: str) -> str:
     cleaned = text
     for stop in MINERU2_5_STOP_TOKENS:
@@ -981,7 +929,7 @@ class MinerU25PipelineHelper:
 
     def clean_response(self, text: str, *, step_key: str) -> str:
         cleaned = _trim_stop_strings(text)
-        return _strip_leading_chat_scaffold(
+        return strip_leading_chat_scaffold(
             cleaned,
             prompts=[self.system_prompt, self.prompt_for(step_key), self.prompt_for(step_key).strip()],
         )

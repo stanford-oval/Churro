@@ -210,6 +210,26 @@ def test_parse_and_render_mineru2_5_end_to_end_blocks() -> None:
     )
 
 
+def test_mineru2_5_clean_response_strips_prompt_echo_and_role_scaffold() -> None:
+    helper = MinerU25PipelineHelper(
+        prompts={"[default]": MINERU2_5_2509_1_2B_OCR_PROMPT},
+        system_prompt=MINERU2_5_2509_1_2B_SYSTEM_PROMPT,
+    )
+
+    assert (
+        helper.clean_response(
+            (
+                f"{MINERU2_5_2509_1_2B_SYSTEM_PROMPT}\n"
+                f"{MINERU2_5_2509_1_2B_OCR_PROMPT}\n"
+                "assistant:\n"
+                "plain text<|im_end|>"
+            ),
+            step_key="[default]",
+        )
+        == "plain text"
+    )
+
+
 def test_parse_olmocr_response_extracts_plain_text_and_metadata() -> None:
     text, metadata = parse_olmocr_response(
         "---\n"
