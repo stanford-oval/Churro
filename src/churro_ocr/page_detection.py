@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
-from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from PIL import Image, ImageDraw
 
@@ -13,6 +12,11 @@ from churro_ocr._internal.image import load_image
 from churro_ocr._internal.pdf import rasterize_pdf
 from churro_ocr._internal.runtime import run_sync
 from churro_ocr.errors import ConfigurationError
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from churro_ocr.types import BoundingBox, MetadataDict, Polygon
 
 
 @dataclass(slots=True)
@@ -26,10 +30,10 @@ class PageCandidate:
     :param metadata: Detector-side metadata attached to the candidate.
     """
 
-    bbox: tuple[float, float, float, float] | None = None
+    bbox: BoundingBox | None = None
     image: Image.Image | None = None
-    polygon: tuple[tuple[float, float], ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
+    polygon: Polygon = ()
+    metadata: MetadataDict = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -51,13 +55,13 @@ class DocumentPage:
     page_index: int
     image: Image.Image
     source_index: int
-    bbox: tuple[float, float, float, float] | None = None
-    polygon: tuple[tuple[float, float], ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
+    bbox: BoundingBox | None = None
+    polygon: Polygon = ()
+    metadata: MetadataDict = field(default_factory=dict)
     text: str | None = None
     provider_name: str | None = None
     model_name: str | None = None
-    ocr_metadata: dict[str, Any] = field(default_factory=dict)
+    ocr_metadata: MetadataDict = field(default_factory=dict)
 
     @property
     def width(self) -> int:
@@ -76,7 +80,7 @@ class DocumentPage:
         *,
         page_index: int = 0,
         source_index: int = 0,
-        metadata: dict[str, Any] | None = None,
+        metadata: MetadataDict | None = None,
     ) -> DocumentPage:
         """Create a document page from an in-memory image.
 
@@ -100,7 +104,7 @@ class DocumentPage:
         *,
         page_index: int = 0,
         source_index: int = 0,
-        metadata: dict[str, Any] | None = None,
+        metadata: MetadataDict | None = None,
     ) -> DocumentPage:
         """Create a document page from an image path.
 
@@ -123,7 +127,7 @@ class DocumentPage:
         text: str,
         provider_name: str,
         model_name: str,
-        ocr_metadata: dict[str, Any] | None = None,
+        ocr_metadata: MetadataDict | None = None,
     ) -> DocumentPage:
         """Return a copy of the page with OCR output attached.
 
@@ -183,7 +187,7 @@ class PageDetectionResult:
 
     pages: list[DocumentPage]
     source_type: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: MetadataDict = field(default_factory=dict)
 
 
 @runtime_checkable
@@ -361,7 +365,7 @@ class DocumentPageDetector:
 
 def _crop_bbox(
     source_image: Image.Image,
-    bbox: tuple[float, float, float, float],
+    bbox: BoundingBox,
     *,
     trim_margin: int,
 ) -> Image.Image:
@@ -375,7 +379,7 @@ def _crop_bbox(
 
 def _crop_polygon(
     source_image: Image.Image,
-    polygon: tuple[tuple[float, float], ...],
+    polygon: Polygon,
     *,
     trim_margin: int,
 ) -> Image.Image:

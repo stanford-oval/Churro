@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from churro_ocr.page_detection import DocumentPage
-from churro_ocr.templates.base import OCRConversation
+if TYPE_CHECKING:
+    from churro_ocr.page_detection import DocumentPage
+    from churro_ocr.templates.base import OCRConversation
+    from churro_ocr.types import OCRBuiltInConversationContentItem
 
 
 @dataclass(slots=True, frozen=True)
@@ -38,7 +41,7 @@ class HFChatTemplate:
                 }
             )
 
-        user_content: list[dict[str, object]] = []
+        user_content: list[OCRBuiltInConversationContentItem] = []
         if self.user_prompt and self.user_prompt_first:
             user_content.append({"type": "text", "text": self.user_prompt})
         if self.include_image:
