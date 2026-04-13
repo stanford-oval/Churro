@@ -1,27 +1,49 @@
-# <img src="static/churro.png" alt="CHURRO logo" width="40" /> CHURRO
-
-[![Model](https://img.shields.io/badge/Model-CHURRO%203B-8A4FFF)](https://huggingface.co/stanford-oval/churro-3B)
-[![Dataset](https://img.shields.io/badge/Dataset-CHURRO--DS-0A7BBB)](https://huggingface.co/datasets/stanford-oval/churro-dataset)
-[![Paper](https://img.shields.io/badge/Paper-arXiv-B31B1B)](https://arxiv.org/abs/2509.19768)
-[![Docs](https://img.shields.io/badge/Docs-Documentation-8B451F)](https://stanford-oval.github.io/Churro/)
-[![Leaderboard](https://img.shields.io/badge/Leaderboard-Benchmark%20Snapshot-6B7280)](https://stanford-oval.github.io/Churro/leaderboard.html)
-[![GitHub Stars](https://img.shields.io/github/stars/stanford-oval/churro?style=social)](https://github.com/stanford-oval/churro/stargazers)
-
-CHURRO is an OCR toolkit for historical document transcription, built to make handwritten and printed sources readable at high accuracy and lower cost.
-
-It works with all major OCR providers and vision-language models, and provides first-party support for the CHURRO 3B model and CHURRO-DS dataset.
-
-
-- CHURRO 3B exceeds the accuracy of Gemini 2.5 Pro at 15.5x lower cost.
-- CHURRO-DS contains ~100K pages from 155 historical collections spanning 22 centuries and 46 language clusters.
+# <img src="static/churro.png" alt="CHURRO logo" width="40" /> Churro
 
 <p align="center">
-  <img src="static/performance_cost.png" alt="Cost vs Performance comparison showing CHURRO's accuracy advantage at significantly lower cost" width="75%" />
+  <a href="https://huggingface.co/stanford-oval/churro-3B">🤗 Model</a> •
+  <a href="https://huggingface.co/datasets/stanford-oval/churro-dataset">🗂️ Dataset</a> •
+  <a href="https://arxiv.org/abs/2509.19768">📄 Paper</a>
   <br/>
-  <sub><i>Cost vs. accuracy: CHURRO (3B) achieves higher accuracy than much larger commercial and open-weight VLMs while being substantially cheaper.</i></sub>
+  <a href="https://stanford-oval.github.io/Churro/">📚 Docs</a> •
+  <a href="https://stanford-oval.github.io/Churro/leaderboard.html">🏆 Leaderboard</a> •
+  <a href="https://github.com/stanford-oval/churro/stargazers">
+    <img src="https://img.shields.io/github/stars/stanford-oval/churro?style=social" alt="GitHub Stars badge" />
+  </a>
 </p>
 
-## Quick Try
+Churro is the fastest way to turn hard-to-read historical scans into reliable text. It gives researchers, libraries, archives, and product teams a unified OCR toolkit for handwritten and printed sources, combining high accuracy, low operating cost, and a clean Python API and CLI workflow.
+
+## Supported OCR Models and Backends
+
+Churro includes built-in profiles, templates, and post-processing for many OCR models and integrations, including:
+
+- Hosted vision-language models, including Gemini, GPT, Claude, and more, through LiteLLM integration
+- OpenAI-compatible servers, including vLLM, Ollama, TGI, and more
+- Azure Document Intelligence
+- Mistral OCR
+- `Chandra OCR`
+- `DeepSeek OCR`
+- `Dots OCR`
+- `MinerU`
+- `Infinity Parser`
+- `PaddleOCR VL`
+- `LFM VL`
+
+## Churro Model and Dataset
+
+We also provide first-party support for a purpose-trained model and dataset for historical OCR:
+
+- Churro 3B VLM exceeds the accuracy of Gemini 2.5 Pro at 15.5x lower cost.
+- Churro-DS dataset contains ~100K pages from 155 historical collections spanning 22 centuries and 46 language clusters.
+
+<p align="center">
+  <img src="static/performance_cost.png" alt="Cost vs Performance comparison showing Churro's accuracy advantage at significantly lower cost" width="75%" />
+  <br/>
+  <sub><i>Cost vs. accuracy: Churro (3B) achieves higher accuracy than much larger commercial and open-weight VLMs while being substantially cheaper.</i></sub>
+</p>
+
+## Quick Start
 
 Python 3.12+ and `uv` are required.
 
@@ -48,6 +70,6 @@ If you use CHURRO or CHURRO-DS, please cite:
 
 ## License
 
+- Code: Apache 2.0
 - Model weights: Qwen research license
 - Dataset: research use only because of the underlying source licenses
-- Code: Apache 2.0
