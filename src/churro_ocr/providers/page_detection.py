@@ -285,7 +285,7 @@ async def _review_page_box(
 
     edge_decisions: dict[str, _EdgeReviewDecision] = {}
     for edge_name, result in zip(_EDGE_NAMES, edge_results, strict=False):
-        if isinstance(result, Exception):
+        if isinstance(result, BaseException):
             logger.info(
                 "Edge-strip review failed for round %s, page %s, edge %s; using no_change: %s",
                 round_index,
@@ -367,7 +367,7 @@ async def _review_text_block_box(
 
     edge_decisions: dict[str, _EdgeReviewDecision] = {}
     for edge_name, result in zip(_EDGE_NAMES, edge_results, strict=False):
-        if isinstance(result, Exception):
+        if isinstance(result, BaseException):
             logger.info(
                 "Text-block edge-strip review failed for round %s, edge %s; using no_change: %s",
                 round_index,
@@ -446,7 +446,7 @@ async def _run_review_pipeline(
                 continue
 
             result = results_by_page.get(prior_box.page_index)
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 logger.info(
                     "Review round %s %s %s failed, keeping prior box: %s",
                     round_index + 1,

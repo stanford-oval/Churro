@@ -82,9 +82,9 @@ dev-test = [
 dev-tooling = [
     "build",
     "pre-commit>=4,<5",
-    "ruff==0.15.9",
+    "ruff==0.15.10",
     "twine",
-    "ty>=0.0.28,<0.0.29",
+    "ty>=0.0.29,<0.0.30",
 ]
 dev = [
     { include-group = "dev-docs" },

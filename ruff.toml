@@ -1,5 +1,5 @@
 line-length = 110
-required-version = "==0.15.9"
+required-version = "==0.15.10"
 
 [lint]
 select = [
