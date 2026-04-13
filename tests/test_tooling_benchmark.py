@@ -8,13 +8,14 @@ from datasets import Dataset
 from PIL import Image
 
 from churro_ocr.ocr import OCRResult
-from churro_ocr.providers.hf import HuggingFaceVisionOCRBackend
+from churro_ocr.providers.hf import GlmOCROCRBackend, HuggingFaceVisionOCRBackend
 from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
 from churro_ocr.templates import (
     CHURRO_3B_XML_TEMPLATE,
     DEEPSEEK_OCR_2_OCR_TEMPLATE,
     DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    GLM_OCR_OCR_TEMPLATE,
     INFINITY_PARSER_7B_OCR_TEMPLATE,
     MINERU2_5_2509_1_2B_OCR_TEMPLATE,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
@@ -451,6 +452,55 @@ def test_build_ocr_backend_uses_deepseek_ocr_2_preset_for_openai_compatible() ->
         "max_tokens": 8_192,
         "temperature": 0.0,
     }
+
+
+def test_build_ocr_backend_uses_glm_ocr_preset_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="hf",
+                dataset_split="dev",
+                model="zai-org/GLM-OCR",
+            )
+        ),
+    )
+
+    assert isinstance(backend, GlmOCROCRBackend)
+    assert backend.model_name == "GLM-OCR"
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {"device_map": "auto", "torch_dtype": "auto"}
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 8_192,
+        "do_sample": False,
+    }
+
+
+def test_build_ocr_backend_uses_glm_ocr_preset_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="zai-org/GLM-OCR",
+                base_url="http://127.0.0.1:8000/v1",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.model_name == "GLM-OCR"
+    assert backend.template == GLM_OCR_OCR_TEMPLATE
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_192,
+        "temperature": 0.0,
+    }
+    assert backend.image_preprocessor(Image.new("RGB", (3_508, 2_720), color="white")).size == (
+        2_464,
+        1_904,
+    )
 
 
 def test_build_ocr_backend_uses_paddleocr_vl_preset_for_hf() -> None:

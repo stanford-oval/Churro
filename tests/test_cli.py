@@ -25,6 +25,8 @@ from churro_ocr.templates import (
     DEFAULT_OCR_TEMPLATE,
     DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    GLM_OCR_MODEL_ID,
+    GLM_OCR_OCR_TEMPLATE,
     INFINITY_PARSER_7B_MODEL_ID,
     INFINITY_PARSER_7B_OCR_TEMPLATE,
     MINERU2_5_2509_1_2B_MODEL_ID,
@@ -268,6 +270,26 @@ def test_build_ocr_backend_aligns_templates_for_deepseek_ocr_2() -> None:
     assert litellm_backend.model_name == "DeepSeek-OCR-2"
     assert hf_backend.model_name == "DeepSeek-OCR-2"
     assert openai_backend.model_name == "DeepSeek-OCR-2"
+    assert litellm_backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_192,
+        "temperature": 0.0,
+    }
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_192,
+        "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_aligns_templates_for_glm_ocr() -> None:
+    litellm_backend = _build_litellm_backend(GLM_OCR_MODEL_ID)
+    hf_backend = _build_hf_backend(GLM_OCR_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(GLM_OCR_MODEL_ID)
+
+    assert litellm_backend.template == GLM_OCR_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "GLM-OCR"
+    assert hf_backend.model_name == "GLM-OCR"
+    assert openai_backend.model_name == "GLM-OCR"
     assert litellm_backend.transport.config.completion_kwargs == {
         "max_tokens": 8_192,
         "temperature": 0.0,

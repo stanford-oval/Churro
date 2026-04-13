@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from typing import TYPE_CHECKING
 
@@ -17,6 +18,7 @@ from churro_ocr.prompts import (
 )
 from churro_ocr.templates import (
     DEEPSEEK_OCR_2_OCR_PROMPT,
+    GLM_OCR_OCR_PROMPT,
     INFINITY_PARSER_7B_OCR_PROMPT,
     INFINITY_PARSER_7B_SYSTEM_PROMPT,
     LFM2_5_VL_1_6B_OCR_TEMPLATE,
@@ -31,6 +33,12 @@ TextPostprocessorResult = str | tuple[str, MetadataDict]
 CHANDRA_MAX_IMAGE_SIZE = (3_072, 2_048)
 CHANDRA_MIN_IMAGE_SIZE = (1_792, 28)
 CHANDRA_IMAGE_GRID_SIZE = 28
+GLM_OCR_IMAGE_GRID_SIZE = 28
+GLM_OCR_TEMPORAL_PATCH_SIZE = 2
+GLM_OCR_VLLM_MAX_IMAGE_ITEM_LENGTH = 6_084
+GLM_OCR_VLLM_MAX_PIXELS = (
+    GLM_OCR_IMAGE_GRID_SIZE**2 * GLM_OCR_TEMPORAL_PATCH_SIZE * GLM_OCR_VLLM_MAX_IMAGE_ITEM_LENGTH
+)
 OLMOCR_TARGET_LONGEST_IMAGE_DIM = 1_288
 _CHAT_ROLE_PREFIXES = {
     "assistant",
@@ -183,6 +191,44 @@ def deepseek_ocr_2_text_postprocessor(text: str) -> str:
         ],
     )
     return cleaned.strip()
+
+
+def glm_ocr_text_postprocessor(text: str) -> str:
+    """Strip GLM-OCR prompt echoes, chat scaffold, and trailing special tokens."""
+    cleaned = strip_leading_chat_scaffold(text, prompts=[GLM_OCR_OCR_PROMPT])
+    for _ in range(8):
+        previous = cleaned
+        for token in ("<|endoftext|>", "<|assistant|>", "<|user|>", "<|system|>"):
+            if cleaned.endswith(token):
+                cleaned = cleaned[: -len(token)].rstrip()
+                break
+        if cleaned == previous:
+            break
+    return cleaned.strip()
+
+
+def glm_ocr_image_preprocessor(image: Image.Image) -> Image.Image:
+    """Resize GLM-OCR inputs to stay within vLLM's encoder image-item budget."""
+    prepared = prepare_ocr_image(image)
+    width, height = prepared.size
+    if width < GLM_OCR_IMAGE_GRID_SIZE or height < GLM_OCR_IMAGE_GRID_SIZE:
+        return prepared
+
+    rounded_width = round(width / GLM_OCR_IMAGE_GRID_SIZE) * GLM_OCR_IMAGE_GRID_SIZE
+    rounded_height = round(height / GLM_OCR_IMAGE_GRID_SIZE) * GLM_OCR_IMAGE_GRID_SIZE
+    if GLM_OCR_TEMPORAL_PATCH_SIZE * rounded_width * rounded_height <= GLM_OCR_VLLM_MAX_PIXELS:
+        return prepared
+
+    scale = math.sqrt((GLM_OCR_TEMPORAL_PATCH_SIZE * width * height) / GLM_OCR_VLLM_MAX_PIXELS)
+    target_width = max(
+        GLM_OCR_IMAGE_GRID_SIZE,
+        math.floor(width / scale / GLM_OCR_IMAGE_GRID_SIZE) * GLM_OCR_IMAGE_GRID_SIZE,
+    )
+    target_height = max(
+        GLM_OCR_IMAGE_GRID_SIZE,
+        math.floor(height / scale / GLM_OCR_IMAGE_GRID_SIZE) * GLM_OCR_IMAGE_GRID_SIZE,
+    )
+    return prepared.resize((target_width, target_height), resample=Image.Resampling.LANCZOS)
 
 
 def paddleocr_vl_text_postprocessor(text: str) -> str:

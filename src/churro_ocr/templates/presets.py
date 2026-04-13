@@ -13,6 +13,7 @@ from churro_ocr.templates.hf import HFChatTemplate
 CHURRO_3B_MODEL_ID = "stanford-oval/churro-3B"
 CHANDRA_OCR_2_MODEL_ID = "datalab-to/chandra-ocr-2"
 DEEPSEEK_OCR_2_MODEL_ID = "deepseek-ai/DeepSeek-OCR-2"
+GLM_OCR_MODEL_ID = "zai-org/GLM-OCR"
 DOTS_OCR_1_5_MODEL_ID = "kristaller486/dots.ocr-1.5"
 DOTS_MOCR_MODEL_ID = "rednote-hilab/dots.mocr"
 INFINITY_PARSER_7B_MODEL_ID = "infly/Infinity-Parser-7B"
@@ -38,6 +39,11 @@ DEEPSEEK_OCR_2_OCR_PROMPT = "Free OCR."
 DEEPSEEK_OCR_2_OCR_TEMPLATE = HFChatTemplate(
     system_message=None,
     user_prompt=DEEPSEEK_OCR_2_OCR_PROMPT,
+)
+GLM_OCR_OCR_PROMPT = "Text Recognition:"
+GLM_OCR_OCR_TEMPLATE = HFChatTemplate(
+    system_message=None,
+    user_prompt=GLM_OCR_OCR_PROMPT,
 )
 DOTS_OCR_1_5_OCR_PROMPT = "Extract the text content from this image."
 DOTS_OCR_1_5_OCR_TEMPLATE = HFChatTemplate(
@@ -121,6 +127,9 @@ __all__ = [
     "DOTS_OCR_1_5_MODEL_ID",
     "DOTS_OCR_1_5_OCR_PROMPT",
     "DOTS_OCR_1_5_OCR_TEMPLATE",
+    "GLM_OCR_MODEL_ID",
+    "GLM_OCR_OCR_PROMPT",
+    "GLM_OCR_OCR_TEMPLATE",
     "INFINITY_PARSER_7B_MODEL_ID",
     "INFINITY_PARSER_7B_OCR_PROMPT",
     "INFINITY_PARSER_7B_OCR_TEMPLATE",

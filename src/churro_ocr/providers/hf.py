@@ -43,6 +43,8 @@ from churro_ocr.templates import (
     DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    GLM_OCR_MODEL_ID,
+    GLM_OCR_OCR_TEMPLATE,
     LFM2_5_VL_1_6B_MODEL_ID,
     LFM2_5_VL_1_6B_OCR_TEMPLATE,
     MINERU2_5_2509_1_2B_FORMULA_TEMPLATE,
@@ -538,6 +540,139 @@ class Churro3BOCRBackend(HuggingFaceVisionOCRBackend):
 
 
 @dataclass(slots=True)
+class GlmOCROCRBackend(HuggingFaceVisionOCRBackend):
+    """Preset OCR backend for ``zai-org/GLM-OCR``."""
+
+    model_id: str = GLM_OCR_MODEL_ID
+    template: OCRPromptTemplateLike = GLM_OCR_OCR_TEMPLATE
+    model_name: str | None = "GLM-OCR"
+    generation_kwargs: dict[str, object] = field(
+        default_factory=lambda: {"max_new_tokens": 8_192, "do_sample": False}
+    )
+
+    def _get_processor(self, runtime: _HFRuntime) -> object:
+        processor = HuggingFaceVisionOCRBackend._get_processor(self, runtime)
+        tokenizer = getattr(processor, "tokenizer", None)
+        if tokenizer is not None and getattr(tokenizer, "padding_side", None) != "left":
+            tokenizer.padding_side = "left"
+        return processor
+
+    def _get_model(self, runtime: _HFRuntime) -> object:
+        model = HuggingFaceVisionOCRBackend._get_model(self, runtime)
+        eval_method = getattr(model, "eval", None)
+        if callable(eval_method):
+            eval_method()
+        return model
+
+    def _build_glm_batch(
+        self,
+        processor: object,
+        conversations: OCRConversation | list[OCRConversation],
+        *,
+        padding: bool,
+    ) -> dict[str, object]:
+        processor_apply = getattr(processor, "apply_chat_template", None)
+        if not callable(processor_apply):
+            message = "GLM-OCR requires `processor.apply_chat_template(...)` support."
+            raise _configuration_error(message)
+        return _apply_chat_template(
+            processor,
+            conversations,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+            padding=padding,
+        )
+
+    def _generation_inputs(self, batch: object) -> dict[str, object]:
+        generation_inputs = HuggingFaceVisionOCRBackend._generation_inputs(self, batch)
+        generation_inputs.pop("token_type_ids", None)
+        return generation_inputs
+
+    def _ocr_sync(self, page: DocumentPage) -> OCRResult:
+        prepared_page = preprocess_backend_page(
+            page,
+            image_preprocessor=self.image_preprocessor,
+        )
+        runtime = self._load_runtime()
+        processor = self._get_processor(runtime)
+        model = self._get_model(runtime)
+
+        rendered, conversation = render_ocr_prompt(
+            processor,
+            self.template,
+            prepared_page,
+            add_generation_prompt=True,
+        )
+        self._log_prompt_payload(
+            rendered_prompt=rendered,
+            conversation=conversation,
+            batch_size=1,
+        )
+        batch = self._build_glm_batch(processor, conversation, padding=False)
+        batch = _move_batch_to_model(batch, model)
+        generated_ids = _generate_with_model(
+            model,
+            **self._generation_inputs(batch),
+            **self.generation_kwargs,
+        )
+        text = _decode_completion_texts(processor, batch, generated_ids)[0]
+        return build_ocr_result(
+            text,
+            provider_name=self.provider_name,
+            model_name=self.model_name or self.model_id,
+            text_postprocessor=self.text_postprocessor,
+        )
+
+    def _ocr_batch_sync(self, pages: list[DocumentPage]) -> list[OCRResult]:
+        if not pages:
+            return []
+
+        runtime = self._load_runtime()
+        processor = self._get_processor(runtime)
+        model = self._get_model(runtime)
+        conversations: list[OCRConversation] = []
+
+        for page in pages:
+            prepared_page = preprocess_backend_page(
+                page,
+                image_preprocessor=self.image_preprocessor,
+            )
+            rendered, conversation = render_ocr_prompt(
+                processor,
+                self.template,
+                prepared_page,
+                add_generation_prompt=True,
+            )
+            conversations.append(conversation)
+            if not self._has_logged_prompt:
+                self._log_prompt_payload(
+                    rendered_prompt=rendered,
+                    conversation=conversation,
+                    batch_size=len(pages),
+                )
+
+        batch = self._build_glm_batch(processor, conversations, padding=True)
+        batch = _move_batch_to_model(batch, model)
+        generated_ids = _generate_with_model(
+            model,
+            **self._generation_inputs(batch),
+            **self.generation_kwargs,
+        )
+        texts = _decode_completion_texts(processor, batch, generated_ids)
+        return [
+            build_ocr_result(
+                text,
+                provider_name=self.provider_name,
+                model_name=self.model_name or self.model_id,
+                text_postprocessor=self.text_postprocessor,
+            )
+            for text in texts
+        ]
+
+
+@dataclass(slots=True)
 class DeepSeekOCR2OCRBackend(HuggingFaceVisionOCRBackend):
     """Preset OCR backend for ``deepseek-ai/DeepSeek-OCR-2``."""
 
@@ -724,6 +859,7 @@ class DotsMOCROCRBackend(DotsOCR15OCRBackend):
     template: OCRPromptTemplateLike = DOTS_MOCR_OCR_TEMPLATE
     model_name: str | None = "dots.mocr"
 
+
 @dataclass(slots=True)
 class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
     """Preset OCR backend for ``opendatalab/MinerU2.5-2509-1.2B``."""
@@ -770,9 +906,9 @@ class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
         self,
         *,
         context: _mineru._MinerU25StepContext,
-    image: Image.Image,
-    step_key: str,
-) -> str:
+        image: Image.Image,
+        step_key: str,
+    ) -> str:
         rendered, conversation = render_ocr_prompt(
             context.processor,
             _mineru._template_for_step(
@@ -1174,6 +1310,7 @@ __all__ = [
     "DeepSeekOCR2OCRBackend",
     "DotsMOCROCRBackend",
     "DotsOCR15OCRBackend",
+    "GlmOCROCRBackend",
     "HuggingFaceVisionOCRBackend",
     "LFM25VLOCRBackend",
     "MinerU25OCRBackend",

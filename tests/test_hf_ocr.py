@@ -31,6 +31,7 @@ from churro_ocr.providers.hf import (
     DeepSeekOCR2OCRBackend,
     DotsMOCROCRBackend,
     DotsOCR15OCRBackend,
+    GlmOCROCRBackend,
     HuggingFaceVisionOCRBackend,
     LFM25VLOCRBackend,
     MinerU25OCRBackend,
@@ -39,6 +40,7 @@ from churro_ocr.providers.hf import (
 from churro_ocr.providers.specs import (
     DEFAULT_OCR_MAX_TOKENS,
     deepseek_ocr_2_text_postprocessor,
+    glm_ocr_text_postprocessor,
     infinity_parser_7b_text_postprocessor,
     lfm2_5_vl_text_postprocessor,
 )
@@ -55,6 +57,9 @@ from churro_ocr.templates import (
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_PROMPT,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    GLM_OCR_MODEL_ID,
+    GLM_OCR_OCR_PROMPT,
+    GLM_OCR_OCR_TEMPLATE,
     INFINITY_PARSER_7B_MODEL_ID,
     INFINITY_PARSER_7B_OCR_PROMPT,
     INFINITY_PARSER_7B_OCR_TEMPLATE,
@@ -345,6 +350,13 @@ def test_deepseek_ocr_2_text_postprocessor_strips_prompt_echo_and_stop_token() -
     )
 
 
+def test_glm_ocr_text_postprocessor_strips_prompt_echo_and_trailing_tokens() -> None:
+    assert (
+        glm_ocr_text_postprocessor("Text Recognition:\n<|assistant|>\nplain text\n<|user|>\n<|endoftext|>")
+        == "plain text"
+    )
+
+
 def test_build_ocr_backend_uses_chandra_profile_defaults_for_hf() -> None:
     backend = cast(
         "ChandraOCR2OCRBackend",
@@ -386,6 +398,35 @@ def test_build_ocr_backend_uses_deepseek_ocr_2_profile_defaults_for_hf() -> None
     assert backend.base_size == 1_024
     assert backend.image_size == 768
     assert backend.crop_mode is True
+
+
+def test_build_ocr_backend_uses_glm_ocr_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "GlmOCROCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=GLM_OCR_MODEL_ID,
+            )
+        ),
+    )
+
+    assert isinstance(backend, GlmOCROCRBackend)
+    assert backend.template == GLM_OCR_OCR_TEMPLATE
+    assert backend.model_name == "GLM-OCR"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 8_192,
+        "do_sample": False,
+    }
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {}
+    preprocessed_image = backend.image_preprocessor(
+        Image.new("RGBA", (3_508, 2_720), color=(255, 255, 255, 255))
+    )
+    assert preprocessed_image.size == (2_464, 1_904)
+    assert preprocessed_image.mode == "RGB"
+    assert (preprocessed_image.size[0] // 28) * (preprocessed_image.size[1] // 28) <= 6_084
 
 
 def test_build_ocr_backend_uses_olmocr_profile_defaults_for_hf() -> None:
@@ -774,6 +815,160 @@ async def test_deepseek_ocr_2_huggingface_backend_uses_upstream_infer_contract(
     assert captured["saved_image_mode"] == "RGB"
     assert captured["saved_image_size"] == (32, 16)
     assert captured["output_dir_exists"] is True
+
+
+@pytest.mark.asyncio
+async def test_glm_ocr_huggingface_backend_uses_tokenized_chat_template_and_profile_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeAttentionMask:
+        def sum(self, dim: int) -> SimpleNamespace:
+            captured["attention_mask_sum_dim"] = dim
+            return SimpleNamespace(tolist=lambda: [4])
+
+    class FakeBatch(dict[str, object]):
+        def to(self, device: object) -> FakeBatch:
+            captured["device"] = device
+            return self
+
+    class FakeTokenizer:
+        def __init__(self) -> None:
+            self.padding_side = "right"
+
+    class FakeProcessor:
+        def __init__(self) -> None:
+            self.tokenizer = FakeTokenizer()
+
+        def apply_chat_template(
+            self,
+            conversation: object,
+            *,
+            add_generation_prompt: bool,
+            tokenize: bool,
+            return_dict: bool | None = None,
+            return_tensors: str | None = None,
+            padding: bool | None = None,
+        ) -> object:
+            captured.setdefault("chat_calls", []).append(
+                {
+                    "conversation": conversation,
+                    "add_generation_prompt": add_generation_prompt,
+                    "tokenize": tokenize,
+                    "return_dict": return_dict,
+                    "return_tensors": return_tensors,
+                    "padding": padding,
+                }
+            )
+            if not tokenize:
+                return "<glm-rendered>"
+            return FakeBatch(
+                {
+                    "input_ids": SimpleNamespace(shape=(1, 4)),
+                    "attention_mask": FakeAttentionMask(),
+                    "token_type_ids": "unused-token-type-ids",
+                    "mm_token_type_ids": "kept-mm-token-type-ids",
+                }
+            )
+
+        def __call__(self, **kwargs: object) -> object:
+            del kwargs
+            message = "processor(...) should not be used for GLM-OCR"
+            raise AssertionError(message)
+
+        def batch_decode(
+            self,
+            generated_ids: object,
+            *,
+            skip_special_tokens: bool,
+            clean_up_tokenization_spaces: bool,
+        ) -> list[str]:
+            captured["generated_ids"] = generated_ids
+            captured["skip_special_tokens"] = skip_special_tokens
+            captured["clean_up_tokenization_spaces"] = clean_up_tokenization_spaces
+            return ["Text Recognition:\n<|assistant|>\nglm transcription\n<|user|>"]
+
+    class FakeProcessorCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeProcessor:
+            captured["processor_model_id"] = model_id
+            captured["processor_from_pretrained_kwargs"] = kwargs
+            return FakeProcessor()
+
+    class FakeModel:
+        device = "fake-device"
+        dtype = None
+
+        def eval(self) -> FakeModel:
+            captured["eval_called"] = True
+            return self
+
+        def generate(self, **kwargs: object) -> list[list[int | str]]:
+            captured["generate_kwargs"] = kwargs
+            return [[0, 1, 2, 3, "completion"]]
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeModel:
+            captured["model_model_id"] = model_id
+            captured["model_from_pretrained_kwargs"] = kwargs
+            return FakeModel()
+
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_hf_runtime",
+        lambda: SimpleNamespace(
+            processor_cls=FakeProcessorCls,
+            model_cls=FakeModelCls,
+            process_vision_info=None,
+        ),
+    )
+
+    backend = cast(
+        "GlmOCROCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=GLM_OCR_MODEL_ID,
+            )
+        ),
+    )
+    result = await backend.ocr(DocumentPage.from_image(Image.new("RGB", (32, 32), color="white")))
+
+    assert result.text == "glm transcription"
+    assert captured["processor_model_id"] == GLM_OCR_MODEL_ID
+    assert captured["model_model_id"] == GLM_OCR_MODEL_ID
+    assert captured["processor_from_pretrained_kwargs"] == {"trust_remote_code": False}
+    assert captured["model_from_pretrained_kwargs"] == {"trust_remote_code": False}
+    assert captured["eval_called"] is True
+    assert cast("FakeProcessor", backend._processor).tokenizer.padding_side == "left"
+    assert len(cast("list[dict[str, object]]", captured["chat_calls"])) == 2
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[0]["tokenize"] is False
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["tokenize"] is True
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["return_dict"] is True
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["return_tensors"] == "pt"
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["padding"] is False
+    render_conversation = cast("list[dict[str, object]]", captured["chat_calls"])[0]["conversation"]
+    assert cast("list[dict[str, object]]", render_conversation)[0]["role"] == "user"
+    render_content = cast(
+        "list[dict[str, object]]",
+        cast("list[dict[str, object]]", render_conversation)[0]["content"],
+    )
+    assert render_content[0]["type"] == "image"
+    assert render_content[1] == {"type": "text", "text": GLM_OCR_OCR_PROMPT}
+    assert captured["device"] == "fake-device"
+    assert captured["attention_mask_sum_dim"] == 1
+    assert captured["generate_kwargs"] == {
+        "input_ids": SimpleNamespace(shape=(1, 4)),
+        "attention_mask": cast("object", captured["generate_kwargs"]["attention_mask"]),
+        "mm_token_type_ids": "kept-mm-token-type-ids",
+        "max_new_tokens": 8_192,
+        "do_sample": False,
+    }
+    assert "token_type_ids" not in cast("dict[str, object]", captured["generate_kwargs"])
+    assert captured["generated_ids"] == [["completion"]]
+    assert captured["skip_special_tokens"] is True
+    assert captured["clean_up_tokenization_spaces"] is False
 
 
 @pytest.mark.asyncio
