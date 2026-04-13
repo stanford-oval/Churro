@@ -21,6 +21,7 @@ if _REPO_SRC_PATH_STR in sys.path:
     sys.path.remove(_REPO_SRC_PATH_STR)
 sys.path.insert(0, _REPO_SRC_PATH_STR)
 
+from churro_ocr._internal.litellm import close_litellm_async_clients
 from churro_ocr._internal.logging import logger
 from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import BatchOCRBackend, OCRBackend, OCRBackendLike
@@ -507,26 +508,33 @@ async def run(options: BenchmarkOptions) -> int:
     if validation_status != 0:
         return validation_status
 
-    dataset_stream = _load_dataset(CHURRO_DATASET_ID, split=options.dataset_split)
-    dataset = _selected_dataset_examples(dataset_stream, options)
-    total_pages = getattr(dataset, "num_rows", None)
-    if not isinstance(total_pages, int):
-        total_pages = None
+    clients_closed = False
+    try:
+        dataset_stream = _load_dataset(CHURRO_DATASET_ID, split=options.dataset_split)
+        dataset = _selected_dataset_examples(dataset_stream, options)
+        total_pages = getattr(dataset, "num_rows", None)
+        if not isinstance(total_pages, int):
+            total_pages = None
 
-    output_prefix = create_output_prefix(options)
-    start_time = time()
-    evaluation_examples, predictions = await _predict_texts(
-        dataset,
-        options,
-        total_pages=total_pages,
-    )
-    elapsed_time = time() - start_time
+        output_prefix = create_output_prefix(options)
+        start_time = time()
+        evaluation_examples, predictions = await _predict_texts(
+            dataset,
+            options,
+            total_pages=total_pages,
+        )
+        elapsed_time = time() - start_time
+        await close_litellm_async_clients()
+        clients_closed = True
 
-    assert len(evaluation_examples) == len(predictions), (
-        f"Mismatch in dataset size ({len(evaluation_examples)}) and predictions ({len(predictions)})."
-    )
-    compute_metrics(evaluation_examples, predictions, output_prefix, elapsed_time)
-    return 0
+        assert len(evaluation_examples) == len(predictions), (
+            f"Mismatch in dataset size ({len(evaluation_examples)}) and predictions ({len(predictions)})."
+        )
+        compute_metrics(evaluation_examples, predictions, output_prefix, elapsed_time)
+        return 0
+    finally:
+        if not clients_closed:
+            await close_litellm_async_clients()
 
 
 def main(argv: list[str] | None = None) -> int:

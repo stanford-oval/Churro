@@ -677,10 +677,23 @@ async def test_run_executes_pipeline(monkeypatch, tmp_path: Path) -> None:
         ]
 
     monkeypatch.setattr(benchmark, "_predict_texts", fake_predict)
+    cleanup_calls: list[str] = []
+    call_order: list[str] = []
+
+    async def fake_cleanup() -> None:
+        cleanup_calls.append("closed")
+        call_order.append("cleanup")
+
+    monkeypatch.setattr(
+        benchmark,
+        "close_litellm_async_clients",
+        fake_cleanup,
+    )
 
     captured: dict[str, object] = {}
 
     def fake_compute_metrics(ds, predictions, output_prefix, elapsed_time):  # noqa: ANN001
+        call_order.append("compute_metrics")
         captured["dataset"] = ds
         captured["predictions"] = predictions
         captured["output_prefix"] = output_prefix
@@ -709,6 +722,8 @@ async def test_run_executes_pipeline(monkeypatch, tmp_path: Path) -> None:
     assert captured["predictions"] == [{"text": "prediction", "metadata": {"raw_html": "<p>prediction</p>"}}]
     assert captured["output_prefix"] == str(tmp_path / "outputs")
     assert captured["elapsed_time"] == pytest.approx(3.5)
+    assert call_order == ["cleanup", "compute_metrics"]
+    assert cleanup_calls == ["closed"]
 
 
 def test_create_output_prefix_includes_subset_filters(
