@@ -508,5 +508,14 @@
     "printed": 9.0269,
     "handwritten": 5.3393,
     "total": 7.0413
+  },
+  {
+    "modelName": "GLM OCR",
+    "modelId": "zai-org/GLM-OCR",
+    "modelUrl": "https://huggingface.co/zai-org/GLM-OCR",
+    "iconPath": "_static/img/glm-ocr-logo.svg",
+    "printed": 65.2,
+    "handwritten": 40.2,
+    "total": 51.8
   }
 ]

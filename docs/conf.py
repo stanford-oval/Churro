@@ -50,6 +50,7 @@ autodoc_member_order = "bysource"
 autodoc_preserve_defaults = True
 autodoc_typehints = "description"
 autoclass_content = "both"
+python_use_unqualified_type_names = False
 
 napoleon_google_docstring = False
 napoleon_numpy_docstring = False
