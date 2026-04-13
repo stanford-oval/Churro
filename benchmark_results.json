@@ -383,7 +383,7 @@
     "modelName": "DeepSeek OCR 2",
     "modelId": "deepseek-ai/DeepSeek-OCR-2",
     "modelUrl": "https://huggingface.co/deepseek-ai/DeepSeek-OCR-2",
-    "iconPath": null,
+    "iconPath": "_static/img/deepseek-logo.png",
     "printed": 56.1,
     "handwritten": 20.0,
     "total": 36.7
