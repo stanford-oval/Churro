@@ -81,6 +81,7 @@ class BenchmarkOptions:
     api_key: str | None = None
     base_url: str | None = None
     api_version: str | None = None
+    reasoning_effort: str | None = None
 
     def dataset_subset(self) -> DatasetSubset:
         """Return the normalized subset filters for this benchmark run."""
@@ -114,6 +115,7 @@ def build_parser(*, add_help: bool = True) -> argparse.ArgumentParser:
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--api-version", default=None)
+    parser.add_argument("--reasoning-effort", default=None)
     return parser
 
 
@@ -134,6 +136,7 @@ def parse_args(argv: list[str] | None = None) -> BenchmarkOptions:
         api_key=namespace.api_key,
         base_url=namespace.base_url,
         api_version=namespace.api_version,
+        reasoning_effort=namespace.reasoning_effort,
     )
 
 
@@ -146,6 +149,11 @@ def _validate_options(options: BenchmarkOptions) -> int:
         return 1
     if options.output_dir is not None and options.output_dir.exists() and not options.output_dir.is_dir():
         logger.error("Output path '%s' exists and is not a directory.", options.output_dir)
+        return 1
+    if options.reasoning_effort is not None and options.backend not in {"litellm", "openai-compatible"}:
+        logger.error(
+            "--reasoning-effort is only supported for backend=litellm and backend=openai-compatible."
+        )
         return 1
     if options.backend == "litellm" and not options.model:
         logger.error("--model is required for backend=litellm.")
@@ -200,6 +208,13 @@ def _default_litellm_cache_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "workdir" / "cache" / "litellm"
 
 
+def _transport_completion_kwargs(options: BenchmarkOptions) -> dict[str, object]:
+    completion_kwargs: dict[str, object] = {}
+    if options.reasoning_effort is not None:
+        completion_kwargs["reasoning_effort"] = options.reasoning_effort
+    return completion_kwargs
+
+
 def _create_progress_bar(*, total: int | None, desc: str, unit: str) -> tqdm[object]:
     """Return a tqdm progress bar tuned for steadier ETA updates."""
     return tqdm(
@@ -235,6 +250,7 @@ def _build_ocr_backend(options: BenchmarkOptions) -> OCRBackendLike:
                     api_base=options.base_url,
                     api_key=options.api_key,
                     api_version=options.api_version,
+                    completion_kwargs=_transport_completion_kwargs(options),
                     cache_dir=_default_litellm_cache_dir(),
                 ),
             )
@@ -250,6 +266,7 @@ def _build_ocr_backend(options: BenchmarkOptions) -> OCRBackendLike:
                     api_base=options.base_url,
                     api_key=options.api_key,
                     api_version=options.api_version,
+                    completion_kwargs=_transport_completion_kwargs(options),
                 ),
                 options=OpenAICompatibleOptions(),
             )

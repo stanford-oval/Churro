@@ -178,6 +178,23 @@ def test_parse_args_accepts_subset_filters() -> None:
     assert options.document_type == "print"
 
 
+def test_parse_args_accepts_reasoning_effort() -> None:
+    options = benchmark.parse_args(
+        [
+            "--backend",
+            "litellm",
+            "--dataset-split",
+            "dev",
+            "--model",
+            "gpt-5.4",
+            "--reasoning-effort",
+            "low",
+        ]
+    )
+
+    assert options.reasoning_effort == "low"
+
+
 def test_parse_args_rejects_unsupported_backend() -> None:
     with pytest.raises(SystemExit):
         benchmark.parse_args(
@@ -215,6 +232,44 @@ def test_build_ocr_backend_enables_disk_cache_for_litellm(
     assert backend.transport.config.completion_kwargs == {"max_tokens": DEFAULT_OCR_MAX_TOKENS}
 
 
+def test_validate_options_rejects_reasoning_effort_for_hf() -> None:
+    options = benchmark.BenchmarkOptions(
+        backend="hf",
+        dataset_split="dev",
+        model="example/model",
+        reasoning_effort="high",
+    )
+
+    assert benchmark._validate_options(options) == 1
+
+
+def test_build_ocr_backend_passes_reasoning_effort_for_litellm(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cache_dir = tmp_path / "litellm-cache"
+
+    monkeypatch.setattr(benchmark, "_default_litellm_cache_dir", lambda: cache_dir)
+
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="litellm",
+                dataset_split="dev",
+                model="gpt-5.4",
+                reasoning_effort="low",
+            )
+        ),
+    )
+
+    assert backend.transport.config.cache_dir == cache_dir
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": DEFAULT_OCR_MAX_TOKENS,
+        "reasoning_effort": "low",
+    }
+
+
 def test_build_ocr_backend_allows_openai_compatible_without_api_key() -> None:
     backend = cast(
         "LiteLLMVisionOCRBackend",
@@ -231,6 +286,27 @@ def test_build_ocr_backend_allows_openai_compatible_without_api_key() -> None:
     assert backend.provider_name == "openai-compatible"
     assert backend.transport.config.api_base == "http://127.0.0.1:8000/v1"
     assert backend.transport.config.api_key is None
+
+
+def test_build_ocr_backend_passes_reasoning_effort_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="gpt-5.4",
+                base_url="http://127.0.0.1:8000/v1",
+                reasoning_effort="medium",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": DEFAULT_OCR_MAX_TOKENS,
+        "reasoning_effort": "medium",
+    }
 
 
 def test_build_ocr_backend_uses_dots_preset_for_hf() -> None:

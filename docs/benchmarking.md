@@ -27,6 +27,7 @@ The evaluation pipeline strips the default OCR wrapper tag, flattens supported X
 - `--language` and `--document-type`: filter the benchmark subset before slicing
 - `--output-dir PATH`: override the default results directory
 - `--max-concurrency N`: cap the number of in-flight OCR requests
+- `--reasoning-effort VALUE`: forward LiteLLM/OpenAI `reasoning_effort` for `litellm` and `openai-compatible` backends
 
 ## Output Files
 
