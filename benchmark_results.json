@@ -54,34 +54,34 @@
     "total": 67.1
   },
   {
-    "modelName": "GPT-5.4 (reasoning_effort=none)",
+    "modelName": "GPT-5.4",
     "modelId": "gpt-5.4-2026-03-05",
     "modelUrl": "https://platform.openai.com/docs/models/gpt-5.4",
     "iconPath": "_static/img/openai-symbol.svg",
     "iconInvertDark": true,
-    "printed": 78.4,
-    "handwritten": 55.2,
-    "total": 65.9
+    "printed": 75.8,
+    "handwritten": 52.8,
+    "total": 63.4
   },
   {
-    "modelName": "GPT-5.4 Mini (reasoning_effort=none)",
+    "modelName": "GPT-5.4 Mini",
     "modelId": "gpt-5.4-mini-2026-03-17",
     "modelUrl": "https://platform.openai.com/docs/models/gpt-5.4-mini",
     "iconPath": "_static/img/openai-symbol.svg",
     "iconInvertDark": true,
-    "printed": 72.3,
-    "handwritten": 46.5,
-    "total": 58.4
+    "printed": 70.2,
+    "handwritten": 39.8,
+    "total": 53.8
   },
   {
-    "modelName": "GPT-5.4 Nano (reasoning_effort=none)",
+    "modelName": "GPT-5.4 Nano",
     "modelId": "gpt-5.4-nano-2026-03-17",
     "modelUrl": "https://platform.openai.com/docs/models/gpt-5.4-nano",
     "iconPath": "_static/img/openai-symbol.svg",
     "iconInvertDark": true,
-    "printed": 55.7,
-    "handwritten": 29.7,
-    "total": 41.7
+    "printed": 56.8,
+    "handwritten": 27.9,
+    "total": 41.2
   },
   {
     "modelName": "Gemini 2.5 Flash",
