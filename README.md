@@ -1,10 +1,14 @@
+<div align="center">
+
 # <img src="static/churro.png" alt="CHURRO logo" width="40" /> Churro
+
+</div>
 
 <p align="center">
   <a href="https://huggingface.co/stanford-oval/churro-3B">🤗 Model</a> •
   <a href="https://huggingface.co/datasets/stanford-oval/churro-dataset">🗂️ Dataset</a> •
   <a href="https://arxiv.org/abs/2509.19768">📄 Paper</a>
-  <br/>
+  <br/><br/>
   <a href="https://stanford-oval.github.io/Churro/">📚 Docs</a> •
   <a href="https://stanford-oval.github.io/Churro/leaderboard.html">🏆 Leaderboard</a> •
   <a href="https://github.com/stanford-oval/churro/stargazers">
