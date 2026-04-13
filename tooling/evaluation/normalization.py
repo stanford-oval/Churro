@@ -7,6 +7,8 @@ import unicodedata
 from collections.abc import Callable
 from typing import cast
 
+from churro_ocr.prompts import strip_rich_ocr_markup_to_plain_text
+
 
 normalize_hamza: Callable[..., str] | None
 strip_harakat: Callable[..., str] | None
@@ -68,6 +70,8 @@ def normalize_characters(text: str, *, keep_long_s: bool = True) -> str:
 
 def normalize_text_for_evaluation(text: str, *, normalize_arabic: bool = False) -> str:
     """Normalize raw OCR text before metric computation."""
+    text = strip_rich_ocr_markup_to_plain_text(text)
+
     if normalize_arabic:
         if (
             strip_tashkeel is None
@@ -94,10 +98,7 @@ def normalize_text_for_evaluation(text: str, *, normalize_arabic: bool = False) 
     text = text.lower()
     text = re.sub(r"[*_`~#]", "", text)
     text = re.sub(r"[–—−‑‒―‐]", "-", text)
-    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
-    text = re.sub(r"^\s*\[.*\]\s*$", "", text, flags=re.MULTILINE)
     text = re.sub(r"\[figure\s+\d+\]", "", text)
-    text = re.sub(r"^>\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"-{3,}", "", text)
     text = re.sub(r"\s+([.,?!;:])", r"\1", text)
     text = re.sub(r"(\w+)-\s*\n\s*(\w+)", r"\1\2", text)

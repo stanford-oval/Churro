@@ -25,6 +25,8 @@ from churro_ocr.templates import (
     DEFAULT_OCR_TEMPLATE,
     DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    MINERU2_5_2509_1_2B_MODEL_ID,
+    MINERU2_5_2509_1_2B_OCR_TEMPLATE,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
     PADDLEOCR_VL_1_5_MODEL_ID,
@@ -334,6 +336,43 @@ def test_build_ocr_backend_aligns_templates_for_paddleocr_vl() -> None:
         "max_tokens": 4_096,
         "temperature": 0.0,
     }
+
+
+def test_build_ocr_backend_aligns_templates_for_mineru2_5() -> None:
+    hf_backend = cli_module._build_ocr_backend(
+        backend="hf",
+        model=MINERU2_5_2509_1_2B_MODEL_ID,
+        endpoint=None,
+        api_key=None,
+        base_url=None,
+        api_version=None,
+    )
+    openai_backend = cli_module._build_ocr_backend(
+        backend="openai-compatible",
+        model=MINERU2_5_2509_1_2B_MODEL_ID,
+        endpoint=None,
+        api_key=None,
+        base_url="http://127.0.0.1:8000/v1",
+        api_version=None,
+    )
+
+    assert hf_backend.template == MINERU2_5_2509_1_2B_OCR_TEMPLATE
+    assert hf_backend.template == openai_backend.template
+    assert hf_backend.model_name == "MinerU2.5-2509-1.2B"
+    assert openai_backend.model_name == "MinerU2.5-2509-1.2B"
+    assert openai_backend.transport.config.completion_kwargs == {}
+
+
+def test_build_ocr_backend_rejects_mineru2_5_for_litellm() -> None:
+    with pytest.raises(ConfigurationError, match="MinerU2.5 requires the built-in two-step pipeline"):
+        cli_module._build_ocr_backend(
+            backend="litellm",
+            model=MINERU2_5_2509_1_2B_MODEL_ID,
+            endpoint=None,
+            api_key=None,
+            base_url=None,
+            api_version=None,
+        )
 
 
 def test_build_ocr_backend_uses_generic_defaults_for_qwen_3_5_0_8b() -> None:

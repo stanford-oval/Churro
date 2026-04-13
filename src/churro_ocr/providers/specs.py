@@ -33,6 +33,8 @@ from churro_ocr.templates import (
     DOTS_OCR_1_5_OCR_TEMPLATE,
     LFM2_5_VL_1_6B_MODEL_ID,
     LFM2_5_VL_1_6B_OCR_TEMPLATE,
+    MINERU2_5_2509_1_2B_MODEL_ID,
+    MINERU2_5_2509_1_2B_OCR_TEMPLATE,
     OLMOCR_2_7B_1025_FP8_MODEL_ID,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
@@ -516,6 +518,23 @@ def paddleocr_vl_1_5_profile() -> OCRModelProfile:
     )
 
 
+def mineru2_5_2509_1_2b_profile() -> OCRModelProfile:
+    """Return the built-in ``opendatalab/MinerU2.5-2509-1.2B`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=MINERU2_5_2509_1_2B_MODEL_ID,
+        template=MINERU2_5_2509_1_2B_OCR_TEMPLATE,
+        image_preprocessor=ensure_rgb,
+        text_postprocessor=identity_text_postprocessor,
+        display_name="MinerU2.5-2509-1.2B",
+        huggingface=HuggingFaceOptions(
+            processor_kwargs={
+                "use_fast": True,
+            },
+            backend_variant="mineru2.5",
+        ),
+    )
+
+
 def _olmocr_profile(*, profile_name: str, display_name: str) -> OCRModelProfile:
     return OCRModelProfile(
         profile_name=profile_name,
@@ -581,6 +600,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
     dots_mocr = dots_mocr_profile()
     dots_profile = dots_ocr_1_5_profile()
     lfm2_5_vl_profile = lfm2_5_vl_1_6b_profile()
+    mineru2_5_profile = mineru2_5_2509_1_2b_profile()
     olmocr_profile = olmocr_2_7b_1025_profile()
     olmocr_fp8_profile = olmocr_2_7b_1025_fp8_profile()
     paddleocr_vl_profile = paddleocr_vl_1_5_profile()
@@ -592,6 +612,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
         dots_mocr.profile_name: dots_mocr,
         dots_profile.profile_name: dots_profile,
         lfm2_5_vl_profile.profile_name: lfm2_5_vl_profile,
+        mineru2_5_profile.profile_name: mineru2_5_profile,
         olmocr_profile.profile_name: olmocr_profile,
         olmocr_fp8_profile.profile_name: olmocr_fp8_profile,
         paddleocr_vl_profile.profile_name: paddleocr_vl_profile,
@@ -645,6 +666,7 @@ __all__ = [
     "MistralOCRModel",
     "MISTRAL_OCR_MODEL_IDS",
     "MistralOptions",
+    "mineru2_5_2509_1_2b_profile",
     "olmocr_image_preprocessor",
     "olmocr_text_postprocessor",
     "paddleocr_vl_1_5_profile",

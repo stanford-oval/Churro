@@ -9,7 +9,9 @@ from io import BytesIO
 from threading import Lock
 from typing import Any
 
-from churro_ocr._internal.image import image_to_base64
+from PIL import Image
+
+from churro_ocr._internal.image import ensure_rgb, image_to_base64
 from churro_ocr._internal.install import install_command_hint
 from churro_ocr._internal.litellm import LiteLLMTransport
 from churro_ocr._internal.prompt_logging import log_prompt_payload_once
@@ -17,6 +19,10 @@ from churro_ocr._internal.retry import retry_api_call
 from churro_ocr.errors import ConfigurationError, ProviderError
 from churro_ocr.ocr import OCRBackend, OCRResult
 from churro_ocr.page_detection import DocumentPage
+from churro_ocr.providers._mineru25 import (
+    MinerU25PipelineHelper,
+    MinerU25SamplingParams,
+)
 from churro_ocr.providers._shared import build_ocr_result, preprocess_backend_page
 from churro_ocr.providers.specs import (
     DEFAULT_OCR_MAX_TOKENS,
@@ -29,6 +35,18 @@ from churro_ocr.providers.specs import (
 )
 from churro_ocr.templates import (
     DEFAULT_OCR_TEMPLATE,
+    MINERU2_5_2509_1_2B_FORMULA_PROMPT,
+    MINERU2_5_2509_1_2B_FORMULA_TEMPLATE,
+    MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT,
+    MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_TEMPLATE,
+    MINERU2_5_2509_1_2B_LAYOUT_PROMPT,
+    MINERU2_5_2509_1_2B_LAYOUT_TEMPLATE,
+    MINERU2_5_2509_1_2B_MODEL_ID,
+    MINERU2_5_2509_1_2B_OCR_PROMPT,
+    MINERU2_5_2509_1_2B_OCR_TEMPLATE,
+    MINERU2_5_2509_1_2B_SYSTEM_PROMPT,
+    MINERU2_5_2509_1_2B_TABLE_PROMPT,
+    MINERU2_5_2509_1_2B_TABLE_TEMPLATE,
     OCRPromptTemplateLike,
     build_ocr_conversation,
 )
@@ -150,6 +168,206 @@ class OpenAICompatibleOCRBackend(LiteLLMVisionOCRBackend):
             text_postprocessor=text_postprocessor,
             provider_name="openai-compatible",
         )
+
+
+def _clone_transport_config(
+    config: LiteLLMTransportConfig,
+    *,
+    completion_kwargs: dict[str, object],
+) -> LiteLLMTransportConfig:
+    return LiteLLMTransportConfig(
+        api_base=config.api_base,
+        api_key=config.api_key,
+        api_version=config.api_version,
+        image_detail=config.image_detail,
+        completion_kwargs=completion_kwargs,
+        cache_dir=config.cache_dir,
+    )
+
+
+def _mineru25_completion_kwargs(sampling: MinerU25SamplingParams) -> dict[str, object]:
+    kwargs: dict[str, object] = {"skip_special_tokens": False}
+    if sampling.temperature is not None:
+        kwargs["temperature"] = sampling.temperature
+    if sampling.top_p is not None:
+        kwargs["top_p"] = sampling.top_p
+    if sampling.top_k is not None:
+        kwargs["top_k"] = sampling.top_k
+    if sampling.presence_penalty is not None:
+        kwargs["presence_penalty"] = sampling.presence_penalty
+    if sampling.frequency_penalty is not None:
+        kwargs["frequency_penalty"] = sampling.frequency_penalty
+    if sampling.repetition_penalty is not None:
+        kwargs["repetition_penalty"] = sampling.repetition_penalty
+    if sampling.no_repeat_ngram_size is not None:
+        kwargs["vllm_xargs"] = {
+            "no_repeat_ngram_size": sampling.no_repeat_ngram_size,
+            "debug": False,
+        }
+    if sampling.max_new_tokens is not None:
+        kwargs["max_completion_tokens"] = sampling.max_new_tokens
+    return kwargs
+
+
+def _merge_completion_kwargs(
+    step_defaults: dict[str, object],
+    overrides: dict[str, object],
+) -> dict[str, object]:
+    merged = dict(step_defaults)
+    for key, value in overrides.items():
+        existing = merged.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            merged[key] = {**existing, **value}
+            continue
+        merged[key] = value
+    return merged
+
+
+class MinerU25OpenAICompatibleOCRBackend(OpenAICompatibleOCRBackend):
+    """Two-step MinerU2.5 OCR backend for OpenAI-compatible servers such as vLLM."""
+
+    __slots__ = (
+        "layout_template",
+        "table_template",
+        "formula_template",
+        "image_analysis_template",
+        "_helper",
+    )
+
+    layout_template: OCRPromptTemplateLike
+    table_template: OCRPromptTemplateLike
+    formula_template: OCRPromptTemplateLike
+    image_analysis_template: OCRPromptTemplateLike
+    _helper: MinerU25PipelineHelper
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        transport: LiteLLMTransport | None = None,
+        model_prefix: str = "openai",
+        template: OCRPromptTemplateLike = MINERU2_5_2509_1_2B_OCR_TEMPLATE,
+        layout_template: OCRPromptTemplateLike = MINERU2_5_2509_1_2B_LAYOUT_TEMPLATE,
+        table_template: OCRPromptTemplateLike = MINERU2_5_2509_1_2B_TABLE_TEMPLATE,
+        formula_template: OCRPromptTemplateLike = MINERU2_5_2509_1_2B_FORMULA_TEMPLATE,
+        image_analysis_template: OCRPromptTemplateLike = MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_TEMPLATE,
+        image_preprocessor: ImagePreprocessor = ensure_rgb,
+        text_postprocessor: TextPostprocessor = identity_text_postprocessor,
+        model_name: str | None = "MinerU2.5-2509-1.2B",
+    ) -> None:
+        """Create a two-step MinerU2.5 OCR backend for an OpenAI-compatible server."""
+        super().__init__(
+            model=model,
+            transport=transport,
+            model_prefix=model_prefix,
+            template=template,
+            image_preprocessor=image_preprocessor,
+            text_postprocessor=text_postprocessor,
+            model_name=model_name or model,
+        )
+        self.layout_template = layout_template
+        self.table_template = table_template
+        self.formula_template = formula_template
+        self.image_analysis_template = image_analysis_template
+        self._helper = MinerU25PipelineHelper(
+            prompts={
+                "[default]": MINERU2_5_2509_1_2B_OCR_PROMPT,
+                "[layout]": MINERU2_5_2509_1_2B_LAYOUT_PROMPT,
+                "table": MINERU2_5_2509_1_2B_TABLE_PROMPT,
+                "equation": MINERU2_5_2509_1_2B_FORMULA_PROMPT,
+                "image": MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT,
+                "chart": MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT,
+            },
+            system_prompt=MINERU2_5_2509_1_2B_SYSTEM_PROMPT,
+        )
+
+    def __post_init__(self) -> None:
+        """Skip the generic max-token injection for the MinerU2.5 two-step pipeline."""
+
+    def _template_for_step(self, step_key: str) -> OCRPromptTemplateLike:
+        if step_key == "[layout]":
+            return self.layout_template
+        if step_key == "table":
+            return self.table_template
+        if step_key == "equation":
+            return self.formula_template
+        if step_key in {"image", "chart"}:
+            return self.image_analysis_template
+        return self.template
+
+    def _transport_for_step(self, sampling: MinerU25SamplingParams) -> LiteLLMTransport:
+        config = self.transport.config
+        return LiteLLMTransport(
+            _clone_transport_config(
+                config,
+                completion_kwargs=_merge_completion_kwargs(
+                    _mineru25_completion_kwargs(sampling),
+                    config.completion_kwargs,
+                ),
+            )
+        )
+
+    async def _infer_step(
+        self,
+        image: Image.Image,
+        step_key: str,
+        sampling: MinerU25SamplingParams,
+    ) -> str:
+        conversation = build_ocr_conversation(
+            self._template_for_step(step_key),
+            DocumentPage.from_image(image),
+        )
+        step_transport = self._transport_for_step(sampling)
+        messages = await asyncio.to_thread(
+            step_transport.prepare_messages_from_conversation,
+            conversation,
+        )
+        log_prompt_payload_once(
+            payload={
+                "step_key": step_key,
+                "conversation": conversation,
+                "messages": messages,
+            },
+            provider_name=self.provider_name,
+            has_logged=lambda: self._has_logged_prompt,
+            lock=self._prompt_log_lock,
+            set_logged=lambda: setattr(self, "_has_logged_prompt", True),
+        )
+        text = await step_transport.complete_text(
+            model=self.model,
+            messages=messages,
+            allow_empty=True,
+        )
+        return self._helper.clean_response(text, step_key=step_key)
+
+    async def ocr(self, page: DocumentPage) -> OCRResult:
+        """Run the MinerU2.5 two-step OCR pipeline for one page."""
+        prepared_page = preprocess_backend_page(
+            page,
+            image_preprocessor=self.image_preprocessor,
+        )
+        markdown, blocks, metrics = await self._helper.arun_two_step(
+            prepared_page.image,
+            infer_step=self._infer_step,
+        )
+        return build_ocr_result(
+            markdown,
+            provider_name=self.provider_name,
+            model_name=self.model_name or MINERU2_5_2509_1_2B_MODEL_ID,
+            text_postprocessor=self.text_postprocessor,
+            metadata={
+                "output_format": "markdown",
+                "blocks": [dict(block) for block in blocks],
+                "pipeline_metrics": metrics,
+            },
+        )
+
+    async def ocr_batch(self, pages: list[DocumentPage]) -> list[OCRResult]:
+        """Run the MinerU2.5 two-step OCR pipeline for multiple pages."""
+        results: list[OCRResult] = []
+        for page in pages:
+            results.append(await self.ocr(page))
+        return results
 
 
 @dataclass(slots=True)

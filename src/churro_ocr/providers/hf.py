@@ -11,11 +11,19 @@ from tempfile import TemporaryDirectory
 from types import MethodType
 from typing import Any, cast
 
+from PIL import Image
+
+from churro_ocr._internal.image import ensure_rgb
 from churro_ocr._internal.install import install_command_hint
 from churro_ocr._internal.prompt_logging import log_prompt_payload_once
 from churro_ocr.errors import ConfigurationError, ProviderError
 from churro_ocr.ocr import OCRBackend, OCRResult
 from churro_ocr.page_detection import DocumentPage
+from churro_ocr.providers._mineru25 import (
+    MinerU25PipelineHelper,
+    MinerU25SamplingParams,
+    replace_sampling_param,
+)
 from churro_ocr.providers._shared import (
     build_ocr_result,
     normalize_media_inputs,
@@ -43,6 +51,18 @@ from churro_ocr.templates import (
     DOTS_OCR_1_5_OCR_TEMPLATE,
     LFM2_5_VL_1_6B_MODEL_ID,
     LFM2_5_VL_1_6B_OCR_TEMPLATE,
+    MINERU2_5_2509_1_2B_FORMULA_PROMPT,
+    MINERU2_5_2509_1_2B_FORMULA_TEMPLATE,
+    MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT,
+    MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_TEMPLATE,
+    MINERU2_5_2509_1_2B_LAYOUT_PROMPT,
+    MINERU2_5_2509_1_2B_LAYOUT_TEMPLATE,
+    MINERU2_5_2509_1_2B_MODEL_ID,
+    MINERU2_5_2509_1_2B_OCR_PROMPT,
+    MINERU2_5_2509_1_2B_OCR_TEMPLATE,
+    MINERU2_5_2509_1_2B_SYSTEM_PROMPT,
+    MINERU2_5_2509_1_2B_TABLE_PROMPT,
+    MINERU2_5_2509_1_2B_TABLE_TEMPLATE,
     PADDLEOCR_VL_1_5_MODEL_ID,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
     OCRConversation,
@@ -115,6 +135,22 @@ def _load_hf_auto_model_runtime() -> _HFRuntime:
 
     return _HFRuntime(
         processor_cls=AutoTokenizer,
+        model_cls=AutoModel,
+        process_vision_info=None,
+    )
+
+
+def _load_hf_auto_processor_model_runtime() -> _HFRuntime:
+    _ensure_hf_torch_runtime()
+    try:
+        from transformers import AutoModel, AutoProcessor
+    except ImportError as exc:  # pragma: no cover - optional extra path
+        raise ConfigurationError(
+            f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
+        ) from exc
+
+    return _HFRuntime(
+        processor_cls=AutoProcessor,
         model_cls=AutoModel,
         process_vision_info=None,
     )
@@ -294,6 +330,31 @@ def _default_chandra_ocr_2_model_kwargs() -> dict[str, object]:
     return model_kwargs
 
 
+def _default_mineru25_model_kwargs() -> dict[str, object]:
+    model_kwargs: dict[str, object] = {"device_map": "auto"}
+    dtype_key = "dtype"
+    transformers_version: str
+    try:
+        from transformers import __version__ as imported_transformers_version
+
+        transformers_version = str(imported_transformers_version)
+    except ImportError:  # pragma: no cover - transformers is installed via the hf runtime
+        transformers_version = ""
+
+    version_parts = transformers_version.split(".")
+    if len(version_parts) >= 2:
+        try:
+            major = int(version_parts[0])
+            minor = int(version_parts[1])
+        except ValueError:
+            major = 0
+            minor = 0
+        if major < 4 or (major == 4 and minor < 56):
+            dtype_key = "torch_dtype"
+    model_kwargs[dtype_key] = "auto"
+    return model_kwargs
+
+
 def _deepseek_ocr_2_prompt_from_conversation(conversation: OCRConversation) -> str:
     prompt_lines: list[str] = []
     has_image = False
@@ -341,22 +402,79 @@ def _move_batch_to_model(batch: Any, model: Any) -> Any:
 
 
 def _decode_completion_texts(processor: Any, batch: Any, generated_ids: Any) -> list[str]:
+    return _decode_completion_texts_with_options(
+        processor,
+        batch,
+        generated_ids,
+        skip_special_tokens=True,
+    )
+
+
+def _completion_ids_from_generated_ids(batch: Any, generated_ids: Any) -> Any:
     batch_mapping = cast(dict[str, object], batch)
     attention_mask = batch_mapping.get("attention_mask")
     if attention_mask is not None and hasattr(attention_mask, "sum"):
         prompt_lengths = cast(Any, attention_mask).sum(dim=1).tolist()
-        completion_ids = [
+        return [
             output_ids[int(prompt_length) :]
             for prompt_length, output_ids in zip(prompt_lengths, generated_ids, strict=True)
         ]
-    else:
-        prompt_length = cast(Any, batch_mapping["input_ids"]).shape[1]
-        completion_ids = generated_ids[:, prompt_length:]
+    prompt_length = cast(Any, batch_mapping["input_ids"]).shape[1]
+    return generated_ids[:, prompt_length:]
+
+
+def _decode_completion_texts_with_options(
+    processor: Any,
+    batch: Any,
+    generated_ids: Any,
+    *,
+    skip_special_tokens: bool,
+) -> list[str]:
+    completion_ids = _completion_ids_from_generated_ids(batch, generated_ids)
     return processor.batch_decode(
         completion_ids,
-        skip_special_tokens=True,
+        skip_special_tokens=skip_special_tokens,
         clean_up_tokenization_spaces=False,
     )
+
+
+def _resolve_model_max_length(model: Any) -> int | None:
+    config = getattr(model, "config", None)
+    max_length = getattr(config, "max_position_embeddings", None)
+    if isinstance(max_length, int):
+        return max_length
+    text_config = getattr(config, "text_config", None)
+    text_max_length = getattr(text_config, "max_position_embeddings", None)
+    if isinstance(text_max_length, int):
+        return text_max_length
+    return None
+
+
+_MINERU25_STEP_ALIASES = {
+    "[layout]": "layout",
+    "table": "table",
+    "equation": "equation",
+    "image": "image",
+    "chart": "chart",
+}
+_MINERU25_SAMPLING_FIELD_NAMES = (
+    "temperature",
+    "top_p",
+    "top_k",
+    "presence_penalty",
+    "frequency_penalty",
+    "repetition_penalty",
+    "no_repeat_ngram_size",
+    "max_new_tokens",
+)
+_MINERU25_SCOPED_PREFIXES = (
+    "layout_",
+    "table_",
+    "equation_",
+    "image_",
+    "chart_",
+    "default_",
+)
 
 
 def _paddleocr_vl_processor_kwargs(*, processor: Any, padding: bool) -> dict[str, object]:
@@ -957,6 +1075,254 @@ class DotsMOCROCRBackend(DotsOCR15OCRBackend):
     model_name: str | None = "dots.mocr"
 
 
+def _default_mineru25_helper() -> MinerU25PipelineHelper:
+    return MinerU25PipelineHelper(
+        prompts={
+            "[default]": MINERU2_5_2509_1_2B_OCR_PROMPT,
+            "[layout]": MINERU2_5_2509_1_2B_LAYOUT_PROMPT,
+            "table": MINERU2_5_2509_1_2B_TABLE_PROMPT,
+            "equation": MINERU2_5_2509_1_2B_FORMULA_PROMPT,
+            "image": MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT,
+            "chart": MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT,
+        },
+        system_prompt=MINERU2_5_2509_1_2B_SYSTEM_PROMPT,
+    )
+
+
+@dataclass(slots=True)
+class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
+    """Preset OCR backend for ``opendatalab/MinerU2.5-2509-1.2B``."""
+
+    model_id: str = MINERU2_5_2509_1_2B_MODEL_ID
+    template: OCRPromptTemplateLike = MINERU2_5_2509_1_2B_OCR_TEMPLATE
+    layout_template: OCRPromptTemplateLike = MINERU2_5_2509_1_2B_LAYOUT_TEMPLATE
+    table_template: OCRPromptTemplateLike = MINERU2_5_2509_1_2B_TABLE_TEMPLATE
+    formula_template: OCRPromptTemplateLike = MINERU2_5_2509_1_2B_FORMULA_TEMPLATE
+    image_analysis_template: OCRPromptTemplateLike = MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_TEMPLATE
+    model_name: str | None = "MinerU2.5-2509-1.2B"
+    image_preprocessor: ImagePreprocessor = ensure_rgb
+    _helper: MinerU25PipelineHelper = field(default_factory=_default_mineru25_helper, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Preserve user-supplied MinerU2.5 generation overrides without generic defaults."""
+        self.generation_kwargs = dict(self.generation_kwargs)
+
+    def _load_runtime(self) -> _HFRuntime:
+        return _load_hf_runtime()
+
+    def _get_model(self, runtime: _HFRuntime) -> Any:
+        if self._model is None:
+            with self._init_lock:
+                if self._model is None:
+                    self._model = runtime.model_cls.from_pretrained(
+                        self._get_model_source(),
+                        trust_remote_code=self.trust_remote_code,
+                        **{
+                            **_default_mineru25_model_kwargs(),
+                            **self.model_kwargs,
+                        },
+                    )
+                    eval_method = getattr(self._model, "eval", None)
+                    if callable(eval_method):
+                        eval_method()
+        return self._model
+
+    def _template_for_step(self, step_key: str) -> OCRPromptTemplateLike:
+        if step_key == "[layout]":
+            return self.layout_template
+        if step_key == "table":
+            return self.table_template
+        if step_key == "equation":
+            return self.formula_template
+        if step_key in {"image", "chart"}:
+            return self.image_analysis_template
+        return self.template
+
+    def _resolve_rendered_prompt(self, rendered: object) -> str:
+        if isinstance(rendered, tuple):
+            if not rendered:
+                raise ProviderError("MinerU2.5 returned an empty chat template render.")
+            rendered = rendered[0]
+        if not isinstance(rendered, str):
+            raise ProviderError("MinerU2.5 chat template did not render text.")
+        return rendered
+
+    def _resolve_step_sampling(self, step_key: str) -> MinerU25SamplingParams:
+        effective_step = _MINERU25_STEP_ALIASES.get(step_key, "default")
+        sampling = self._helper.sampling_for(step_key)
+        changes: dict[str, float | int | None] = {}
+        for field_name in _MINERU25_SAMPLING_FIELD_NAMES:
+            global_value = self.generation_kwargs.get(field_name)
+            if isinstance(global_value, (int, float)):
+                changes[field_name] = global_value
+            step_value = self.generation_kwargs.get(f"{effective_step}_{field_name}")
+            if isinstance(step_value, (int, float)):
+                changes[field_name] = step_value
+        return replace_sampling_param(sampling, **changes) if changes else sampling
+
+    def _resolve_generation_kwargs(self, *, step_key: str, model: Any) -> dict[str, object]:
+        sampling = self._resolve_step_sampling(step_key)
+        do_sample = ((sampling.temperature or 0.0) > 0.0) and ((sampling.top_k or 1) > 1)
+
+        generation_kwargs: dict[str, object] = {
+            "do_sample": do_sample,
+        }
+        if do_sample and sampling.temperature is not None:
+            generation_kwargs["temperature"] = sampling.temperature
+        if do_sample and sampling.top_p is not None:
+            generation_kwargs["top_p"] = sampling.top_p
+        if do_sample and sampling.top_k is not None:
+            generation_kwargs["top_k"] = sampling.top_k
+        if sampling.repetition_penalty is not None:
+            generation_kwargs["repetition_penalty"] = sampling.repetition_penalty
+        if sampling.no_repeat_ngram_size is not None:
+            generation_kwargs["no_repeat_ngram_size"] = sampling.no_repeat_ngram_size
+        if sampling.max_new_tokens is not None:
+            generation_kwargs["max_new_tokens"] = sampling.max_new_tokens
+        else:
+            max_length = self.generation_kwargs.get(
+                "max_length",
+                _resolve_model_max_length(model),
+            )
+            if isinstance(max_length, str):
+                max_length = int(max_length)
+            if isinstance(max_length, int):
+                generation_kwargs["max_length"] = max_length
+
+        extra_kwargs = dict(self.generation_kwargs)
+        extra_kwargs.pop("max_length", None)
+        for prefix in ("", *_MINERU25_SCOPED_PREFIXES):
+            for field_name in _MINERU25_SAMPLING_FIELD_NAMES:
+                extra_kwargs.pop(f"{prefix}{field_name}" if prefix else field_name, None)
+        generation_kwargs.update(extra_kwargs)
+        return generation_kwargs
+
+    def _infer_step(
+        self,
+        *,
+        runtime: _HFRuntime,
+        processor: Any,
+        model: Any,
+        image: Image.Image,
+        step_key: str,
+        batch_size: int,
+    ) -> str:
+        rendered, conversation = render_ocr_prompt(
+            processor,
+            self._template_for_step(step_key),
+            DocumentPage.from_image(image),
+            add_generation_prompt=True,
+        )
+        rendered_prompt = self._resolve_rendered_prompt(rendered)
+        self._log_prompt_payload(
+            rendered_prompt=rendered_prompt,
+            conversation=conversation,
+            batch_size=batch_size,
+        )
+        image_inputs, video_inputs = self._build_vision_inputs(runtime, conversation)
+        batch_kwargs: dict[str, object] = {
+            "text": [rendered_prompt],
+            "images": normalize_media_inputs(image_inputs),
+            "return_tensors": "pt",
+            "padding": True,
+        }
+        normalized_video_inputs = normalize_media_inputs(video_inputs)
+        if normalized_video_inputs is not None:
+            batch_kwargs["videos"] = normalized_video_inputs
+        batch = processor(**batch_kwargs)
+        batch = _move_batch_to_model(batch, model)
+        generated_ids = model.generate(
+            **self._generation_inputs(batch),
+            **self._resolve_generation_kwargs(step_key=step_key, model=model),
+        )
+        text = _decode_completion_texts_with_options(
+            processor,
+            batch,
+            generated_ids,
+            skip_special_tokens=False,
+        )[0]
+        return self._helper.clean_response(text, step_key=step_key)
+
+    def _build_result(
+        self,
+        *,
+        markdown: str,
+        blocks: list[dict[str, object]],
+        metrics: dict[str, float | int],
+    ) -> OCRResult:
+        return build_ocr_result(
+            markdown,
+            provider_name=self.provider_name,
+            model_name=self.model_name or self.model_id,
+            text_postprocessor=self.text_postprocessor,
+            metadata={
+                "output_format": "markdown",
+                "blocks": blocks,
+                "pipeline_metrics": metrics,
+            },
+        )
+
+    def _ocr_sync(self, page: DocumentPage) -> OCRResult:
+        prepared_page = preprocess_backend_page(
+            page,
+            image_preprocessor=self.image_preprocessor,
+        )
+        runtime = self._load_runtime()
+        processor = self._get_processor(runtime)
+        model = self._get_model(runtime)
+
+        markdown, blocks, metrics = self._helper.run_two_step(
+            prepared_page.image,
+            infer_step=lambda image, step_key, _sampling: self._infer_step(
+                runtime=runtime,
+                processor=processor,
+                model=model,
+                image=image,
+                step_key=step_key,
+                batch_size=1,
+            ),
+        )
+        return self._build_result(
+            markdown=markdown,
+            blocks=[dict(block) for block in blocks],
+            metrics=metrics,
+        )
+
+    def _ocr_batch_sync(self, pages: list[DocumentPage]) -> list[OCRResult]:
+        if not pages:
+            return []
+
+        runtime = self._load_runtime()
+        processor = self._get_processor(runtime)
+        model = self._get_model(runtime)
+        batch_size = len(pages)
+        results: list[OCRResult] = []
+        for page in pages:
+            prepared_page = preprocess_backend_page(
+                page,
+                image_preprocessor=self.image_preprocessor,
+            )
+            markdown, blocks, metrics = self._helper.run_two_step(
+                prepared_page.image,
+                infer_step=lambda image, step_key, _sampling: self._infer_step(
+                    runtime=runtime,
+                    processor=processor,
+                    model=model,
+                    image=image,
+                    step_key=step_key,
+                    batch_size=batch_size,
+                ),
+            )
+            results.append(
+                self._build_result(
+                    markdown=markdown,
+                    blocks=[dict(block) for block in blocks],
+                    metrics=metrics,
+                )
+            )
+        return results
+
+
 @dataclass(slots=True)
 class PaddleOCRVL15OCRBackend(HuggingFaceVisionOCRBackend):
     """Preset OCR backend for ``PaddlePaddle/PaddleOCR-VL-1.5``."""
@@ -1219,5 +1585,6 @@ __all__ = [
     "DotsOCR15OCRBackend",
     "HuggingFaceVisionOCRBackend",
     "LFM25VLOCRBackend",
+    "MinerU25OCRBackend",
     "PaddleOCRVL15OCRBackend",
 ]

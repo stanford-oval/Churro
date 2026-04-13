@@ -11,7 +11,7 @@ from PIL import Image
 
 import churro_ocr._internal.retry as retry_module
 from churro_ocr._internal.litellm import LiteLLMTransport
-from churro_ocr.errors import ProviderError
+from churro_ocr.errors import ConfigurationError, ProviderError
 from churro_ocr.page_detection import DocumentPage
 from churro_ocr.prompts import (
     CHANDRA_OCR_LAYOUT_PROMPT,
@@ -36,6 +36,7 @@ from churro_ocr.providers.hf import HuggingFaceVisionOCRBackend
 from churro_ocr.providers.ocr import (
     AzureDocumentIntelligenceOCRBackend,
     LiteLLMVisionOCRBackend,
+    MinerU25OpenAICompatibleOCRBackend,
     MistralOCRBackend,
     OpenAICompatibleOCRBackend,
 )
@@ -53,6 +54,9 @@ from churro_ocr.templates import (
     DEEPSEEK_OCR_2_OCR_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
     DOTS_MOCR_OCR_TEMPLATE,
+    MINERU2_5_2509_1_2B_MODEL_ID,
+    MINERU2_5_2509_1_2B_OCR_PROMPT,
+    MINERU2_5_2509_1_2B_OCR_TEMPLATE,
     OLMOCR_2_7B_1025_FP8_MODEL_ID,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
@@ -798,6 +802,34 @@ def test_build_ocr_backend_uses_paddleocr_vl_profile_defaults_for_openai_compati
     }
 
 
+def test_build_ocr_backend_uses_mineru2_5_profile_defaults_for_openai_compatible() -> None:
+    backend = cast(
+        "MinerU25OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=MINERU2_5_2509_1_2B_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+
+    assert isinstance(backend, MinerU25OpenAICompatibleOCRBackend)
+    assert backend.template == MINERU2_5_2509_1_2B_OCR_TEMPLATE
+    assert backend.model_name == "MinerU2.5-2509-1.2B"
+    assert backend.transport.config.completion_kwargs == {}
+
+
+def test_build_ocr_backend_rejects_mineru2_5_for_litellm() -> None:
+    with pytest.raises(ConfigurationError, match="MinerU2.5 requires the built-in two-step pipeline"):
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="litellm",
+                model=MINERU2_5_2509_1_2B_MODEL_ID,
+            )
+        )
+
+
 def test_build_ocr_backend_uses_dots_mocr_profile_defaults_for_openai_compatible() -> None:
     backend = cast(
         "OpenAICompatibleOCRBackend",
@@ -1157,6 +1189,118 @@ async def test_openai_compatible_backend_uses_paddleocr_vl_prompt_and_strips_pro
     assert prompt_image.size == (2_500, 1_500)
     assert prompt_image.mode == "RGB"
     assert user_content[1] == {"type": "text", "text": PADDLEOCR_VL_1_5_OCR_PROMPT}
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_backend_uses_mineru2_5_two_step_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    captured: dict[str, object] = {"calls": calls}
+
+    def _fake_prepare_messages_from_conversation(
+        self: LiteLLMTransport,
+        conversation: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        calls.append(
+            {
+                "conversation": conversation,
+                "completion_kwargs": dict(self.config.completion_kwargs),
+            }
+        )
+        return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+
+    async def _fake_complete_text(
+        self: LiteLLMTransport,
+        *,
+        model: str,
+        messages: list[dict[str, object]],
+        timeout_seconds: int = 600,
+        output_json: bool = False,
+        allow_empty: bool = False,
+    ) -> str:
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["timeout_seconds"] = timeout_seconds
+        captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
+        call_index = len(calls) - 1
+        call = calls[call_index]
+        conversation = cast("list[dict[str, object]]", call["conversation"])
+        user_content = cast("list[dict[str, object]]", conversation[1]["content"])
+        prompt = cast("str", user_content[1]["text"])
+        if prompt == MINERU2_5_2509_1_2B_OCR_PROMPT:
+            return "plain body<|im_end|><|endoftext|>"
+        return "<|box_start|>0 100 1000 400<|box_end|><|ref_start|>text<|ref_end|>\n"
+
+    monkeypatch.setattr(
+        LiteLLMTransport,
+        "prepare_messages_from_conversation",
+        _fake_prepare_messages_from_conversation,
+    )
+    monkeypatch.setattr(LiteLLMTransport, "complete_text", _fake_complete_text)
+
+    backend = cast(
+        "MinerU25OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=MINERU2_5_2509_1_2B_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+    result = await backend.ocr(DocumentPage.from_image(Image.new("RGB", (10, 10), color="white")))
+
+    assert result.text == "plain body"
+    assert result.model_name == "MinerU2.5-2509-1.2B"
+    assert result.metadata["output_format"] == "markdown"
+    pipeline_metrics = cast("dict[str, object]", result.metadata["pipeline_metrics"])
+    assert pipeline_metrics["num_blocks"] == 1
+    assert cast("float", pipeline_metrics["layout_elapsed"]) >= 0.0
+    assert cast("float", pipeline_metrics["extract_elapsed"]) >= 0.0
+    assert cast("float", pipeline_metrics["total_elapsed"]) >= cast(
+        "float", pipeline_metrics["extract_elapsed"]
+    )
+    assert [block["type"] for block in cast("list[dict[str, object]]", result.metadata["blocks"])] == ["text"]
+    assert captured["model"] == f"openai/{MINERU2_5_2509_1_2B_MODEL_ID}"
+    assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+    assert captured["timeout_seconds"] == 600
+    assert captured["output_json"] is False
+    assert captured["allow_empty"] is True
+    assert len(calls) == 2
+    layout_conversation = cast("list[dict[str, object]]", calls[0]["conversation"])
+    assert layout_conversation[0]["role"] == "system"
+    layout_system_content = cast("list[dict[str, object]]", layout_conversation[0]["content"])
+    assert layout_system_content[0]["text"] == "You are a helpful assistant."
+    assert layout_conversation[1]["role"] == "user"
+    layout_user_content = cast("list[dict[str, object]]", layout_conversation[1]["content"])
+    assert layout_user_content[0]["type"] == "image"
+    assert layout_user_content[1]["text"] == "\nLayout Detection:"
+    assert calls[0]["completion_kwargs"] == {
+        "skip_special_tokens": False,
+        "temperature": 0.0,
+        "top_p": 0.01,
+        "top_k": 1,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "repetition_penalty": 1.0,
+        "vllm_xargs": {"no_repeat_ngram_size": 100, "debug": False},
+    }
+    ocr_conversation = cast("list[dict[str, object]]", calls[1]["conversation"])
+    ocr_user_content = cast("list[dict[str, object]]", ocr_conversation[1]["content"])
+    assert ocr_user_content[0]["type"] == "image"
+    assert ocr_user_content[1] == {"type": "text", "text": MINERU2_5_2509_1_2B_OCR_PROMPT}
+    assert calls[1]["completion_kwargs"] == {
+        "skip_special_tokens": False,
+        "temperature": 0.0,
+        "top_p": 0.01,
+        "top_k": 1,
+        "presence_penalty": 1.0,
+        "frequency_penalty": 0.05,
+        "repetition_penalty": 1.0,
+        "vllm_xargs": {"no_repeat_ngram_size": 100, "debug": False},
+    }
 
 
 @pytest.mark.asyncio

@@ -153,7 +153,7 @@ def _extract_yaml_front_matter(text: str) -> tuple[dict[str, object], str]:
     return front_matter, body
 
 
-def _strip_rich_ocr_markup_to_plain_text(text: str) -> str:
+def strip_rich_ocr_markup_to_plain_text(text: str) -> str:
     """Best-effort plain-text conversion for OCR markdown/HTML output."""
     cleaned = text.strip()
     if not cleaned:
@@ -210,7 +210,7 @@ def _strip_rich_ocr_markup_to_plain_text(text: str) -> str:
 def parse_olmocr_response(text: str) -> tuple[str, dict[str, Any]]:
     """Extract plain text and metadata from an olmOCR YAML-front-matter response."""
     front_matter, markdown_body = _extract_yaml_front_matter(text)
-    return _strip_rich_ocr_markup_to_plain_text(markdown_body), {
+    return strip_rich_ocr_markup_to_plain_text(markdown_body), {
         "front_matter": front_matter,
         "raw_markdown": markdown_body,
     }
@@ -219,6 +219,6 @@ def parse_olmocr_response(text: str) -> tuple[str, dict[str, Any]]:
 def parse_chandra_response(text: str) -> tuple[str, dict[str, Any]]:
     """Extract plain text and metadata from a Chandra HTML-layout response."""
     raw_html = text.strip()
-    return _strip_rich_ocr_markup_to_plain_text(raw_html), {
+    return strip_rich_ocr_markup_to_plain_text(raw_html), {
         "raw_html": raw_html,
     }

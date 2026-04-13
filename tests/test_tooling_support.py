@@ -53,6 +53,18 @@ def test_normalize_text_for_evaluation_handles_markdown_linebreaks_and_substitut
     assert normalized == "aword foobar - baz s st"
 
 
+def test_normalize_text_for_evaluation_converts_markdown_with_embedded_html_to_plain_text() -> None:
+    text = (
+        "# Heading\n\n"
+        "<table><tr><td>Year</td><td>Value</td></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+        "- Bullet item"
+    )
+
+    normalized = normalization_module.normalize_text_for_evaluation(text)
+
+    assert normalized == "heading year | value 1900 | 42 bullet item"
+
+
 def test_normalize_text_for_evaluation_supports_arabic_normalization_and_missing_dependency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

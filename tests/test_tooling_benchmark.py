@@ -17,6 +17,7 @@ from churro_ocr.templates import (
     DEEPSEEK_OCR_2_OCR_TEMPLATE,
     DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    MINERU2_5_2509_1_2B_OCR_TEMPLATE,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
 )
 from tooling.benchmarking import benchmark
@@ -411,6 +412,47 @@ def test_build_ocr_backend_uses_paddleocr_vl_preset_for_openai_compatible() -> N
     }
 
 
+def test_build_ocr_backend_uses_mineru2_5_preset_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="hf",
+                dataset_split="dev",
+                model="opendatalab/MinerU2.5-2509-1.2B",
+            )
+        ),
+    )
+
+    assert backend.model_name == "MinerU2.5-2509-1.2B"
+    assert backend.processor_kwargs == {"use_fast": True}
+    assert backend.trust_remote_code is False
+    assert backend.model_kwargs == {
+        "device_map": "auto",
+        "torch_dtype": "auto",
+    }
+    assert backend.generation_kwargs == {}
+
+
+def test_build_ocr_backend_uses_mineru2_5_preset_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="opendatalab/MinerU2.5-2509-1.2B",
+                base_url="http://127.0.0.1:8000/v1",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.model_name == "MinerU2.5-2509-1.2B"
+    assert backend.template == MINERU2_5_2509_1_2B_OCR_TEMPLATE
+    assert backend.transport.config.completion_kwargs == {}
+
+
 def test_build_ocr_backend_uses_churro_preset_template_for_openai_compatible() -> None:
     backend = cast(
         "LiteLLMVisionOCRBackend",
@@ -504,9 +546,9 @@ async def test_run_executes_pipeline(monkeypatch, tmp_path: Path) -> None:
         assert selected[0]["example_id"] == "1"
         assert options.max_concurrency == 2
         assert total_pages is None
-        return [
-            benchmark._build_evaluation_example(selected[0])
-        ], [{"text": "prediction", "metadata": {"raw_html": "<p>prediction</p>"}}]
+        return [benchmark._build_evaluation_example(selected[0])], [
+            {"text": "prediction", "metadata": {"raw_html": "<p>prediction</p>"}}
+        ]
 
     monkeypatch.setattr(benchmark, "_predict_texts", fake_predict)
 

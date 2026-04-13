@@ -29,9 +29,8 @@ from churro_ocr.providers.specs import MISTRAL_OCR_MODEL_IDS, validate_mistral_o
 app = typer.Typer(help="churro-ocr library-first CLI")
 
 _INSTALL_TARGET_METAVAR = "{" + "|".join(INSTALL_TARGETS) + "}"
-_MISTRAL_MODEL_OPTION_ERROR = (
-    "--model is required for backend=mistral and must be one of: "
-    + ", ".join(MISTRAL_OCR_MODEL_IDS)
+_MISTRAL_MODEL_OPTION_ERROR = "--model is required for backend=mistral and must be one of: " + ", ".join(
+    MISTRAL_OCR_MODEL_IDS
 )
 
 

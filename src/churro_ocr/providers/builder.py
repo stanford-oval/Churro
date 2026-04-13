@@ -12,12 +12,14 @@ from churro_ocr.providers.hf import (
     DotsOCR15OCRBackend,
     HuggingFaceVisionOCRBackend,
     LFM25VLOCRBackend,
+    MinerU25OCRBackend,
     PaddleOCRVL15OCRBackend,
     _default_dots_ocr_1_5_model_kwargs,
 )
 from churro_ocr.providers.ocr import (
     AzureDocumentIntelligenceOCRBackend,
     LiteLLMVisionOCRBackend,
+    MinerU25OpenAICompatibleOCRBackend,
     MistralOCRBackend,
     OpenAICompatibleOCRBackend,
 )
@@ -32,6 +34,7 @@ from churro_ocr.providers.specs import (
     resolve_ocr_profile,
     validate_mistral_ocr_model,
 )
+from churro_ocr.templates import MINERU2_5_2509_1_2B_MODEL_ID
 
 
 def _merge_mapping(
@@ -126,6 +129,11 @@ def _resolve_model_name(profile: OCRModelProfile, model: str | None, *, fallback
 def _build_litellm_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -> OCRBackend:
     if spec.model is None:
         raise ConfigurationError("OCR provider 'litellm' requires `model`.")
+    if spec.model == MINERU2_5_2509_1_2B_MODEL_ID:
+        raise ConfigurationError(
+            "MinerU2.5 requires the built-in two-step pipeline. Use provider 'hf' for local "
+            "Transformers inference or provider 'openai-compatible' for a served vLLM endpoint."
+        )
     transport_config = _merge_transport_config(profile.transport, spec.transport)
     return LiteLLMVisionOCRBackend(
         model=spec.model,
@@ -146,7 +154,10 @@ def _build_openai_compatible_backend(spec: OCRBackendSpec, profile: OCRModelProf
     transport_config = _merge_transport_config(profile.transport, spec.transport)
     if not transport_config.api_base:
         raise ConfigurationError("OCR provider 'openai-compatible' requires `transport.api_base`.")
-    return OpenAICompatibleOCRBackend(
+    backend_cls: type[OpenAICompatibleOCRBackend] = OpenAICompatibleOCRBackend
+    if spec.model == MINERU2_5_2509_1_2B_MODEL_ID:
+        backend_cls = MinerU25OpenAICompatibleOCRBackend
+    return backend_cls(
         model=spec.model,
         model_prefix=options.model_prefix or "openai",
         model_name=_resolve_model_name(profile, spec.model, fallback=spec.model),
@@ -175,6 +186,8 @@ def _build_huggingface_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -
         backend_cls = DeepSeekOCR2OCRBackend
     elif options.backend_variant == "chandra-ocr-2":
         backend_cls = ChandraOCR2OCRBackend
+    elif options.backend_variant == "mineru2.5":
+        backend_cls = MinerU25OCRBackend
     elif options.backend_variant == "paddleocr-vl-1.5":
         backend_cls = PaddleOCRVL15OCRBackend
     elif options.backend_variant == "lfm2.5-vl":
