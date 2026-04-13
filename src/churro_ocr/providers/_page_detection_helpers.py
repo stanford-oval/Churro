@@ -625,9 +625,7 @@ def _merge_instruction_prompts(*parts: str | None) -> str:
     return "\n\n".join(merged_parts)
 
 
-def _normalize_azure_page_polygon(
-    page: _AzurePageLike, *, image: Image.Image
-) -> Polygon:
+def _normalize_azure_page_polygon(page: _AzurePageLike, *, image: Image.Image) -> Polygon:
     raw_polygon = getattr(page, "polygon", None)
     polygon = _normalize_polygon(raw_polygon)
     if not polygon:

@@ -18,6 +18,7 @@ def test_install_runtime_dependencies_installs_hf_and_torch_with_uv(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     commands: list[list[str]] = []
+
     def _run(command: list[str], *, check: bool = True) -> SimpleNamespace:
         _ = check
         commands.append(list(command))
@@ -71,6 +72,7 @@ def test_install_runtime_dependencies_installs_local_client_with_uv(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     commands: list[list[str]] = []
+
     def _run(command: list[str], *, check: bool = True) -> SimpleNamespace:
         _ = check
         commands.append(list(command))
