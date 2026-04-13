@@ -2,7 +2,33 @@ line-length = 110
 required-version = "==0.15.9"
 
 [lint]
-select = ["E", "F", "I", "B", "UP", "ASYNC", "SIM", "D"]
+select = [
+    "E",       # pycodestyle errors
+    "F",       # Pyflakes (unused imports, undefined names, etc.)
+    "I",       # isort (import sorting/organization)
+    "N",       # pep8-naming
+    "B",       # flake8-bugbear (likely bugs and design issues)
+    "UP",      # pyupgrade (modernize syntax for newer Python)
+    "ASYNC",   # flake8-async (async/await correctness checks)
+    "BLE",     # flake8-blind-except
+    "SIM",     # flake8-simplify (suggest simpler code patterns)
+    "C4",      # flake8-comprehensions
+    "D",       # pydocstyle (docstring style and completeness)
+    "PIE",     # flake8-pie
+    "PERF",    # Perflint
+    "PTH",     # flake8-use-pathlib
+    "PT",      # flake8-pytest-style
+    "RET504",  # flake8-return: unnecessary variable assignment before return
+    "ARG",     # flake8-unused-arguments
+    "ANN",     # flake8-annotations
+    "TRY",     # tryceratops
+    "RUF100",  # Ruff-specific: unused noqa directives
+    "RUF022",  # Ruff-specific: __all__ sorting/format consistency
+    "RUF023",  # Ruff-specific: __slots__ should be a tuple/string literal
+    "RUF043",  # Ruff-specific: detect potentially invalid regex patterns/usages
+    "RUF046",  # Ruff-specific: detect unnecessary cast/collection conversion patterns
+    "TC",      # flake8-type-checking
+]
 
 [format]
 docstring-code-format = true

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import shutil
 import sys
 import tomllib
+from pathlib import Path
+from typing import Protocol
 
 DOCS_DIR = Path(__file__).resolve().parent
 ROOT = DOCS_DIR.parent
@@ -100,7 +101,13 @@ html_context = {
 }
 
 
-def _copy_build_artifacts(app, exception) -> None:
+class _SphinxApp(Protocol):
+    outdir: str
+
+    def connect(self, event_name: str, callback: object) -> object: ...
+
+
+def _copy_build_artifacts(app: _SphinxApp, exception: BaseException | None) -> None:
     if exception is not None:
         return
 
@@ -114,5 +121,6 @@ def _copy_build_artifacts(app, exception) -> None:
     shutil.copytree(ROOT / "static", Path(app.outdir) / "static", dirs_exist_ok=True)
 
 
-def setup(app) -> None:
+def setup(app: _SphinxApp) -> None:
+    """Register the build-finished hook for copying static artifacts."""
     app.connect("build-finished", _copy_build_artifacts)
