@@ -8,20 +8,16 @@ from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from types import MethodType
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from churro_ocr._internal.image import ensure_rgb
-from churro_ocr._internal.install import install_command_hint
 from churro_ocr._internal.prompt_logging import log_prompt_payload_once
-from churro_ocr.errors import ConfigurationError, ProviderError
 from churro_ocr.ocr import OCRBackend, OCRResult
 from churro_ocr.page_detection import DocumentPage
-from churro_ocr.providers._mineru25 import (
-    MinerU25PipelineHelper,
-    MinerU25SamplingParams,
-    replace_sampling_param,
-)
+from churro_ocr.providers import _hf_dots as _dots
+from churro_ocr.providers import _hf_helpers as _helpers
+from churro_ocr.providers import _hf_mineru as _mineru
+from churro_ocr.providers import _hf_runtime as _runtime
 from churro_ocr.providers._shared import (
     build_ocr_result,
     normalize_media_inputs,
@@ -49,17 +45,11 @@ from churro_ocr.templates import (
     DOTS_OCR_1_5_OCR_TEMPLATE,
     LFM2_5_VL_1_6B_MODEL_ID,
     LFM2_5_VL_1_6B_OCR_TEMPLATE,
-    MINERU2_5_2509_1_2B_FORMULA_PROMPT,
     MINERU2_5_2509_1_2B_FORMULA_TEMPLATE,
-    MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT,
     MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_TEMPLATE,
-    MINERU2_5_2509_1_2B_LAYOUT_PROMPT,
     MINERU2_5_2509_1_2B_LAYOUT_TEMPLATE,
     MINERU2_5_2509_1_2B_MODEL_ID,
-    MINERU2_5_2509_1_2B_OCR_PROMPT,
     MINERU2_5_2509_1_2B_OCR_TEMPLATE,
-    MINERU2_5_2509_1_2B_SYSTEM_PROMPT,
-    MINERU2_5_2509_1_2B_TABLE_PROMPT,
     MINERU2_5_2509_1_2B_TABLE_TEMPLATE,
     PADDLEOCR_VL_1_5_MODEL_ID,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
@@ -69,504 +59,78 @@ from churro_ocr.templates import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from PIL import Image
 
-    from churro_ocr.types import OCRConversationContentItem
+    from churro_ocr.providers._mineru25 import MinerU25PipelineHelper
 
-_HF_EXTRA_INSTALL_HINT = install_command_hint("hf")
-_HF_TORCH_INSTALL_HINT = (
-    f"Hugging Face OCR requires a separately installed PyTorch runtime. {_HF_EXTRA_INSTALL_HINT}"
-)
-
-
-def _configuration_error(message: str) -> ConfigurationError:
-    return ConfigurationError(message)
-
-
-def _provider_error(message: str) -> ProviderError:
-    return ProviderError(message)
-
-
-@dataclass(slots=True)
-class _HFRuntime:
-    processor_cls: Any
-    model_cls: Any
-    process_vision_info: Any
+_HF_EXTRA_INSTALL_HINT = _runtime._HF_EXTRA_INSTALL_HINT
+_HFRuntime = _runtime._HFRuntime
+_apply_chat_template = _runtime._apply_chat_template
+_call_processor = _runtime._call_processor
+_configuration_error = _runtime._configuration_error
+_default_chandra_ocr_2_model_kwargs = _helpers._default_chandra_ocr_2_model_kwargs
+_default_mineru25_model_kwargs = _helpers._default_mineru25_model_kwargs
+_decode_completion_texts = _helpers._decode_completion_texts
+_decode_completion_texts_with_options = _helpers._decode_completion_texts_with_options
+_deepseek_ocr_2_prompt_from_conversation = _helpers._deepseek_ocr_2_prompt_from_conversation
+_generate_with_model = _runtime._generate_with_model
+_move_batch_to_model = _helpers._move_batch_to_model
+_paddleocr_vl_processor_kwargs = _helpers._paddleocr_vl_processor_kwargs
+_provider_error = _runtime._provider_error
+_resolve_model_max_length = _helpers._resolve_model_max_length
 
 
-class _HFProcessorCallable(Protocol):
-    def __call__(self, **kwargs: object) -> object: ...
-
-
-class _HFProcessorDecoder(Protocol):
-    def batch_decode(
-        self,
-        token_ids: object,
-        *,
-        skip_special_tokens: bool,
-        clean_up_tokenization_spaces: bool,
-    ) -> list[str]: ...
-
-
-class _HFChatTemplateProcessor(Protocol):
-    def apply_chat_template(
-        self,
-        conversations: object,
-        **kwargs: object,
-    ) -> dict[str, object]: ...
-
-
-class _HFGenerativeModel(Protocol):
-    def generate(self, **kwargs: object) -> object: ...
-
-
-class _TorchCudaNamespace(Protocol):
-    def is_available(self) -> bool: ...
-
-    def mem_get_info(self) -> tuple[int, int]: ...
-
-
-class _TorchModuleLike(Protocol):
-    cuda: _TorchCudaNamespace
-    bfloat16: object
-
-
-def _ensure_hf_torch_runtime() -> None:
-    try:
-        import_module("torch")
-    except ImportError as exc:  # pragma: no cover - optional extra path
-        raise ConfigurationError(_HF_TORCH_INSTALL_HINT) from exc
-
-
-def _load_torch_module() -> _TorchModuleLike:
-    return cast("_TorchModuleLike", import_module("torch"))
-
-
-def _call_processor(processor: object, **kwargs: object) -> dict[str, object]:
-    return cast("dict[str, object]", cast("_HFProcessorCallable", processor)(**kwargs))
-
-
-def _generate_with_model(model: object, **kwargs: object) -> object:
-    return cast("_HFGenerativeModel", model).generate(**kwargs)
-
-
-def _apply_chat_template(
-    processor: object,
-    conversations: object,
-    **kwargs: object,
-) -> dict[str, object]:
-    return cast("_HFChatTemplateProcessor", processor).apply_chat_template(conversations, **kwargs)
+def _load_torch_module() -> _runtime._TorchModuleLike:
+    return _runtime._load_torch_module_with_import(import_module)
 
 
 def _load_hf_runtime() -> _HFRuntime:
-    _ensure_hf_torch_runtime()
-    try:
-        from qwen_vl_utils import process_vision_info
-        from transformers import AutoModelForImageTextToText, AutoProcessor
-    except ImportError as exc:  # pragma: no cover - optional extra path
-        message = f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
-        raise _configuration_error(message) from exc
-
-    return _HFRuntime(
-        processor_cls=AutoProcessor,
-        model_cls=AutoModelForImageTextToText,
-        process_vision_info=process_vision_info,
-    )
+    return _runtime._load_hf_runtime_with_import(import_module)
 
 
 def _load_hf_causal_runtime() -> _HFRuntime:
-    _ensure_hf_torch_runtime()
-    try:
-        from qwen_vl_utils import process_vision_info
-        from transformers import AutoModelForCausalLM, AutoProcessor
-    except ImportError as exc:  # pragma: no cover - optional extra path
-        message = f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
-        raise _configuration_error(message) from exc
-
-    return _HFRuntime(
-        processor_cls=AutoProcessor,
-        model_cls=AutoModelForCausalLM,
-        process_vision_info=process_vision_info,
-    )
+    return _runtime._load_hf_causal_runtime_with_import(import_module)
 
 
 def _load_hf_auto_model_runtime() -> _HFRuntime:
-    _ensure_hf_torch_runtime()
-    try:
-        from transformers import AutoModel, AutoTokenizer
-    except ImportError as exc:  # pragma: no cover - optional extra path
-        message = f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
-        raise _configuration_error(message) from exc
-
-    return _HFRuntime(
-        processor_cls=AutoTokenizer,
-        model_cls=AutoModel,
-        process_vision_info=None,
-    )
+    return _runtime._load_hf_auto_model_runtime_with_import(import_module)
 
 
 def _load_hf_auto_processor_model_runtime() -> _HFRuntime:
-    _ensure_hf_torch_runtime()
-    try:
-        from transformers import AutoModel, AutoProcessor
-    except ImportError as exc:  # pragma: no cover - optional extra path
-        message = f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
-        raise _configuration_error(message) from exc
-
-    return _HFRuntime(
-        processor_cls=AutoProcessor,
-        model_cls=AutoModel,
-        process_vision_info=None,
-    )
+    return _runtime._load_hf_auto_processor_model_runtime_with_import(import_module)
 
 
-def _ensure_deepseek_ocr_2_cuda_runtime() -> _TorchModuleLike:
-    _ensure_hf_torch_runtime()
-    torch = _load_torch_module()
-    if not torch.cuda.is_available():
-        message = (
-            "DeepSeek-OCR-2 HF backend requires a CUDA-capable PyTorch runtime because "
-            "the upstream `infer(...)` implementation moves inputs to CUDA."
-        )
-        raise _configuration_error(message)
-    return torch
+def _ensure_deepseek_ocr_2_cuda_runtime() -> _runtime._TorchModuleLike:
+    return _runtime._ensure_deepseek_ocr_2_cuda_runtime_with_import(import_module)
 
 
-_DOTS_OCR_1_5_LOCAL_DIRNAME = "DotsOCR_1_5"
-_DOTS_FLASH_ATTN_IMPORT = "from flash_attn import flash_attn_varlen_func"
-_DOTS_FLASH_ATTN_FALLBACK = """try:
-    from flash_attn import flash_attn_varlen_func
-except ImportError:
-    flash_attn_varlen_func = None
-"""
-_DOTS_FORCE_BFLOAT16_LINE = "            hidden_states = hidden_states.bfloat16()"
-_DOTS_WEIGHT_DTYPE_LINE = (
-    "            hidden_states = hidden_states.to(self.patch_embed.patchifier.proj.weight.dtype)"
-)
+_DOTS_OCR_1_5_LOCAL_DIRNAME = _dots._DOTS_OCR_1_5_LOCAL_DIRNAME
+_DOTS_FLASH_ATTN_IMPORT = _dots._DOTS_FLASH_ATTN_IMPORT
+_DOTS_FLASH_ATTN_FALLBACK = _dots._DOTS_FLASH_ATTN_FALLBACK
+_DOTS_FORCE_BFLOAT16_LINE = _dots._DOTS_FORCE_BFLOAT16_LINE
+_DOTS_WEIGHT_DTYPE_LINE = _dots._DOTS_WEIGHT_DTYPE_LINE
 
 
 def _patch_dots_ocr_vision_module(model_dir: Path) -> None:
-    vision_module_path = model_dir / "modeling_dots_vision.py"
-    vision_module = vision_module_path.read_text()
-    if _DOTS_FLASH_ATTN_IMPORT not in vision_module and _DOTS_FLASH_ATTN_FALLBACK in vision_module:
-        return
-    vision_lines = vision_module.splitlines()
-    import_index = next(
-        (index for index, line in enumerate(vision_lines) if _DOTS_FLASH_ATTN_IMPORT in line),
-        None,
-    )
-    if import_index is None:
-        return
-
-    block_tokens = {"", "try:", "except ImportError:", "flash_attn_varlen_func = None"}
-    block_start = import_index
-    while block_start > 0 and vision_lines[block_start - 1].strip() in block_tokens:
-        block_start -= 1
-
-    block_end = import_index + 1
-    while block_end < len(vision_lines) and vision_lines[block_end].strip() in block_tokens:
-        block_end += 1
-
-    patched_lines = (
-        vision_lines[:block_start]
-        + _DOTS_FLASH_ATTN_FALLBACK.rstrip("\n").splitlines()
-        + vision_lines[block_end:]
-    )
-    patched_vision_module = "\n".join(patched_lines) + "\n"
-    if _DOTS_FORCE_BFLOAT16_LINE in patched_vision_module:
-        patched_vision_module = patched_vision_module.replace(
-            _DOTS_FORCE_BFLOAT16_LINE,
-            _DOTS_WEIGHT_DTYPE_LINE,
-        )
-    vision_module_path.write_text(patched_vision_module)
+    _dots._patch_dots_ocr_vision_module(model_dir)
 
 
 def _prepare_dots_ocr_model_dir(model_id: str) -> str:
-    try:
-        from huggingface_hub import snapshot_download
-    except ImportError as exc:  # pragma: no cover - transitively provided by transformers
-        message = f"Hugging Face OCR requires the `hf` runtime. {_HF_EXTRA_INSTALL_HINT}"
-        raise _configuration_error(message) from exc
-
-    model_dir = (
-        Path.home()
-        / ".cache"
-        / "churro-ocr"
-        / "hf"
-        / _DOTS_OCR_1_5_LOCAL_DIRNAME
-        / model_id.replace("/", "__").replace(".", "_")
+    return _dots._prepare_dots_ocr_model_dir(
+        model_id,
+        home_dir=Path.home(),
+        patch_vision_module=_patch_dots_ocr_vision_module,
+        configuration_error=_configuration_error,
+        extra_install_hint=_HF_EXTRA_INSTALL_HINT,
     )
-    snapshot_download(repo_id=model_id, local_dir=model_dir)
-    _patch_dots_ocr_vision_module(model_dir)
-    return str(model_dir)
 
 
 def _patch_dots_ocr_prepare_inputs_for_generation(model: object) -> None:
-    prepare_inputs_for_generation = getattr(model, "prepare_inputs_for_generation", None)
-    if not callable(prepare_inputs_for_generation):
-        return
-    if getattr(model, "_churro_dots_prepare_inputs_patched", False):
-        return
-
-    original_prepare_inputs = getattr(prepare_inputs_for_generation, "__func__", None)
-    base_prepare_inputs_for_generation = prepare_inputs_for_generation
-    if original_prepare_inputs is not None:
-        for candidate in type(model).__mro__[1:]:
-            candidate_prepare_inputs = candidate.__dict__.get("prepare_inputs_for_generation")
-            if candidate_prepare_inputs is None or candidate_prepare_inputs is original_prepare_inputs:
-                continue
-            base_prepare_inputs_for_generation = cast("Any", candidate_prepare_inputs).__get__(
-                model,
-                type(model),
-            )
-            break
-    if not callable(base_prepare_inputs_for_generation):
-        return
-
-    def _patched_prepare_inputs_for_generation(
-        _self: object,
-        input_ids: object,
-        past_key_values: object = None,
-        inputs_embeds: object = None,
-        pixel_values: object = None,
-        attention_mask: object = None,
-        cache_position: object = None,
-        num_logits_to_keep: object = None,
-        **kwargs: object,
-    ) -> object:
-        model_inputs = base_prepare_inputs_for_generation(
-            input_ids,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            attention_mask=attention_mask,
-            cache_position=cache_position,
-            num_logits_to_keep=num_logits_to_keep,
-            **kwargs,
-        )
-
-        first_cache_position: int | None = None
-        if cache_position is not None:
-            try:
-                first_cache_position = int(cast("Any", cache_position)[0])
-            except (IndexError, TypeError, ValueError):
-                first_cache_position = None
-        if first_cache_position in (None, 0):
-            model_inputs["pixel_values"] = pixel_values
-
-        return model_inputs
-
-    model_any = cast("Any", model)
-    model_any.prepare_inputs_for_generation = MethodType(_patched_prepare_inputs_for_generation, model)
-    model_any._churro_dots_prepare_inputs_patched = True
+    _dots._patch_dots_ocr_prepare_inputs_for_generation(model)
 
 
 def _default_dots_ocr_1_5_model_kwargs() -> dict[str, object]:
-    model_kwargs: dict[str, object] = {"dtype": "auto"}
-    try:
-        torch = _load_torch_module()
-    except ImportError:  # pragma: no cover - torch is installed separately for local HF use
-        return model_kwargs
-
-    if not torch.cuda.is_available():
-        return model_kwargs
-
-    try:
-        free_bytes, _ = torch.cuda.mem_get_info()
-    except RuntimeError:
-        return model_kwargs
-    free_gib = max(1, int(free_bytes / (1024**3)) - 1)
-    if free_gib < 8:
-        return {"dtype": "float32"}
-
-    model_kwargs["device_map"] = "auto"
-    model_kwargs["max_memory"] = {0: f"{free_gib}GiB", "cpu": "128GiB"}
-    return model_kwargs
-
-
-def _default_chandra_ocr_2_model_kwargs() -> dict[str, object]:
-    model_kwargs: dict[str, object] = {
-        "device_map": "auto",
-        "dtype": "auto",
-    }
-    try:
-        torch = _load_torch_module()
-    except ImportError:  # pragma: no cover - torch is installed separately for local HF use
-        return model_kwargs
-
-    if torch.cuda.is_available():
-        model_kwargs["dtype"] = torch.bfloat16
-    return model_kwargs
-
-
-def _default_mineru25_model_kwargs() -> dict[str, object]:
-    model_kwargs: dict[str, object] = {"device_map": "auto"}
-    dtype_key = "dtype"
-    transformers_version: str
-    try:
-        from transformers import __version__ as imported_transformers_version
-
-        transformers_version = str(imported_transformers_version)
-    except ImportError:  # pragma: no cover - transformers is installed via the hf runtime
-        transformers_version = ""
-
-    version_parts = transformers_version.split(".")
-    if len(version_parts) >= 2:
-        try:
-            major = int(version_parts[0])
-            minor = int(version_parts[1])
-        except ValueError:
-            major = 0
-            minor = 0
-        if major < 4 or (major == 4 and minor < 56):
-            dtype_key = "torch_dtype"
-    model_kwargs[dtype_key] = "auto"
-    return model_kwargs
-
-
-def _deepseek_ocr_2_prompt_from_conversation(conversation: OCRConversation) -> str:
-    prompt_lines: list[str] = []
-    has_image = False
-    for message in conversation:
-        if message.get("role") == "system":
-            content_items = cast("list[OCRConversationContentItem]", message["content"])
-            system_text = "\n".join(
-                cast("str", item["text"]).strip()
-                for item in content_items
-                if item.get("type") == "text" and isinstance(item.get("text"), str)
-            ).strip()
-            if system_text:
-                message = "DeepSeek-OCR-2 does not support system prompts in the HF backend."
-                raise _configuration_error(message)
-            continue
-        if message.get("role") != "user":
-            continue
-        content_items = cast("list[OCRConversationContentItem]", message["content"])
-        for item in content_items:
-            if item.get("type") == "image":
-                has_image = True
-                continue
-            if item.get("type") == "text" and isinstance(item.get("text"), str):
-                text = cast("str", item["text"]).strip()
-                if text:
-                    prompt_lines.append(text)
-    prompt_text = "\n".join(prompt_lines).strip()
-    if not prompt_text:
-        message = "DeepSeek-OCR-2 requires a non-empty OCR prompt."
-        raise _configuration_error(message)
-    if has_image:
-        return f"<image>\n{prompt_text}"
-    return prompt_text
-
-
-def _move_batch_to_model(batch: dict[str, object], model: object) -> dict[str, object]:
-    model_device = getattr(model, "device", None)
-    if hasattr(batch, "to") and model_device is not None:
-        batch = cast("dict[str, object]", cast("Any", batch).to(model_device))
-    model_dtype = getattr(model, "dtype", None)
-    if model_dtype is not None:
-        for key, value in batch.items():
-            if hasattr(value, "dtype") and getattr(value.dtype, "is_floating_point", False):
-                batch[key] = cast("Any", value).to(dtype=model_dtype)
-    return batch
-
-
-def _decode_completion_texts(
-    processor: object,
-    batch: Mapping[str, object],
-    generated_ids: object,
-) -> list[str]:
-    return _decode_completion_texts_with_options(
-        processor,
-        batch,
-        generated_ids,
-        skip_special_tokens=True,
-    )
-
-
-def _completion_ids_from_generated_ids(batch: Mapping[str, object], generated_ids: object) -> object:
-    attention_mask = batch.get("attention_mask")
-    if attention_mask is not None and hasattr(attention_mask, "sum"):
-        prompt_lengths = cast("Any", attention_mask).sum(dim=1).tolist()
-        return [
-            output_ids[int(prompt_length) :]
-            for prompt_length, output_ids in zip(prompt_lengths, cast("Any", generated_ids), strict=True)
-        ]
-    prompt_length = cast("Any", batch["input_ids"]).shape[1]
-    return cast("Any", generated_ids)[:, prompt_length:]
-
-
-def _decode_completion_texts_with_options(
-    processor: object,
-    batch: Mapping[str, object],
-    generated_ids: object,
-    *,
-    skip_special_tokens: bool,
-) -> list[str]:
-    completion_ids = _completion_ids_from_generated_ids(batch, generated_ids)
-    return cast("_HFProcessorDecoder", processor).batch_decode(
-        completion_ids,
-        skip_special_tokens=skip_special_tokens,
-        clean_up_tokenization_spaces=False,
-    )
-
-
-def _resolve_model_max_length(model: object) -> int | None:
-    config = getattr(model, "config", None)
-    max_length = getattr(config, "max_position_embeddings", None)
-    if isinstance(max_length, int):
-        return max_length
-    text_config = getattr(config, "text_config", None)
-    text_max_length = getattr(text_config, "max_position_embeddings", None)
-    if isinstance(text_max_length, int):
-        return text_max_length
-    return None
-
-
-_MINERU25_STEP_ALIASES = {
-    "[layout]": "layout",
-    "table": "table",
-    "equation": "equation",
-    "image": "image",
-    "chart": "chart",
-}
-_MINERU25_SAMPLING_FIELD_NAMES = (
-    "temperature",
-    "top_p",
-    "top_k",
-    "presence_penalty",
-    "frequency_penalty",
-    "repetition_penalty",
-    "no_repeat_ngram_size",
-    "max_new_tokens",
-)
-_MINERU25_SCOPED_PREFIXES = (
-    "layout_",
-    "table_",
-    "equation_",
-    "image_",
-    "chart_",
-    "default_",
-)
-
-
-def _paddleocr_vl_processor_kwargs(*, processor: object, padding: bool) -> dict[str, object]:
-    processor_kwargs: dict[str, object] = {
-        "text_kwargs": {
-            "padding": padding,
-            "return_mm_token_type_ids": True,
-        }
-    }
-    image_processor = getattr(processor, "image_processor", None)
-    images_kwargs: dict[str, int] = {}
-    for key in ("min_pixels", "max_pixels"):
-        value = getattr(image_processor, key, None)
-        if isinstance(value, int):
-            images_kwargs[key] = value
-    if images_kwargs:
-        processor_kwargs["images_kwargs"] = images_kwargs
-    return processor_kwargs
+    return _dots._default_dots_ocr_1_5_model_kwargs(load_torch_module=_load_torch_module)
 
 
 @dataclass(slots=True)
@@ -1160,21 +724,6 @@ class DotsMOCROCRBackend(DotsOCR15OCRBackend):
     template: OCRPromptTemplateLike = DOTS_MOCR_OCR_TEMPLATE
     model_name: str | None = "dots.mocr"
 
-
-def _default_mineru25_helper() -> MinerU25PipelineHelper:
-    return MinerU25PipelineHelper(
-        prompts={
-            "[default]": MINERU2_5_2509_1_2B_OCR_PROMPT,
-            "[layout]": MINERU2_5_2509_1_2B_LAYOUT_PROMPT,
-            "table": MINERU2_5_2509_1_2B_TABLE_PROMPT,
-            "equation": MINERU2_5_2509_1_2B_FORMULA_PROMPT,
-            "image": MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT,
-            "chart": MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT,
-        },
-        system_prompt=MINERU2_5_2509_1_2B_SYSTEM_PROMPT,
-    )
-
-
 @dataclass(slots=True)
 class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
     """Preset OCR backend for ``opendatalab/MinerU2.5-2509-1.2B``."""
@@ -1187,7 +736,11 @@ class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
     image_analysis_template: OCRPromptTemplateLike = MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_TEMPLATE
     model_name: str | None = "MinerU2.5-2509-1.2B"
     image_preprocessor: ImagePreprocessor = ensure_rgb
-    _helper: MinerU25PipelineHelper = field(default_factory=_default_mineru25_helper, init=False, repr=False)
+    _helper: MinerU25PipelineHelper = field(
+        default_factory=_mineru._default_mineru25_helper,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         """Preserve user-supplied MinerU2.5 generation overrides without generic defaults."""
@@ -1213,119 +766,62 @@ class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
                         eval_method()
         return self._model
 
-    def _template_for_step(self, step_key: str) -> OCRPromptTemplateLike:
-        if step_key == "[layout]":
-            return self.layout_template
-        if step_key == "table":
-            return self.table_template
-        if step_key == "equation":
-            return self.formula_template
-        if step_key in {"image", "chart"}:
-            return self.image_analysis_template
-        return self.template
-
-    def _resolve_rendered_prompt(self, rendered: object) -> str:
-        if isinstance(rendered, tuple):
-            if not rendered:
-                message = "MinerU2.5 returned an empty chat template render."
-                raise _provider_error(message)
-            rendered = rendered[0]
-        if not isinstance(rendered, str):
-            message = "MinerU2.5 chat template did not render text."
-            raise _provider_error(message)
-        return rendered
-
-    def _resolve_step_sampling(self, step_key: str) -> MinerU25SamplingParams:
-        effective_step = _MINERU25_STEP_ALIASES.get(step_key, "default")
-        sampling = self._helper.sampling_for(step_key)
-        changes: dict[str, float | int | None] = {}
-        for field_name in _MINERU25_SAMPLING_FIELD_NAMES:
-            global_value = self.generation_kwargs.get(field_name)
-            if isinstance(global_value, (int, float)):
-                changes[field_name] = global_value
-            step_value = self.generation_kwargs.get(f"{effective_step}_{field_name}")
-            if isinstance(step_value, (int, float)):
-                changes[field_name] = step_value
-        return replace_sampling_param(sampling, **changes) if changes else sampling
-
-    def _resolve_generation_kwargs(self, *, step_key: str, model: object) -> dict[str, object]:
-        sampling = self._resolve_step_sampling(step_key)
-        do_sample = ((sampling.temperature or 0.0) > 0.0) and ((sampling.top_k or 1) > 1)
-
-        generation_kwargs: dict[str, object] = {
-            "do_sample": do_sample,
-        }
-        if do_sample and sampling.temperature is not None:
-            generation_kwargs["temperature"] = sampling.temperature
-        if do_sample and sampling.top_p is not None:
-            generation_kwargs["top_p"] = sampling.top_p
-        if do_sample and sampling.top_k is not None:
-            generation_kwargs["top_k"] = sampling.top_k
-        if sampling.repetition_penalty is not None:
-            generation_kwargs["repetition_penalty"] = sampling.repetition_penalty
-        if sampling.no_repeat_ngram_size is not None:
-            generation_kwargs["no_repeat_ngram_size"] = sampling.no_repeat_ngram_size
-        if sampling.max_new_tokens is not None:
-            generation_kwargs["max_new_tokens"] = sampling.max_new_tokens
-        else:
-            max_length = self.generation_kwargs.get(
-                "max_length",
-                _resolve_model_max_length(model),
-            )
-            if isinstance(max_length, str):
-                max_length = int(max_length)
-            if isinstance(max_length, int):
-                generation_kwargs["max_length"] = max_length
-
-        extra_kwargs = dict(self.generation_kwargs)
-        extra_kwargs.pop("max_length", None)
-        for prefix in ("", *_MINERU25_SCOPED_PREFIXES):
-            for field_name in _MINERU25_SAMPLING_FIELD_NAMES:
-                extra_kwargs.pop(f"{prefix}{field_name}" if prefix else field_name, None)
-        generation_kwargs.update(extra_kwargs)
-        return generation_kwargs
-
     def _infer_step(
         self,
         *,
-        runtime: _HFRuntime,
-        processor: object,
-        model: object,
-        image: Image.Image,
-        step_key: str,
-        batch_size: int,
-    ) -> str:
+        context: _mineru._MinerU25StepContext,
+    image: Image.Image,
+    step_key: str,
+) -> str:
         rendered, conversation = render_ocr_prompt(
-            processor,
-            self._template_for_step(step_key),
+            context.processor,
+            _mineru._template_for_step(
+                step_key,
+                _mineru._MinerU25Templates(
+                    default_template=self.template,
+                    layout_template=self.layout_template,
+                    table_template=self.table_template,
+                    formula_template=self.formula_template,
+                    image_analysis_template=self.image_analysis_template,
+                ),
+            ),
             DocumentPage.from_image(image),
             add_generation_prompt=True,
         )
-        rendered_prompt = self._resolve_rendered_prompt(rendered)
+        rendered_prompt = _mineru._resolve_rendered_prompt(
+            rendered,
+            provider_error=_provider_error,
+        )
         self._log_prompt_payload(
             rendered_prompt=rendered_prompt,
             conversation=conversation,
-            batch_size=batch_size,
+            batch_size=context.batch_size,
         )
-        image_inputs, video_inputs = self._build_vision_inputs(runtime, conversation)
-        batch_kwargs: dict[str, object] = {
-            "text": [rendered_prompt],
-            "images": normalize_media_inputs(image_inputs),
-            "return_tensors": "pt",
-            "padding": True,
-        }
-        normalized_video_inputs = normalize_media_inputs(video_inputs)
-        if normalized_video_inputs is not None:
-            batch_kwargs["videos"] = normalized_video_inputs
-        batch = _call_processor(processor, **batch_kwargs)
-        batch = _move_batch_to_model(batch, model)
+        image_inputs, video_inputs = self._build_vision_inputs(
+            cast("_HFRuntime", context.runtime),
+            conversation,
+        )
+        batch = _call_processor(
+            context.processor,
+            **_mineru._build_step_batch_kwargs(
+                rendered_prompt=rendered_prompt,
+                image_inputs=image_inputs,
+                video_inputs=video_inputs,
+            ),
+        )
+        batch = _move_batch_to_model(batch, context.model)
         generated_ids = _generate_with_model(
-            model,
+            context.model,
             **self._generation_inputs(batch),
-            **self._resolve_generation_kwargs(step_key=step_key, model=model),
+            **_mineru._resolve_generation_kwargs(
+                helper=self._helper,
+                generation_kwargs=self.generation_kwargs,
+                step_key=step_key,
+                model=context.model,
+            ),
         )
         text = _decode_completion_texts_with_options(
-            processor,
+            context.processor,
             batch,
             generated_ids,
             skip_special_tokens=False,
@@ -1359,16 +855,19 @@ class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
         runtime = self._load_runtime()
         processor = self._get_processor(runtime)
         model = self._get_model(runtime)
+        step_context = _mineru._MinerU25StepContext(
+            runtime=runtime,
+            processor=processor,
+            model=model,
+            batch_size=1,
+        )
 
         markdown, blocks, metrics = self._helper.run_two_step(
             prepared_page.image,
             infer_step=lambda image, step_key, _sampling: self._infer_step(
-                runtime=runtime,
-                processor=processor,
-                model=model,
+                context=step_context,
                 image=image,
                 step_key=step_key,
-                batch_size=1,
             ),
         )
         return self._build_result(
@@ -1385,6 +884,12 @@ class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
         processor = self._get_processor(runtime)
         model = self._get_model(runtime)
         batch_size = len(pages)
+        step_context = _mineru._MinerU25StepContext(
+            runtime=runtime,
+            processor=processor,
+            model=model,
+            batch_size=batch_size,
+        )
         results: list[OCRResult] = []
         for page in pages:
             prepared_page = preprocess_backend_page(
@@ -1394,12 +899,9 @@ class MinerU25OCRBackend(HuggingFaceVisionOCRBackend):
             markdown, blocks, metrics = self._helper.run_two_step(
                 prepared_page.image,
                 infer_step=lambda image, step_key, _sampling: self._infer_step(
-                    runtime=runtime,
-                    processor=processor,
-                    model=model,
+                    context=step_context,
                     image=image,
                     step_key=step_key,
-                    batch_size=batch_size,
                 ),
             )
             results.append(
