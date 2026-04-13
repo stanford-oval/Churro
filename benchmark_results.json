@@ -204,6 +204,15 @@
     "total": 55.4205
   },
   {
+    "modelName": "Infinity Parser",
+    "modelId": "infly/Infinity-Parser-7B",
+    "modelUrl": "https://huggingface.co/infly/Infinity-Parser-7B",
+    "iconPath": "_static/img/infly-logo.png",
+    "printed": 76.3,
+    "handwritten": 50.9,
+    "total": 62.6
+  },
+  {
     "modelName": "Qwen 3.5 (9B)",
     "modelId": "Qwen/Qwen3.5-9B",
     "modelUrl": "https://huggingface.co/Qwen/Qwen3.5-9B",
