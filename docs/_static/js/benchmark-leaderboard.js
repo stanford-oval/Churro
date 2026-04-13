@@ -1,7 +1,7 @@
 (function () {
   const SCORE_FORMATTER = new Intl.NumberFormat(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
   });
 
   const COLUMN_DEFINITIONS = [
