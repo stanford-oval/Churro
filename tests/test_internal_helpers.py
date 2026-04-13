@@ -376,7 +376,7 @@ async def test_retry_api_call_stops_after_total_time_budget(monkeypatch: pytest.
 
 
 @pytest.mark.asyncio
-async def test_transport_complete_text_uses_remaining_total_timeout_budget(
+async def test_transport_complete_text_uses_stable_provider_timeout_with_total_timeout_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = {"acompletion": 0}
@@ -435,13 +435,45 @@ async def test_transport_complete_text_uses_remaining_total_timeout_budget(
 
     assert result == "ok"
     assert calls == {"acompletion": 2}
-    assert attempt_timeouts == [10.0, 7.0]
+    assert attempt_timeouts == [10.0, 10.0]
     assert captured_retry == {
         "operation_name": "LiteLLM request",
         "context": "for model 'example/model'",
         "max_attempts": retry_module.DEFAULT_MAX_ATTEMPTS,
         "max_total_seconds": 10.0,
     }
+
+
+@pytest.mark.asyncio
+async def test_close_litellm_async_clients_closes_cached_async_clients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed: list[str] = []
+
+    class FakeAsyncOpenAI:
+        async def close(self) -> None:
+            closed.append("client")
+
+    class FakeAsyncHTTPClient:
+        async def aclose(self) -> None:
+            closed.append("http")
+
+    fake_module = _make_fake_litellm_module(acompletion=lambda **_: None)
+    fake_litellm_module = cast(Any, fake_module)
+    fake_litellm_module.in_memory_llm_clients_cache = SimpleNamespace(
+        cache_dict={
+            "openai": FakeAsyncOpenAI(),
+            "wrapper": SimpleNamespace(client=FakeAsyncHTTPClient()),
+        }
+    )
+    fake_litellm_module.aclient_session = FakeAsyncHTTPClient()
+    monkeypatch.setitem(sys.modules, "litellm", fake_module)
+
+    await litellm_module.close_litellm_async_clients()
+
+    assert closed == ["client", "http", "http"]
+    assert fake_litellm_module.in_memory_llm_clients_cache.cache_dict == {}
+    assert fake_litellm_module.aclient_session is None
 
 
 @pytest.mark.asyncio

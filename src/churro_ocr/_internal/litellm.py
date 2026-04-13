@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from collections.abc import Sequence
 from contextlib import suppress
@@ -97,6 +98,59 @@ def configure_disk_cache(*, disk_cache_dir: str | Path) -> None:
     _DISK_CACHE_DIR = cache_dir
 
 
+async def _close_async_resource(resource: object, *, seen: set[int]) -> None:
+    if resource is None:
+        return
+    resource_id = id(resource)
+    if resource_id in seen:
+        return
+    seen.add(resource_id)
+
+    for method_name in ("close", "aclose"):
+        close_method = getattr(resource, method_name, None)
+        if not callable(close_method):
+            continue
+        with suppress(Exception):
+            result = close_method()
+            if inspect.isawaitable(result):
+                await result
+        return
+
+    for attribute_name in ("client", "_client", "session"):
+        nested_resource = getattr(resource, attribute_name, None)
+        if nested_resource is not None:
+            await _close_async_resource(nested_resource, seen=seen)
+
+
+async def close_litellm_async_clients() -> None:
+    """Best-effort cleanup for cached LiteLLM async clients and sessions."""
+    try:
+        import litellm
+    except ImportError:
+        return
+
+    litellm_any = cast(Any, litellm)
+    resources: list[object] = []
+
+    cache = getattr(litellm_any, "in_memory_llm_clients_cache", None)
+    cache_dict = getattr(cache, "cache_dict", None)
+    if isinstance(cache_dict, dict):
+        resources.extend(cache_dict.values())
+        cache_dict.clear()
+
+    for attribute_name in ("aclient_session", "client_session"):
+        session = getattr(litellm_any, attribute_name, None)
+        if session is None:
+            continue
+        resources.append(session)
+        with suppress(Exception):
+            setattr(litellm_any, attribute_name, None)
+
+    seen: set[int] = set()
+    for resource in resources:
+        await _close_async_resource(resource, seen=seen)
+
+
 class LiteLLMTransport:
     """Shared LiteLLM transport for OCR and LLM page detection."""
 
@@ -187,7 +241,9 @@ class LiteLLMTransport:
             kwargs["response_format"] = {"type": "json_object"}
         if self._config.completion_kwargs:
             kwargs.update(self._config.completion_kwargs)
-        deadline = monotonic() + float(timeout_seconds)
+        request_timeout_seconds = float(timeout_seconds)
+        kwargs["timeout"] = request_timeout_seconds
+        deadline = monotonic() + request_timeout_seconds
 
         async def _run_completion() -> Any:
             attempt_kwargs = dict(kwargs)
@@ -196,7 +252,6 @@ class LiteLLMTransport:
                 raise TimeoutError(
                     f"LiteLLM request exceeded the total timeout of {timeout_seconds} seconds."
                 )
-            attempt_kwargs["timeout"] = remaining_timeout_seconds
             return await asyncio.wait_for(
                 acompletion(**attempt_kwargs),
                 timeout=remaining_timeout_seconds,
