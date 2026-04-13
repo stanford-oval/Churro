@@ -168,7 +168,7 @@
     "modelName": "Nanonets OCR",
     "modelId": "nanonets/Nanonets-OCR-s",
     "modelUrl": "https://huggingface.co/nanonets/Nanonets-OCR-s",
-    "iconPath": null,
+    "iconPath": "_static/img/nanonets-logo.png",
     "printed": 69.7033,
     "handwritten": 43.1781,
     "total": 55.4205
@@ -261,7 +261,7 @@
     "modelName": "PaddleOCR-VL 1.5",
     "modelId": "PaddlePaddle/PaddleOCR-VL-1.5",
     "modelUrl": "https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.5",
-    "iconPath": null,
+    "iconPath": "_static/img/paddleocr-logo.png",
     "printed": 62.6,
     "handwritten": 33.6,
     "total": 47.0
