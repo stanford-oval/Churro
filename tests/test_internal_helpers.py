@@ -43,6 +43,7 @@ def _make_fake_litellm_module(*, acompletion: object, completion_cost: object | 
     module = cast("Any", ModuleType("litellm"))
     module.acompletion = acompletion
     module.completion_cost = completion_cost or (lambda **_: None)
+    module.model_cost = {"example/model": {}}
     module.turn_off_message_logging = False
     module.success_callback = ["stale"]
     module.failure_callback = ["stale"]
@@ -237,6 +238,23 @@ def test_extract_response_cost_returns_none_for_non_numeric_fallback(monkeypatch
     cost = litellm_module._extract_response_cost(model="example/model", response=SimpleNamespace())
 
     assert cost is None
+
+
+def test_extract_response_cost_returns_none_for_unmapped_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion_cost_calls: list[dict[str, object]] = []
+    fake_module = _make_fake_litellm_module(
+        acompletion=lambda **_: None,
+        completion_cost=lambda **kwargs: completion_cost_calls.append(kwargs) or 0.75,
+    )
+    cast("Any", fake_module).model_cost = {}
+    monkeypatch.setitem(sys.modules, "litellm", fake_module)
+
+    cost = litellm_module._extract_response_cost(model="openai/example/model", response=SimpleNamespace())
+
+    assert cost is None
+    assert completion_cost_calls == []
 
 
 def test_ensure_initialized_wraps_logging_worker_when_present(monkeypatch: pytest.MonkeyPatch) -> None:

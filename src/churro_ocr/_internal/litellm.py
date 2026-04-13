@@ -397,8 +397,13 @@ def _extract_response_cost(*, model: str, response: object) -> float | None:
             return float(raw_cost)
 
     try:
+        import litellm
         from litellm import completion_cost
     except ImportError:
+        return None
+
+    model_cost = getattr(cast("Any", litellm), "model_cost", None)
+    if not _is_litellm_cost_mapped(model, model_cost=model_cost):
         return None
 
     try:
@@ -408,6 +413,18 @@ def _extract_response_cost(*, model: str, response: object) -> float | None:
     if not isinstance(cost, (int, float)):
         return None
     return float(cost)
+
+
+def _is_litellm_cost_mapped(model: str, *, model_cost: object) -> bool:
+    """Return whether LiteLLM exposes a cost-map entry for ``model``."""
+    if not isinstance(model_cost, dict):
+        return True
+
+    known_models = {str(key).casefold() for key in model_cost}
+    candidates = {model.casefold()}
+    if "/" in model:
+        candidates.add(model.split("/", 1)[1].casefold())
+    return any(candidate in known_models for candidate in candidates)
 
 
 def _prepare_messages_from_conversation(
