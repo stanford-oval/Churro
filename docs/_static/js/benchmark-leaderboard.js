@@ -3,17 +3,12 @@
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   });
-
-  const COLUMN_DEFINITIONS = [
-    { key: "modelName", label: "Model", numeric: false },
-    { key: "printed", label: "Printed", numeric: true },
-    { key: "handwritten", label: "Handwritten", numeric: true },
-    { key: "total", label: "Total", numeric: true },
+  const GROUP_DEFINITIONS = [
+    { key: "printed", label: "Printed", metricType: "print" },
+    { key: "handwritten", label: "Handwritten", metricType: "handwriting" },
   ];
-  const NUMERIC_COLUMNS = new Set(
-    COLUMN_DEFINITIONS.filter((column) => column.numeric).map((column) => column.key),
-  );
   const DEFAULT_SORT_STATE = { key: "total", direction: "desc" };
+  const DEFAULT_EXPANDED_GROUPS = { printed: false, handwritten: false };
 
   function contentRoot() {
     return document.documentElement.dataset.content_root || "";
@@ -34,6 +29,56 @@
       return "—";
     }
     return SCORE_FORMATTER.format(value);
+  }
+
+  function getGroupDefinition(groupKey) {
+    return GROUP_DEFINITIONS.find((group) => group.key === groupKey) || null;
+  }
+
+  function getGroupForColumn(columnKey) {
+    const groupKey = columnKey.includes(":") ? columnKey.split(":")[0] : columnKey;
+    return getGroupDefinition(groupKey);
+  }
+
+  function getLanguageMetrics(row, group) {
+    return row.main_language_and_type_metrics?.[group.metricType] || {};
+  }
+
+  function getGroupLanguages(rows) {
+    const languagesByGroup = {};
+
+    GROUP_DEFINITIONS.forEach((group) => {
+      const languages = new Set();
+      rows.forEach((row) => {
+        Object.keys(getLanguageMetrics(row, group)).forEach((language) => {
+          languages.add(language);
+        });
+      });
+      languagesByGroup[group.key] = [...languages].sort((left, right) => left.localeCompare(right));
+    });
+
+    return languagesByGroup;
+  }
+
+  function getColumnValue(row, columnKey) {
+    if (columnKey === "modelName") {
+      return row.modelName;
+    }
+    if (columnKey === "printed" || columnKey === "handwritten" || columnKey === "total") {
+      return row[columnKey];
+    }
+
+    const [groupKey, language] = columnKey.split(":");
+    const group = getGroupDefinition(groupKey);
+    if (!group || !language) {
+      return undefined;
+    }
+
+    return getLanguageMetrics(row, group)[language];
+  }
+
+  function isNumericColumn(columnKey) {
+    return columnKey !== "modelName";
   }
 
   function createIconFrame(row) {
@@ -63,13 +108,19 @@
   function compareRows(left, right, sortState) {
     const { key, direction } = sortState;
     const multiplier = direction === "asc" ? 1 : -1;
-    const leftValue = left[key];
-    const rightValue = right[key];
+    const leftValue = getColumnValue(left, key);
+    const rightValue = getColumnValue(right, key);
 
-    if (NUMERIC_COLUMNS.has(key)) {
+    if (isNumericColumn(key)) {
       const leftNumber = Number(leftValue);
       const rightNumber = Number(rightValue);
 
+      if (Number.isNaN(leftNumber) && !Number.isNaN(rightNumber)) {
+        return 1;
+      }
+      if (!Number.isNaN(leftNumber) && Number.isNaN(rightNumber)) {
+        return -1;
+      }
       if (!Number.isNaN(leftNumber) && !Number.isNaN(rightNumber) && leftNumber !== rightNumber) {
         return (leftNumber - rightNumber) * multiplier;
       }
@@ -110,43 +161,123 @@
     return wrapper;
   }
 
-  function createHeaderButton(column, sortState, onSort) {
+  function createHeaderButton(columnKey, label, sortState, onSort) {
     const button = document.createElement("button");
     button.className = "benchmark-sort-button";
     button.type = "button";
-    button.textContent = column.label;
-    button.dataset.sortKey = column.key;
+    button.textContent = label;
+    button.dataset.sortKey = columnKey;
 
     const indicator = document.createElement("span");
     indicator.className = "benchmark-sort-indicator";
-    if (sortState.key === column.key) {
+    if (sortState.key === columnKey) {
       indicator.textContent = sortState.direction === "asc" ? "▲" : "▼";
     } else {
       indicator.textContent = "↕";
     }
     button.append(indicator);
-    button.addEventListener("click", () => onSort(column.key));
+    button.addEventListener("click", () => onSort(columnKey));
     return button;
   }
 
-  function renderLeaderboard(container, rows, sortState) {
+  function createGroupToggle(group, expanded, languageCount, onToggle) {
+    const button = document.createElement("button");
+    button.className = "benchmark-group-toggle";
+    button.type = "button";
+    button.textContent = expanded ? "Collapse" : "Expand";
+    button.disabled = languageCount === 0;
+    button.setAttribute("aria-expanded", expanded ? "true" : "false");
+    button.setAttribute(
+      "aria-label",
+      expanded
+        ? `Collapse ${group.label.toLowerCase()} language columns`
+        : `Expand ${group.label.toLowerCase()} language columns (${languageCount} languages)`,
+    );
+    button.title =
+      languageCount === 0
+        ? `No per-language ${group.label.toLowerCase()} scores available`
+        : expanded
+          ? `Hide ${group.label.toLowerCase()} language scores`
+          : `Show ${languageCount} ${group.label.toLowerCase()} language scores`;
+    button.addEventListener("click", () => onToggle(group.key));
+    return button;
+  }
+
+  function createStandaloneHeaderCell(columnKey, label, sortState, onSort) {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.append(createHeaderButton(columnKey, label, sortState, onSort));
+    return th;
+  }
+
+  function createFlatGroupHeaderCell(group, sortState, onSort, onToggle, expanded, languageCount) {
+    const th = document.createElement("th");
+    th.scope = "col";
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "benchmark-group-header";
+    wrapper.append(createHeaderButton(group.key, group.label, sortState, onSort));
+    wrapper.append(createGroupToggle(group, expanded, languageCount, onToggle));
+    th.append(wrapper);
+
+    return th;
+  }
+
+  function createExpandedGroupHeaderCell(group, onToggle, languageCount) {
+    const th = document.createElement("th");
+    th.scope = "colgroup";
+    th.colSpan = languageCount + 1;
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "benchmark-group-header benchmark-group-header--expanded";
+
+    const label = document.createElement("span");
+    label.className = "benchmark-group-label";
+    label.textContent = group.label;
+    wrapper.append(label);
+    wrapper.append(createGroupToggle(group, true, languageCount, onToggle));
+
+    th.append(wrapper);
+    return th;
+  }
+
+  function createVisibleScoreColumns(groupLanguages, expandedGroups) {
+    const visibleColumns = [];
+
+    GROUP_DEFINITIONS.forEach((group) => {
+      visibleColumns.push(group.key);
+      if (expandedGroups[group.key]) {
+        groupLanguages[group.key].forEach((language) => {
+          visibleColumns.push(`${group.key}:${language}`);
+        });
+      }
+    });
+
+    visibleColumns.push("total");
+    return visibleColumns;
+  }
+
+  function normalizeSortState(sortState, expandedGroups) {
+    const group = getGroupForColumn(sortState.key);
+    if (group && sortState.key.includes(":") && !expandedGroups[group.key]) {
+      sortState.key = group.key;
+    }
+  }
+
+  function renderLeaderboard(container, rows, sortState, expandedGroups) {
+    normalizeSortState(sortState, expandedGroups);
     container.replaceChildren();
 
+    const groupLanguages = getGroupLanguages(rows);
     const sortedRows = [...rows].sort((left, right) => compareRows(left, right, sortState));
+    const hasExpandedGroups = GROUP_DEFINITIONS.some((group) => expandedGroups[group.key]);
+    const visibleScoreColumns = createVisibleScoreColumns(groupLanguages, expandedGroups);
 
     const wrapper = document.createElement("div");
     wrapper.className = "benchmark-table-wrapper";
 
     const table = document.createElement("table");
     table.className = "benchmark-table";
-
-    const thead = document.createElement("thead");
-    const headerRow = document.createElement("tr");
-
-    const rankHeader = document.createElement("th");
-    rankHeader.scope = "col";
-    rankHeader.textContent = "#";
-    headerRow.append(rankHeader);
 
     const handleSort = (key) => {
       if (sortState.key === key) {
@@ -155,17 +286,97 @@
         sortState.key = key;
         sortState.direction = key === "modelName" ? "asc" : "desc";
       }
-      renderLeaderboard(container, rows, sortState);
+      renderLeaderboard(container, rows, sortState, expandedGroups);
     };
 
-    for (const column of COLUMN_DEFINITIONS) {
-      const th = document.createElement("th");
-      th.scope = "col";
-      th.append(createHeaderButton(column, sortState, handleSort));
-      headerRow.append(th);
-    }
+    const handleToggle = (groupKey) => {
+      expandedGroups[groupKey] = !expandedGroups[groupKey];
+      normalizeSortState(sortState, expandedGroups);
+      renderLeaderboard(container, rows, sortState, expandedGroups);
+    };
 
-    thead.append(headerRow);
+    const thead = document.createElement("thead");
+    const topHeaderRow = document.createElement("tr");
+
+    const rankHeader = document.createElement("th");
+    rankHeader.scope = "col";
+    rankHeader.textContent = "#";
+    if (hasExpandedGroups) {
+      rankHeader.rowSpan = 2;
+    }
+    topHeaderRow.append(rankHeader);
+
+    const modelHeader = createStandaloneHeaderCell("modelName", "Model", sortState, handleSort);
+    if (hasExpandedGroups) {
+      modelHeader.rowSpan = 2;
+    }
+    topHeaderRow.append(modelHeader);
+
+    if (!hasExpandedGroups) {
+      GROUP_DEFINITIONS.forEach((group) => {
+        topHeaderRow.append(
+          createFlatGroupHeaderCell(
+            group,
+            sortState,
+            handleSort,
+            handleToggle,
+            false,
+            groupLanguages[group.key].length,
+          ),
+        );
+      });
+      topHeaderRow.append(createStandaloneHeaderCell("total", "Total", sortState, handleSort));
+      thead.append(topHeaderRow);
+    } else {
+      GROUP_DEFINITIONS.forEach((group) => {
+        if (expandedGroups[group.key]) {
+          topHeaderRow.append(
+            createExpandedGroupHeaderCell(group, handleToggle, groupLanguages[group.key].length),
+          );
+          return;
+        }
+
+        const flatHeader = createFlatGroupHeaderCell(
+          group,
+          sortState,
+          handleSort,
+          handleToggle,
+          false,
+          groupLanguages[group.key].length,
+        );
+        flatHeader.rowSpan = 2;
+        topHeaderRow.append(flatHeader);
+      });
+
+      const totalHeader = createStandaloneHeaderCell("total", "Total", sortState, handleSort);
+      totalHeader.rowSpan = 2;
+      topHeaderRow.append(totalHeader);
+      thead.append(topHeaderRow);
+
+      const subheaderRow = document.createElement("tr");
+      GROUP_DEFINITIONS.forEach((group) => {
+        if (!expandedGroups[group.key]) {
+          return;
+        }
+
+        const overallHeader = document.createElement("th");
+        overallHeader.className = "benchmark-subcolumn";
+        overallHeader.scope = "col";
+        overallHeader.append(createHeaderButton(group.key, "Overall", sortState, handleSort));
+        subheaderRow.append(overallHeader);
+
+        groupLanguages[group.key].forEach((language) => {
+          const languageHeader = document.createElement("th");
+          languageHeader.className = "benchmark-subcolumn";
+          languageHeader.scope = "col";
+          languageHeader.append(
+            createHeaderButton(`${group.key}:${language}`, language, sortState, handleSort),
+          );
+          subheaderRow.append(languageHeader);
+        });
+      });
+      thead.append(subheaderRow);
+    }
     table.append(thead);
 
     const tbody = document.createElement("tbody");
@@ -185,10 +396,10 @@
       modelCell.append(createModelCell(row));
       tr.append(modelCell);
 
-      for (const key of ["printed", "handwritten", "total"]) {
+      for (const key of visibleScoreColumns) {
         const scoreCell = document.createElement("td");
         scoreCell.className = "benchmark-score";
-        scoreCell.textContent = formatScore(row[key]);
+        scoreCell.textContent = formatScore(getColumnValue(row, key));
         tr.append(scoreCell);
       }
 
@@ -217,7 +428,8 @@
 
       const rows = await response.json();
       const sortState = { ...DEFAULT_SORT_STATE };
-      renderLeaderboard(container, rows, sortState);
+      const expandedGroups = { ...DEFAULT_EXPANDED_GROUPS };
+      renderLeaderboard(container, rows, sortState, expandedGroups);
     } catch (error) {
       renderError(container, "Unable to load the benchmark leaderboard data.");
       console.error("[benchmark-leaderboard] failed to initialize", error);

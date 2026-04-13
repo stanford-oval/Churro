@@ -108,8 +108,17 @@ html[data-theme="dark"] {
   font-size: 0.9rem;
   font-weight: 600;
   position: sticky;
-  top: 0;
   z-index: 1;
+}
+
+.benchmark-table thead tr:first-child th {
+  top: 0;
+  z-index: 3;
+}
+
+.benchmark-table thead tr:nth-child(2) th {
+  top: 3.4rem;
+  z-index: 2;
 }
 
 .benchmark-table tbody tr:nth-child(even) {
@@ -132,9 +141,53 @@ html[data-theme="dark"] {
   color: var(--pst-color-link-hover);
 }
 
+.benchmark-group-header {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.benchmark-group-header--expanded {
+  justify-content: flex-start;
+}
+
+.benchmark-group-label {
+  color: inherit;
+  font-weight: 600;
+}
+
+.benchmark-group-toggle {
+  appearance: none;
+  background: rgba(139, 69, 31, 0.08);
+  border: 1px solid rgba(139, 69, 31, 0.16);
+  border-radius: 999px;
+  color: inherit;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 0.22rem 0.55rem;
+  white-space: nowrap;
+}
+
+.benchmark-group-toggle:hover:not(:disabled) {
+  background: rgba(139, 69, 31, 0.12);
+  color: var(--pst-color-link-hover);
+}
+
+.benchmark-group-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .benchmark-sort-indicator {
   color: var(--pst-color-text-muted);
   font-size: 0.8rem;
+}
+
+.benchmark-subcolumn {
+  font-size: 0.8rem;
+  min-width: 6rem;
 }
 
 .benchmark-rank,
@@ -233,6 +286,12 @@ html[data-theme="dark"] .benchmark-table tbody tr:nth-child(even) {
   background: rgba(244, 178, 94, 0.05);
 }
 
+html[data-theme="dark"] .benchmark-group-toggle,
+[data-bs-theme="dark"] .benchmark-group-toggle {
+  background: rgba(244, 178, 94, 0.1);
+  border-color: rgba(244, 178, 94, 0.2);
+}
+
 html[data-theme="dark"] .benchmark-model-icon-placeholder,
 [data-bs-theme="dark"] .benchmark-model-icon-placeholder {
   background: rgba(244, 178, 94, 0.08);
@@ -286,5 +345,28 @@ html[data-theme="dark"] .bd-content .benchmark-model-icon--invert-dark,
   .bd-header .search-button-field {
     justify-content: space-between;
     padding-inline: 0.9rem;
+  }
+}
+
+@media (max-width: 960px) {
+  .benchmark-table th,
+  .benchmark-table td {
+    padding: 0.72rem 0.65rem;
+  }
+
+  .benchmark-group-header {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .benchmark-group-header--expanded {
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .benchmark-table thead tr:nth-child(2) th {
+    top: 4.55rem;
   }
 }
