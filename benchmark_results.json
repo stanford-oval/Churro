@@ -64,6 +64,16 @@
     "total": 65.9
   },
   {
+    "modelName": "GPT-5.4 Mini",
+    "modelId": "gpt-5.4-mini-2026-03-17",
+    "modelUrl": "https://platform.openai.com/docs/models/gpt-5.4-mini",
+    "iconPath": "_static/img/openai-symbol.svg",
+    "iconInvertDark": true,
+    "printed": 72.3,
+    "handwritten": 46.5,
+    "total": 58.4
+  },
+  {
     "modelName": "Gemini 2.5 Flash",
     "modelId": "gemini-2.5-flash",
     "modelUrl": "https://ai.google.dev/gemini-api/docs/models",
@@ -388,6 +398,15 @@
     "printed": 51.8564,
     "handwritten": 28.3488,
     "total": 39.1984
+  },
+  {
+    "modelName": "MinerU 2.5",
+    "modelId": "opendatalab/MinerU2.5-2509-1.2B",
+    "modelUrl": "https://huggingface.co/opendatalab/MinerU2.5-2509-1.2B",
+    "iconPath": null,
+    "printed": 56.0,
+    "handwritten": 20.4,
+    "total": 36.8
   },
   {
     "modelName": "DeepSeek OCR 2",
