@@ -659,62 +659,90 @@ def _count_span_down(rows: list[list[str]], row_idx: int, col_idx: int, span_tok
     return span
 
 
-def convert_mineru2_5_otsl_to_html(otsl_content: str) -> str:
-    """Convert a MinerU2.5 OTSL table prediction to HTML."""
-    if otsl_content.startswith("<table") and otsl_content.endswith("</table>"):
-        return otsl_content
-    tokens, mixed_texts = _extract_otsl_tokens_and_text(otsl_content)
-    rows = [
+def _group_otsl_rows(tokens: list[str]) -> list[list[str]]:
+    return [
         list(group)
         for is_newline, group in itertools.groupby(tokens, lambda item: item == _OTSL_NL)
         if not is_newline
     ]
-    if not rows:
-        return otsl_content.strip()
 
+
+def _pad_otsl_rows(rows: list[list[str]]) -> tuple[list[list[str]], int]:
     max_cols = max(len(row) for row in rows)
-    for row in rows:
-        while len(row) < max_cols:
-            row.append(_OTSL_ECEL)
+    padded_rows = [row + ([_OTSL_ECEL] * (max_cols - len(row))) for row in rows]
+    return padded_rows, max_cols
 
-    normalized_texts: list[str] = []
+
+def _normalize_otsl_parts(rows: list[list[str]], mixed_texts: list[str]) -> list[str]:
+    normalized_parts: list[str] = []
     text_idx = 0
     for row in rows:
         for token in row:
-            normalized_texts.append(token)
+            normalized_parts.append(token)
             if text_idx < len(mixed_texts) and mixed_texts[text_idx] == token:
                 text_idx += 1
                 if text_idx < len(mixed_texts) and mixed_texts[text_idx] not in _OTSL_TOKENS:
-                    normalized_texts.append(mixed_texts[text_idx])
+                    normalized_parts.append(mixed_texts[text_idx])
                     text_idx += 1
-        normalized_texts.append(_OTSL_NL)
+        normalized_parts.append(_OTSL_NL)
         if text_idx < len(mixed_texts) and mixed_texts[text_idx] == _OTSL_NL:
             text_idx += 1
+    return normalized_parts
 
+
+def _cell_text_and_offset(parts: list[str], index: int) -> tuple[str, int]:
+    next_index = index + 1
+    if next_index < len(parts) and parts[next_index] not in _OTSL_TOKENS:
+        return parts[next_index].strip(), 2
+    return "", 1
+
+
+def _next_otsl_right_token(parts: list[str], *, index: int, next_offset: int) -> str:
+    next_index = index + next_offset
+    return parts[next_index] if next_index < len(parts) else ""
+
+
+def _next_otsl_down_token(rows: list[list[str]], *, row_idx: int, col_idx: int) -> str:
+    if row_idx + 1 >= len(rows) or col_idx >= len(rows[row_idx + 1]):
+        return ""
+    return rows[row_idx + 1][col_idx]
+
+
+def _otsl_cell_spans(
+    rows: list[list[str]],
+    parts: list[str],
+    *,
+    row_idx: int,
+    col_idx: int,
+    index: int,
+    next_offset: int,
+) -> tuple[int, int]:
+    row_span = 1
+    col_span = 1
+    next_right = _next_otsl_right_token(parts, index=index, next_offset=next_offset)
+    if next_right in {_OTSL_LCEL, _OTSL_XCEL}:
+        col_span += _count_span_right(rows, row_idx, col_idx + 1, {_OTSL_LCEL, _OTSL_XCEL})
+    next_down = _next_otsl_down_token(rows, row_idx=row_idx, col_idx=col_idx)
+    if next_down in {_OTSL_UCEL, _OTSL_XCEL}:
+        row_span += _count_span_down(rows, row_idx + 1, col_idx, {_OTSL_UCEL, _OTSL_XCEL})
+    return row_span, col_span
+
+
+def _collect_otsl_cells(rows: list[list[str]], parts: list[str]) -> list[_TableCell]:
     cells: list[_TableCell] = []
     row_idx = 0
     col_idx = 0
-    for index, part in enumerate(normalized_texts):
+    for index, part in enumerate(parts):
         if part in {_OTSL_FCEL, _OTSL_ECEL}:
-            row_span = 1
-            col_span = 1
-            next_offset = 1
-            cell_text = ""
-            if index + 1 < len(normalized_texts) and normalized_texts[index + 1] not in _OTSL_TOKENS:
-                cell_text = normalized_texts[index + 1].strip()
-                next_offset = 2
-            next_right = (
-                normalized_texts[index + next_offset] if index + next_offset < len(normalized_texts) else ""
+            cell_text, next_offset = _cell_text_and_offset(parts, index)
+            row_span, col_span = _otsl_cell_spans(
+                rows,
+                parts,
+                row_idx=row_idx,
+                col_idx=col_idx,
+                index=index,
+                next_offset=next_offset,
             )
-            next_down = (
-                rows[row_idx + 1][col_idx]
-                if row_idx + 1 < len(rows) and col_idx < len(rows[row_idx + 1])
-                else ""
-            )
-            if next_right in {_OTSL_LCEL, _OTSL_XCEL}:
-                col_span += _count_span_right(rows, row_idx, col_idx + 1, {_OTSL_LCEL, _OTSL_XCEL})
-            if next_down in {_OTSL_UCEL, _OTSL_XCEL}:
-                row_span += _count_span_down(rows, row_idx + 1, col_idx, {_OTSL_UCEL, _OTSL_XCEL})
             cells.append(
                 _TableCell(
                     text=cell_text,
@@ -729,12 +757,16 @@ def convert_mineru2_5_otsl_to_html(otsl_content: str) -> str:
         if part == _OTSL_NL:
             row_idx += 1
             col_idx = 0
+    return cells
 
+
+def _render_otsl_html(rows: list[list[str]], *, max_cols: int, cells: list[_TableCell]) -> str:
+    cells_by_position = {(cell.start_row, cell.start_col): cell for cell in cells}
     html_parts = ["<table>"]
     for row in range(len(rows)):
         html_parts.append("<tr>")
         for col in range(max_cols):
-            cell = next((item for item in cells if item.start_row == row and item.start_col == col), None)
+            cell = cells_by_position.get((row, col))
             if cell is None:
                 continue
             attrs: list[str] = []
@@ -746,6 +778,20 @@ def convert_mineru2_5_otsl_to_html(otsl_content: str) -> str:
         html_parts.append("</tr>")
     html_parts.append("</table>")
     return "".join(html_parts)
+
+
+def convert_mineru2_5_otsl_to_html(otsl_content: str) -> str:
+    """Convert a MinerU2.5 OTSL table prediction to HTML."""
+    if otsl_content.startswith("<table") and otsl_content.endswith("</table>"):
+        return otsl_content
+    tokens, mixed_texts = _extract_otsl_tokens_and_text(otsl_content)
+    rows = _group_otsl_rows(tokens)
+    if not rows:
+        return otsl_content.strip()
+    rows, max_cols = _pad_otsl_rows(rows)
+    normalized_parts = _normalize_otsl_parts(rows, mixed_texts)
+    cells = _collect_otsl_cells(rows, normalized_parts)
+    return _render_otsl_html(rows, max_cols=max_cols, cells=cells)
 
 
 def wrap_mineru2_5_equation(content: str) -> str:
@@ -887,45 +933,36 @@ def json2md(blocks: list[MinerU25ContentBlock]) -> str:
     return "\n\n".join(content_list).strip()
 
 
+@dataclass(slots=True)
 class MinerU25PipelineHelper:
     """Shared MinerU2.5 layout, extraction, and markdown postprocessing helper."""
 
-    def __init__(
-        self,
-        *,
-        prompts: dict[str, str],
-        system_prompt: str,
-        sampling_params: dict[str, MinerU25SamplingParams] | None = None,
-        layout_image_size: tuple[int, int] = MINERU2_5_LAYOUT_IMAGE_SIZE,
-        min_image_edge: int = MINERU2_5_MIN_IMAGE_EDGE,
-        max_image_edge_ratio: float = MINERU2_5_MAX_IMAGE_EDGE_RATIO,
-        simple_post_process: bool = False,
-        handle_equation_block: bool = True,
-        abandon_list: bool = False,
-        abandon_paratext: bool = False,
-        image_analysis: bool = False,
-        enable_table_formula_eq_wrap: bool = False,
-    ) -> None:
-        self.prompts = dict(prompts)
-        self.system_prompt = system_prompt
-        self.sampling_params = dict(DEFAULT_MINERU2_5_SAMPLING_PARAMS)
-        if sampling_params is not None:
-            self.sampling_params.update(sampling_params)
-        self.layout_image_size = layout_image_size
-        self.min_image_edge = min_image_edge
-        self.max_image_edge_ratio = max_image_edge_ratio
-        self.simple_post_process = simple_post_process
-        self.handle_equation_block = handle_equation_block
-        self.abandon_list = abandon_list
-        self.abandon_paratext = abandon_paratext
-        self.image_analysis = image_analysis
-        self.enable_table_formula_eq_wrap = enable_table_formula_eq_wrap
+    prompts: dict[str, str]
+    system_prompt: str
+    sampling_params: dict[str, MinerU25SamplingParams] | None = None
+    layout_image_size: tuple[int, int] = MINERU2_5_LAYOUT_IMAGE_SIZE
+    min_image_edge: int = MINERU2_5_MIN_IMAGE_EDGE
+    max_image_edge_ratio: float = MINERU2_5_MAX_IMAGE_EDGE_RATIO
+    simple_post_process: bool = False
+    handle_equation_block: bool = True
+    abandon_list: bool = False
+    abandon_paratext: bool = False
+    image_analysis: bool = False
+    enable_table_formula_eq_wrap: bool = False
+
+    def __post_init__(self) -> None:
+        self.prompts = dict(self.prompts)
+        merged_sampling_params = dict(DEFAULT_MINERU2_5_SAMPLING_PARAMS)
+        if self.sampling_params is not None:
+            merged_sampling_params.update(self.sampling_params)
+        self.sampling_params = merged_sampling_params
 
     def prompt_for(self, step_key: str) -> str:
         return self.prompts.get(step_key) or self.prompts["[default]"]
 
     def sampling_for(self, step_key: str) -> MinerU25SamplingParams:
-        return self.sampling_params.get(step_key) or self.sampling_params["[default]"]
+        sampling_params = self.sampling_params or DEFAULT_MINERU2_5_SAMPLING_PARAMS
+        return sampling_params.get(step_key) or sampling_params["[default]"]
 
     def clean_response(self, text: str, *, step_key: str) -> str:
         cleaned = _trim_stop_strings(text)

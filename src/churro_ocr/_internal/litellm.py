@@ -41,6 +41,68 @@ def _timeout_error(message: str) -> TimeoutError:
     return TimeoutError(message)
 
 
+def _set_optional_request_kwarg(
+    kwargs: dict[str, object],
+    *,
+    key: str,
+    value: object,
+) -> None:
+    if value:
+        kwargs[key] = value
+
+
+def _build_completion_request_kwargs(
+    *,
+    config: LiteLLMTransportConfig,
+    model: str,
+    messages: list[dict[str, Any]],
+    timeout_seconds: float,
+    output_json: bool,
+) -> dict[str, object]:
+    kwargs: dict[str, object] = {
+        "model": model,
+        "messages": messages,
+        "timeout": float(timeout_seconds),
+    }
+    _set_optional_request_kwarg(kwargs, key="api_base", value=config.api_base)
+    _set_optional_request_kwarg(kwargs, key="api_key", value=config.api_key)
+    _set_optional_request_kwarg(kwargs, key="api_version", value=config.api_version)
+    if output_json:
+        kwargs["response_format"] = {"type": "json_object"}
+    if config.completion_kwargs:
+        kwargs.update(config.completion_kwargs)
+    return kwargs
+
+
+def _remaining_completion_timeout(
+    *,
+    deadline: float,
+    total_timeout_seconds: float,
+) -> float:
+    remaining_timeout_seconds = max(0.0, deadline - monotonic())
+    if remaining_timeout_seconds <= 0:
+        message = f"LiteLLM request exceeded the total timeout of {total_timeout_seconds} seconds."
+        raise _timeout_error(message)
+    return remaining_timeout_seconds
+
+
+def _coerce_completion_text(
+    answer: object,
+    *,
+    model: str,
+    allow_empty: bool,
+) -> str:
+    if isinstance(answer, str):
+        if answer.strip():
+            return answer
+        if allow_empty:
+            return ""
+    if answer is None and allow_empty:
+        return ""
+    message = f"LiteLLM returned empty output for model '{model}'."
+    raise _provider_error(message)
+
+
 def _ensure_initialized() -> None:
     global _INITIALIZED
     if _INITIALIZED:
@@ -244,36 +306,26 @@ class LiteLLMTransport:
         _ensure_initialized()
         from litellm import acompletion
 
-        kwargs: dict[str, object] = {
-            "model": model,
-            "messages": messages,
-        }
-        if self._config.api_base:
-            kwargs["api_base"] = self._config.api_base
-        if self._config.api_key:
-            kwargs["api_key"] = self._config.api_key
-        if self._config.api_version:
-            kwargs["api_version"] = self._config.api_version
-        if output_json:
-            kwargs["response_format"] = {"type": "json_object"}
-        if self._config.completion_kwargs:
-            kwargs.update(self._config.completion_kwargs)
         request_timeout_seconds = float(timeout_seconds)
+        kwargs = _build_completion_request_kwargs(
+            config=self._config,
+            model=model,
+            messages=messages,
+            timeout_seconds=request_timeout_seconds,
+            output_json=output_json,
+        )
         # Keep LiteLLM's provider timeout stable so its client caches can be reused
         # across attempts and requests. The outer wait_for still enforces the
         # shrinking wall-clock deadline for this overall operation.
-        kwargs["timeout"] = request_timeout_seconds
         deadline = monotonic() + request_timeout_seconds
 
         async def _run_completion() -> object:
-            attempt_kwargs = dict(kwargs)
-            remaining_timeout_seconds = max(0.0, deadline - monotonic())
-            if remaining_timeout_seconds <= 0:
-                message = f"LiteLLM request exceeded the total timeout of {timeout_seconds} seconds."
-                raise _timeout_error(message)
             return await asyncio.wait_for(
-                acompletion(**attempt_kwargs),
-                timeout=remaining_timeout_seconds,
+                acompletion(**dict(kwargs)),
+                timeout=_remaining_completion_timeout(
+                    deadline=deadline,
+                    total_timeout_seconds=request_timeout_seconds,
+                ),
             )
 
         try:
@@ -287,20 +339,8 @@ class LiteLLMTransport:
             message = f"LiteLLM request failed for model '{model}': {exc}"
             raise _provider_error(message) from exc
         self._record_response_cost(model=model, response=response)
-
         answer = cast("Any", response).choices[0].message.content
-        if isinstance(answer, str):
-            if answer.strip():
-                return answer
-            if allow_empty:
-                return ""
-        elif answer is None and allow_empty:
-            return ""
-        if not isinstance(answer, str):
-            message = f"LiteLLM returned empty output for model '{model}'."
-            raise _provider_error(message)
-        message = f"LiteLLM returned empty output for model '{model}'."
-        raise _provider_error(message)
+        return _coerce_completion_text(answer, model=model, allow_empty=allow_empty)
 
     def _resolved_image_detail(self) -> str | None:
         return "high" if self._config.image_detail is None else self._config.image_detail
