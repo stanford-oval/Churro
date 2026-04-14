@@ -22,6 +22,7 @@ from churro_ocr.providers._ocr_processing import (
     identity_text_postprocessor,
     infinity_parser_7b_text_postprocessor,
     lfm2_5_vl_text_postprocessor,
+    nanonets_ocr2_3b_text_postprocessor,
     olmocr_image_preprocessor,
     olmocr_text_postprocessor,
     paddleocr_vl_text_postprocessor,
@@ -48,6 +49,8 @@ from churro_ocr.templates import (
     LFM2_5_VL_1_6B_OCR_TEMPLATE,
     MINERU2_5_2509_1_2B_MODEL_ID,
     MINERU2_5_2509_1_2B_OCR_TEMPLATE,
+    NANONETS_OCR2_3B_MODEL_ID,
+    NANONETS_OCR2_3B_OCR_TEMPLATE,
     OLMOCR_2_7B_1025_FP8_MODEL_ID,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
@@ -74,6 +77,7 @@ DEEPSEEK_OCR_2_MAX_TOKENS = 8_192
 FIRERED_OCR_MAX_TOKENS = 4_096
 GLM_OCR_MAX_TOKENS = 8_192
 INFINITY_PARSER_7B_MAX_TOKENS = 8_192
+NANONETS_OCR2_3B_MAX_TOKENS = 15_000
 OLMOCR_MAX_TOKENS = 8_000
 PADDLEOCR_VL_MAX_TOKENS = 4_096
 INFINITY_PARSER_7B_MIN_PIXELS = 256 * 28 * 28
@@ -316,6 +320,28 @@ def firered_ocr_profile() -> OCRModelProfile:
     )
 
 
+def nanonets_ocr2_3b_profile() -> OCRModelProfile:
+    """Return the built-in ``nanonets/Nanonets-OCR2-3B`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=NANONETS_OCR2_3B_MODEL_ID,
+        template=NANONETS_OCR2_3B_OCR_TEMPLATE,
+        text_postprocessor=nanonets_ocr2_3b_text_postprocessor,
+        display_name="Nanonets-OCR2-3B",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": NANONETS_OCR2_3B_MAX_TOKENS,
+                "temperature": 0.0,
+            }
+        ),
+        huggingface=HuggingFaceOptions(
+            generation_kwargs={
+                "max_new_tokens": NANONETS_OCR2_3B_MAX_TOKENS,
+                "do_sample": False,
+            },
+        ),
+    )
+
+
 def glm_ocr_profile() -> OCRModelProfile:
     """Return the built-in ``zai-org/GLM-OCR`` OCR profile."""
     return OCRModelProfile(
@@ -519,6 +545,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
     infinity_parser_profile = infinity_parser_7b_profile()
     lfm2_5_vl_profile = lfm2_5_vl_1_6b_profile()
     mineru2_5_profile = mineru2_5_2509_1_2b_profile()
+    nanonets_ocr2_profile = nanonets_ocr2_3b_profile()
     olmocr_profile = olmocr_2_7b_1025_profile()
     olmocr_fp8_profile = olmocr_2_7b_1025_fp8_profile()
     paddleocr_vl_profile = paddleocr_vl_1_5_profile()
@@ -534,6 +561,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
         infinity_parser_profile.profile_name: infinity_parser_profile,
         lfm2_5_vl_profile.profile_name: lfm2_5_vl_profile,
         mineru2_5_profile.profile_name: mineru2_5_profile,
+        nanonets_ocr2_profile.profile_name: nanonets_ocr2_profile,
         olmocr_profile.profile_name: olmocr_profile,
         olmocr_fp8_profile.profile_name: olmocr_fp8_profile,
         paddleocr_vl_profile.profile_name: paddleocr_vl_profile,
@@ -602,6 +630,8 @@ __all__ = [
     "lfm2_5_vl_1_6b_profile",
     "lfm2_5_vl_text_postprocessor",
     "mineru2_5_2509_1_2b_profile",
+    "nanonets_ocr2_3b_profile",
+    "nanonets_ocr2_3b_text_postprocessor",
     "olmocr_image_preprocessor",
     "olmocr_text_postprocessor",
     "paddleocr_vl_1_5_profile",

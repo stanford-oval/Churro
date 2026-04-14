@@ -33,6 +33,8 @@ from churro_ocr.templates import (
     INFINITY_PARSER_7B_OCR_TEMPLATE,
     MINERU2_5_2509_1_2B_MODEL_ID,
     MINERU2_5_2509_1_2B_OCR_TEMPLATE,
+    NANONETS_OCR2_3B_MODEL_ID,
+    NANONETS_OCR2_3B_OCR_TEMPLATE,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
     PADDLEOCR_VL_1_5_MODEL_ID,
@@ -301,6 +303,26 @@ def test_build_ocr_backend_aligns_templates_for_firered_ocr() -> None:
         "max_tokens": 4_096,
         "temperature": 0.0,
         "top_p": 1.0,
+    }
+
+
+def test_build_ocr_backend_aligns_templates_for_nanonets_ocr2_3b() -> None:
+    litellm_backend = _build_litellm_backend(NANONETS_OCR2_3B_MODEL_ID)
+    hf_backend = _build_hf_backend(NANONETS_OCR2_3B_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(NANONETS_OCR2_3B_MODEL_ID)
+
+    assert litellm_backend.template == NANONETS_OCR2_3B_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "Nanonets-OCR2-3B"
+    assert hf_backend.model_name == "Nanonets-OCR2-3B"
+    assert openai_backend.model_name == "Nanonets-OCR2-3B"
+    assert litellm_backend.transport.config.completion_kwargs == {
+        "max_tokens": 15_000,
+        "temperature": 0.0,
+    }
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": 15_000,
+        "temperature": 0.0,
     }
 
 

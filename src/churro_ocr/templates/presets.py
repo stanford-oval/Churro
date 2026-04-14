@@ -15,6 +15,7 @@ CHANDRA_OCR_2_MODEL_ID = "datalab-to/chandra-ocr-2"
 DEEPSEEK_OCR_2_MODEL_ID = "deepseek-ai/DeepSeek-OCR-2"
 GLM_OCR_MODEL_ID = "zai-org/GLM-OCR"
 FIRERED_OCR_MODEL_ID = "FireRedTeam/FireRed-OCR"
+NANONETS_OCR2_3B_MODEL_ID = "nanonets/Nanonets-OCR2-3B"
 DOTS_OCR_1_5_MODEL_ID = "kristaller486/dots.ocr-1.5"
 DOTS_MOCR_MODEL_ID = "rednote-hilab/dots.mocr"
 INFINITY_PARSER_7B_MODEL_ID = "infly/Infinity-Parser-7B"
@@ -74,6 +75,21 @@ FIRERED_OCR_OCR_PROMPT = (
 FIRERED_OCR_OCR_TEMPLATE = HFChatTemplate(
     system_message=None,
     user_prompt=FIRERED_OCR_OCR_PROMPT,
+)
+NANONETS_OCR2_3B_SYSTEM_PROMPT = "You are a helpful assistant."
+NANONETS_OCR2_3B_OCR_PROMPT = (
+    "Extract the text from the above document as if you were reading it naturally. "
+    "Return the tables in html format. Return the equations in LaTeX representation. "
+    "If there is an image in the document and image caption is not present, add a small "
+    "description of the image inside the <img></img> tag; otherwise, add the image caption "
+    "inside <img></img>. Watermarks should be wrapped in brackets. Ex: "
+    "<watermark>OFFICIAL COPY</watermark>. Page numbers should be wrapped in brackets.\n"
+    "Ex: <page_number>14</page_number> or <page_number>9/22</page_number>. Prefer using "
+    "☐ and ☑ for check boxes."
+)
+NANONETS_OCR2_3B_OCR_TEMPLATE = HFChatTemplate(
+    system_message=NANONETS_OCR2_3B_SYSTEM_PROMPT,
+    user_prompt=NANONETS_OCR2_3B_OCR_PROMPT,
 )
 DOTS_OCR_1_5_OCR_PROMPT = "Extract the text content from this image."
 DOTS_OCR_1_5_OCR_TEMPLATE = HFChatTemplate(
@@ -181,6 +197,10 @@ __all__ = [
     "MINERU2_5_2509_1_2B_SYSTEM_PROMPT",
     "MINERU2_5_2509_1_2B_TABLE_PROMPT",
     "MINERU2_5_2509_1_2B_TABLE_TEMPLATE",
+    "NANONETS_OCR2_3B_MODEL_ID",
+    "NANONETS_OCR2_3B_OCR_PROMPT",
+    "NANONETS_OCR2_3B_OCR_TEMPLATE",
+    "NANONETS_OCR2_3B_SYSTEM_PROMPT",
     "OLMOCR_2_7B_1025_FP8_MODEL_ID",
     "OLMOCR_2_7B_1025_MODEL_ID",
     "OLMOCR_2_7B_1025_OCR_TEMPLATE",

@@ -44,6 +44,7 @@ from churro_ocr.providers.specs import (
     glm_ocr_text_postprocessor,
     infinity_parser_7b_text_postprocessor,
     lfm2_5_vl_text_postprocessor,
+    nanonets_ocr2_3b_text_postprocessor,
 )
 from churro_ocr.templates import (
     CHANDRA_OCR_2_MODEL_ID,
@@ -82,6 +83,10 @@ from churro_ocr.templates import (
     MINERU2_5_2509_1_2B_SYSTEM_PROMPT,
     MINERU2_5_2509_1_2B_TABLE_PROMPT,
     MINERU2_5_2509_1_2B_TABLE_TEMPLATE,
+    NANONETS_OCR2_3B_MODEL_ID,
+    NANONETS_OCR2_3B_OCR_PROMPT,
+    NANONETS_OCR2_3B_OCR_TEMPLATE,
+    NANONETS_OCR2_3B_SYSTEM_PROMPT,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
     PADDLEOCR_VL_1_5_MODEL_ID,
@@ -146,6 +151,18 @@ def test_firered_ocr_template_matches_documented_prompt_shape() -> None:
     assert conversation[0]["role"] == "user"
     assert conversation[0]["content"][0]["type"] == "image"
     assert conversation[0]["content"][1]["text"] == FIRERED_OCR_OCR_PROMPT
+
+
+def test_nanonets_ocr2_3b_template_matches_documented_prompt_shape() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = NANONETS_OCR2_3B_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "system"
+    assert conversation[0]["content"][0]["text"] == NANONETS_OCR2_3B_SYSTEM_PROMPT
+    assert conversation[1]["role"] == "user"
+    assert conversation[1]["content"][0]["type"] == "image"
+    assert conversation[1]["content"][1]["text"] == NANONETS_OCR2_3B_OCR_PROMPT
 
 
 def test_infinity_parser_template_matches_documented_prompt_shape() -> None:
@@ -379,6 +396,35 @@ def test_firered_ocr_text_postprocessor_strips_prompt_echo_and_preserves_raw_mar
     }
 
 
+def test_nanonets_ocr2_3b_text_postprocessor_strips_prompt_echo_and_preserves_raw_markdown() -> None:
+    processed = nanonets_ocr2_3b_text_postprocessor(
+        f"{NANONETS_OCR2_3B_SYSTEM_PROMPT}\n"
+        f"{NANONETS_OCR2_3B_OCR_PROMPT}\n"
+        "assistant:\n"
+        "```markdown\n"
+        "# Heading\n\n"
+        "<watermark>OFFICIAL COPY</watermark>\n\n"
+        "<page_number>9/22</page_number>\n\n"
+        "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+        "Paragraph with [note](https://example.test).\n"
+        "```\n"
+        "<|im_end|>"
+    )
+    assert isinstance(processed, tuple)
+    text, metadata = processed
+
+    assert text == "Heading\n\nOFFICIAL COPY\n\n9/22\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert metadata == {
+        "raw_markdown": (
+            "# Heading\n\n"
+            "<watermark>OFFICIAL COPY</watermark>\n\n"
+            "<page_number>9/22</page_number>\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test)."
+        ),
+    }
+
+
 def test_deepseek_ocr_2_text_postprocessor_strips_prompt_echo_and_stop_token() -> None:
     assert (
         deepseek_ocr_2_text_postprocessor(
@@ -454,6 +500,32 @@ def test_build_ocr_backend_uses_firered_ocr_profile_defaults_for_hf() -> None:
     assert backend.model_name == "FireRed-OCR"
     assert backend.generation_kwargs == {
         "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {}
+    preprocessed_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    assert preprocessed_image.size == (32, 16)
+    assert preprocessed_image.mode == "RGB"
+
+
+def test_build_ocr_backend_uses_nanonets_ocr2_3b_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=NANONETS_OCR2_3B_MODEL_ID,
+            )
+        ),
+    )
+
+    assert type(backend) is HuggingFaceVisionOCRBackend
+    assert backend.template == NANONETS_OCR2_3B_OCR_TEMPLATE
+    assert backend.model_name == "Nanonets-OCR2-3B"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 15_000,
         "do_sample": False,
     }
     assert backend.trust_remote_code is False
