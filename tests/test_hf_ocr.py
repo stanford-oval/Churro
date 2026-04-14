@@ -40,6 +40,7 @@ from churro_ocr.providers.hf import (
 from churro_ocr.providers.specs import (
     DEFAULT_OCR_MAX_TOKENS,
     deepseek_ocr_2_text_postprocessor,
+    firered_ocr_text_postprocessor,
     glm_ocr_text_postprocessor,
     infinity_parser_7b_text_postprocessor,
     lfm2_5_vl_text_postprocessor,
@@ -57,6 +58,9 @@ from churro_ocr.templates import (
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_PROMPT,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    FIRERED_OCR_MODEL_ID,
+    FIRERED_OCR_OCR_PROMPT,
+    FIRERED_OCR_OCR_TEMPLATE,
     GLM_OCR_MODEL_ID,
     GLM_OCR_OCR_PROMPT,
     GLM_OCR_OCR_TEMPLATE,
@@ -132,6 +136,16 @@ def test_deepseek_ocr_2_template_builds_image_before_prompt() -> None:
     assert conversation[0]["role"] == "user"
     assert conversation[0]["content"][0]["type"] == "image"
     assert conversation[0]["content"][1]["text"] == DEEPSEEK_OCR_2_OCR_PROMPT
+
+
+def test_firered_ocr_template_matches_documented_prompt_shape() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = FIRERED_OCR_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "user"
+    assert conversation[0]["content"][0]["type"] == "image"
+    assert conversation[0]["content"][1]["text"] == FIRERED_OCR_OCR_PROMPT
 
 
 def test_infinity_parser_template_matches_documented_prompt_shape() -> None:
@@ -341,6 +355,30 @@ def test_infinity_parser_text_postprocessor_strips_outer_markdown_fence() -> Non
     }
 
 
+def test_firered_ocr_text_postprocessor_strips_prompt_echo_and_preserves_raw_markdown() -> None:
+    processed = firered_ocr_text_postprocessor(
+        f"{FIRERED_OCR_OCR_PROMPT}\n"
+        "assistant:\n"
+        "```markdown\n"
+        "# Heading\n\n"
+        "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+        "Paragraph with [note](https://example.test).\n"
+        "```\n"
+        "<|im_end|>"
+    )
+    assert isinstance(processed, tuple)
+    text, metadata = processed
+
+    assert text == "Heading\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert metadata == {
+        "raw_markdown": (
+            "# Heading\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test)."
+        ),
+    }
+
+
 def test_deepseek_ocr_2_text_postprocessor_strips_prompt_echo_and_stop_token() -> None:
     assert (
         deepseek_ocr_2_text_postprocessor(
@@ -398,6 +436,32 @@ def test_build_ocr_backend_uses_deepseek_ocr_2_profile_defaults_for_hf() -> None
     assert backend.base_size == 1_024
     assert backend.image_size == 768
     assert backend.crop_mode is True
+
+
+def test_build_ocr_backend_uses_firered_ocr_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=FIRERED_OCR_MODEL_ID,
+            )
+        ),
+    )
+
+    assert type(backend) is HuggingFaceVisionOCRBackend
+    assert backend.template == FIRERED_OCR_OCR_TEMPLATE
+    assert backend.model_name == "FireRed-OCR"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {}
+    preprocessed_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    assert preprocessed_image.size == (32, 16)
+    assert preprocessed_image.mode == "RGB"
 
 
 def test_build_ocr_backend_uses_glm_ocr_profile_defaults_for_hf() -> None:

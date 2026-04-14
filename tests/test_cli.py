@@ -25,6 +25,8 @@ from churro_ocr.templates import (
     DEFAULT_OCR_TEMPLATE,
     DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    FIRERED_OCR_MODEL_ID,
+    FIRERED_OCR_OCR_TEMPLATE,
     GLM_OCR_MODEL_ID,
     GLM_OCR_OCR_TEMPLATE,
     INFINITY_PARSER_7B_MODEL_ID,
@@ -277,6 +279,28 @@ def test_build_ocr_backend_aligns_templates_for_deepseek_ocr_2() -> None:
     assert openai_backend.transport.config.completion_kwargs == {
         "max_tokens": 8_192,
         "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_aligns_templates_for_firered_ocr() -> None:
+    litellm_backend = _build_litellm_backend(FIRERED_OCR_MODEL_ID)
+    hf_backend = _build_hf_backend(FIRERED_OCR_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(FIRERED_OCR_MODEL_ID)
+
+    assert litellm_backend.template == FIRERED_OCR_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "FireRed-OCR"
+    assert hf_backend.model_name == "FireRed-OCR"
+    assert openai_backend.model_name == "FireRed-OCR"
+    assert litellm_backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+        "top_p": 1.0,
+    }
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+        "top_p": 1.0,
     }
 
 

@@ -45,6 +45,7 @@ Use the [templates API](../api/templates.md) for exact signatures.
 | `CHURRO_3B_XML_TEMPLATE` | Built-in template for `stanford-oval/churro-3B`. |
 | `CHANDRA_OCR_2_OCR_TEMPLATE` | Built-in template for `datalab-to/chandra-ocr-2`. |
 | `DEEPSEEK_OCR_2_OCR_TEMPLATE` | Built-in template for `deepseek-ai/DeepSeek-OCR-2`. |
+| `FIRERED_OCR_OCR_TEMPLATE` | Built-in markdown-conversion template for `FireRedTeam/FireRed-OCR`. |
 | `DOTS_OCR_1_5_OCR_TEMPLATE` | Built-in template for `kristaller486/dots.ocr-1.5`. |
 | `DOTS_MOCR_OCR_TEMPLATE` | Built-in template for `rednote-hilab/dots.mocr`. |
 | `INFINITY_PARSER_7B_OCR_TEMPLATE` | Built-in markdown-conversion template for `infly/Infinity-Parser-7B`. |

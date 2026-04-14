@@ -52,6 +52,9 @@ from churro_ocr.templates import (
     DEEPSEEK_OCR_2_OCR_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
     DOTS_MOCR_OCR_TEMPLATE,
+    FIRERED_OCR_MODEL_ID,
+    FIRERED_OCR_OCR_PROMPT,
+    FIRERED_OCR_OCR_TEMPLATE,
     INFINITY_PARSER_7B_MODEL_ID,
     INFINITY_PARSER_7B_OCR_PROMPT,
     INFINITY_PARSER_7B_OCR_TEMPLATE,
@@ -901,6 +904,31 @@ def test_build_ocr_backend_uses_deepseek_ocr_2_profile_defaults_for_openai_compa
     }
 
 
+def test_build_ocr_backend_uses_firered_ocr_profile_defaults_for_openai_compatible() -> None:
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=FIRERED_OCR_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+
+    assert type(backend) is OpenAICompatibleOCRBackend
+    assert backend.template == FIRERED_OCR_OCR_TEMPLATE
+    assert backend.model_name == "FireRed-OCR"
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+        "top_p": 1.0,
+    }
+    prompt_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    assert prompt_image.size == (32, 16)
+    assert prompt_image.mode == "RGB"
+
+
 @pytest.mark.asyncio
 async def test_openai_compatible_backend_uses_deepseek_ocr_2_prompt_and_postprocessing(
     monkeypatch: pytest.MonkeyPatch,
@@ -960,6 +988,96 @@ async def test_openai_compatible_backend_uses_deepseek_ocr_2_prompt_and_postproc
     content = cast("list[dict[str, object]]", conversation[0]["content"])
     assert content[0]["type"] == "image"
     assert content[1] == {"type": "text", "text": DEEPSEEK_OCR_2_OCR_PROMPT}
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_backend_uses_firered_prompt_and_markdown_postprocessing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_prepare_messages_from_conversation(
+        self: LiteLLMTransport,
+        conversation: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        captured["conversation"] = conversation
+        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+
+    async def _fake_complete_text(
+        _transport: LiteLLMTransport,
+        *,
+        model: str,
+        messages: list[dict[str, object]],
+        timeout_seconds: int = 600,
+        output_json: bool = False,
+        allow_empty: bool = False,
+    ) -> str:
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["timeout_seconds"] = timeout_seconds
+        captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
+        captured["completion_kwargs"] = dict(_transport.config.completion_kwargs)
+        return (
+            f"{FIRERED_OCR_OCR_PROMPT}\n"
+            "assistant:\n"
+            "```markdown\n"
+            "# Ledger\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr>"
+            "<tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test).\n"
+            "```\n"
+            "<|im_end|>"
+        )
+
+    monkeypatch.setattr(
+        LiteLLMTransport,
+        "prepare_messages_from_conversation",
+        _fake_prepare_messages_from_conversation,
+    )
+    monkeypatch.setattr(LiteLLMTransport, "complete_text", _fake_complete_text)
+
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=FIRERED_OCR_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == "Ledger\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert result.metadata == {
+        "raw_markdown": (
+            "# Ledger\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test)."
+        ),
+    }
+    assert captured["model"] == f"openai/{FIRERED_OCR_MODEL_ID}"
+    assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+    assert captured["timeout_seconds"] == 600
+    assert captured["output_json"] is False
+    assert captured["allow_empty"] is True
+    assert captured["completion_kwargs"] == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+        "top_p": 1.0,
+    }
+    conversation = cast("list[dict[str, object]]", captured["conversation"])
+    assert conversation[0]["role"] == "user"
+    user_content = cast("list[dict[str, object]]", conversation[0]["content"])
+    assert user_content[0]["type"] == "image"
+    assert user_content[1] == {"type": "text", "text": FIRERED_OCR_OCR_PROMPT}
+    prompt_image = cast("Image.Image", user_content[0]["image"])
+    assert prompt_image.size == (32, 16)
+    assert prompt_image.mode == "RGB"
 
 
 @pytest.mark.asyncio

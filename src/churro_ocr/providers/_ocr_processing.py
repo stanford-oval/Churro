@@ -18,6 +18,7 @@ from churro_ocr.prompts import (
 )
 from churro_ocr.templates import (
     DEEPSEEK_OCR_2_OCR_PROMPT,
+    FIRERED_OCR_OCR_PROMPT,
     GLM_OCR_OCR_PROMPT,
     INFINITY_PARSER_7B_OCR_PROMPT,
     INFINITY_PARSER_7B_SYSTEM_PROMPT,
@@ -171,6 +172,23 @@ def infinity_parser_7b_text_postprocessor(text: str) -> TextPostprocessorResult:
             INFINITY_PARSER_7B_SYSTEM_PROMPT,
         ],
     )
+    raw_markdown = strip_outer_fenced_code_block(cleaned)
+    return strip_rich_ocr_markup_to_plain_text(raw_markdown), {
+        "raw_markdown": raw_markdown,
+    }
+
+
+def firered_ocr_text_postprocessor(text: str) -> TextPostprocessorResult:
+    """Normalize FireRed-OCR markdown output to plain text and preserve raw markdown."""
+    cleaned = strip_leading_chat_scaffold(text, prompts=[FIRERED_OCR_OCR_PROMPT])
+    for _ in range(8):
+        previous = cleaned
+        for token in ("<|im_end|>", "<|endoftext|>", "<|assistant|>", "<|user|>", "<|system|>"):
+            if cleaned.endswith(token):
+                cleaned = cleaned[: -len(token)].rstrip()
+                break
+        if cleaned == previous:
+            break
     raw_markdown = strip_outer_fenced_code_block(cleaned)
     return strip_rich_ocr_markup_to_plain_text(raw_markdown), {
         "raw_markdown": raw_markdown,

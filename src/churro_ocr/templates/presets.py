@@ -14,6 +14,7 @@ CHURRO_3B_MODEL_ID = "stanford-oval/churro-3B"
 CHANDRA_OCR_2_MODEL_ID = "datalab-to/chandra-ocr-2"
 DEEPSEEK_OCR_2_MODEL_ID = "deepseek-ai/DeepSeek-OCR-2"
 GLM_OCR_MODEL_ID = "zai-org/GLM-OCR"
+FIRERED_OCR_MODEL_ID = "FireRedTeam/FireRed-OCR"
 DOTS_OCR_1_5_MODEL_ID = "kristaller486/dots.ocr-1.5"
 DOTS_MOCR_MODEL_ID = "rednote-hilab/dots.mocr"
 INFINITY_PARSER_7B_MODEL_ID = "infly/Infinity-Parser-7B"
@@ -44,6 +45,35 @@ GLM_OCR_OCR_PROMPT = "Text Recognition:"
 GLM_OCR_OCR_TEMPLATE = HFChatTemplate(
     system_message=None,
     user_prompt=GLM_OCR_OCR_PROMPT,
+)
+FIRERED_OCR_OCR_PROMPT = (
+    "You are an AI assistant specialized in converting PDF images to Markdown format. "
+    "Please follow these instructions for the conversion:\n\n"
+    "1. Text Processing:\n"
+    "- Accurately recognize all text content in the PDF image without guessing or inferring.\n"
+    "- Convert the recognized text into Markdown format.\n"
+    "- Maintain the original document structure, including headings, paragraphs, lists, etc.\n\n"
+    "2. Mathematical Formula Processing:\n"
+    "- Convert all mathematical formulas to LaTeX format.\n"
+    "- Enclose inline formulas with,(,). For example: This is an inline formula,( E = mc^2,)\n"
+    "- Enclose block formulas with,\\[,\\]. For example:,[,frac{-b,pm,sqrt{b^2 - 4ac}}{2a},]\n\n"
+    "3. Table Processing:\n"
+    "- Convert tables to HTML format.\n"
+    "- Wrap the entire table with <table> and </table>.\n\n"
+    "4. Figure Handling:\n"
+    "- Ignore figures content in the PDF image. Do not attempt to describe or convert images.\n\n"
+    "5. Output Format:\n"
+    "- Ensure the output Markdown document has a clear structure with appropriate line breaks "
+    "between elements.\n"
+    "- For complex layouts, try to maintain the original document's structure and format as "
+    "closely as possible.\n\n"
+    "Please strictly follow these guidelines to ensure accuracy and consistency in the "
+    "conversion. Your task is to accurately convert the content of the PDF image into Markdown "
+    "format without adding any extra explanations or comments."
+)
+FIRERED_OCR_OCR_TEMPLATE = HFChatTemplate(
+    system_message=None,
+    user_prompt=FIRERED_OCR_OCR_PROMPT,
 )
 DOTS_OCR_1_5_OCR_PROMPT = "Extract the text content from this image."
 DOTS_OCR_1_5_OCR_TEMPLATE = HFChatTemplate(
@@ -127,6 +157,9 @@ __all__ = [
     "DOTS_OCR_1_5_MODEL_ID",
     "DOTS_OCR_1_5_OCR_PROMPT",
     "DOTS_OCR_1_5_OCR_TEMPLATE",
+    "FIRERED_OCR_MODEL_ID",
+    "FIRERED_OCR_OCR_PROMPT",
+    "FIRERED_OCR_OCR_TEMPLATE",
     "GLM_OCR_MODEL_ID",
     "GLM_OCR_OCR_PROMPT",
     "GLM_OCR_OCR_TEMPLATE",

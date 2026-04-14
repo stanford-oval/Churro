@@ -16,6 +16,7 @@ from churro_ocr.providers._ocr_processing import (
     deepseek_ocr_2_text_postprocessor,
     default_ocr_image_preprocessor,
     default_ocr_text_postprocessor,
+    firered_ocr_text_postprocessor,
     glm_ocr_image_preprocessor,
     glm_ocr_text_postprocessor,
     identity_text_postprocessor,
@@ -37,6 +38,8 @@ from churro_ocr.templates import (
     DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    FIRERED_OCR_MODEL_ID,
+    FIRERED_OCR_OCR_TEMPLATE,
     GLM_OCR_MODEL_ID,
     GLM_OCR_OCR_TEMPLATE,
     INFINITY_PARSER_7B_MODEL_ID,
@@ -68,6 +71,7 @@ VisionInputBuilder = Callable[[OCRConversation], object]
 DEFAULT_OCR_MAX_TOKENS = 25_000
 CHANDRA_OCR_MAX_TOKENS = 12_384
 DEEPSEEK_OCR_2_MAX_TOKENS = 8_192
+FIRERED_OCR_MAX_TOKENS = 4_096
 GLM_OCR_MAX_TOKENS = 8_192
 INFINITY_PARSER_7B_MAX_TOKENS = 8_192
 OLMOCR_MAX_TOKENS = 8_000
@@ -288,6 +292,30 @@ def deepseek_ocr_2_profile() -> OCRModelProfile:
     )
 
 
+def firered_ocr_profile() -> OCRModelProfile:
+    """Return the built-in ``FireRedTeam/FireRed-OCR`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=FIRERED_OCR_MODEL_ID,
+        template=FIRERED_OCR_OCR_TEMPLATE,
+        image_preprocessor=default_ocr_image_preprocessor,
+        text_postprocessor=firered_ocr_text_postprocessor,
+        display_name="FireRed-OCR",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": FIRERED_OCR_MAX_TOKENS,
+                "temperature": 0.0,
+                "top_p": 1.0,
+            }
+        ),
+        huggingface=HuggingFaceOptions(
+            generation_kwargs={
+                "max_new_tokens": FIRERED_OCR_MAX_TOKENS,
+                "do_sample": False,
+            },
+        ),
+    )
+
+
 def glm_ocr_profile() -> OCRModelProfile:
     """Return the built-in ``zai-org/GLM-OCR`` OCR profile."""
     return OCRModelProfile(
@@ -484,6 +512,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
     churro_profile = churro_3b_profile()
     chandra_profile = chandra_ocr_2_profile()
     deepseek_profile = deepseek_ocr_2_profile()
+    firered_profile = firered_ocr_profile()
     glm_profile = glm_ocr_profile()
     dots_mocr = dots_mocr_profile()
     dots_profile = dots_ocr_1_5_profile()
@@ -498,6 +527,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
         churro_profile.profile_name: churro_profile,
         chandra_profile.profile_name: chandra_profile,
         deepseek_profile.profile_name: deepseek_profile,
+        firered_profile.profile_name: firered_profile,
         glm_profile.profile_name: glm_profile,
         dots_mocr.profile_name: dots_mocr,
         dots_profile.profile_name: dots_profile,
@@ -561,6 +591,8 @@ __all__ = [
     "default_ocr_image_preprocessor",
     "default_ocr_profile",
     "default_ocr_text_postprocessor",
+    "firered_ocr_profile",
+    "firered_ocr_text_postprocessor",
     "glm_ocr_image_preprocessor",
     "glm_ocr_profile",
     "glm_ocr_text_postprocessor",

@@ -15,6 +15,7 @@ from churro_ocr.templates import (
     DEEPSEEK_OCR_2_OCR_TEMPLATE,
     DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    FIRERED_OCR_OCR_TEMPLATE,
     GLM_OCR_OCR_TEMPLATE,
     INFINITY_PARSER_7B_OCR_TEMPLATE,
     MINERU2_5_2509_1_2B_OCR_TEMPLATE,
@@ -451,6 +452,56 @@ def test_build_ocr_backend_uses_deepseek_ocr_2_preset_for_openai_compatible() ->
     assert backend.transport.config.completion_kwargs == {
         "max_tokens": 8_192,
         "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_uses_firered_ocr_preset_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="hf",
+                dataset_split="dev",
+                model="FireRedTeam/FireRed-OCR",
+            )
+        ),
+    )
+
+    assert type(backend) is HuggingFaceVisionOCRBackend
+    assert backend.model_name == "FireRed-OCR"
+    assert backend.template == FIRERED_OCR_OCR_TEMPLATE
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {
+        "device_map": "auto",
+        "torch_dtype": "auto",
+    }
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+
+
+def test_build_ocr_backend_uses_firered_ocr_preset_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="FireRedTeam/FireRed-OCR",
+                base_url="http://127.0.0.1:8000/v1",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.model_name == "FireRed-OCR"
+    assert backend.template == FIRERED_OCR_OCR_TEMPLATE
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+        "top_p": 1.0,
     }
 
 
