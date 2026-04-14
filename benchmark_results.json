@@ -3130,5 +3130,59 @@
         "Khmer": 1.4
       }
     }
+  },
+  {
+    "modelName": "Qianfan OCR",
+    "modelId": "baidu/Qianfan-OCR",
+    "modelUrl": "https://huggingface.co/baidu/Qianfan-OCR",
+    "iconPath": "_static/img/qianfan-ocr-logo.png",
+    "printed": 65.0,
+    "handwritten": 35.3,
+    "total": 49.0,
+    "main_language_and_type_metrics": {
+      "print": {
+        "Czech": 85.7,
+        "German": 59.4,
+        "Latin": 76.8,
+        "French": 81.3,
+        "English": 83.7,
+        "Hindi": 71.1,
+        "Sanskrit": 68.4,
+        "Swedish": 65.4,
+        "Chinese": 6.4,
+        "Dutch": 75.0,
+        "Finnish": 28.7,
+        "Polish": 64.0,
+        "Spanish": 88.5,
+        "Slovenian": 92.4,
+        "Bulgarian": 87.0,
+        "Japanese": 67.6,
+        "Bangla": 20.5,
+        "Romanian": 49.0
+      },
+      "handwriting": {
+        "Spanish": 37.7,
+        "Dutch": 40.5,
+        "French": 43.4,
+        "Latin": 38.5,
+        "Hebrew": 7.1,
+        "Japanese": 10.3,
+        "Italian": 69.0,
+        "German": 32.0,
+        "Greek": 16.3,
+        "Swedish": 27.2,
+        "Arabic": 40.2,
+        "Chinese": 72.1,
+        "English": 55.7,
+        "Catalan": 56.4,
+        "Portuguese": 17.3,
+        "Sanskrit": 3.6,
+        "Turkish": 19.0,
+        "Persian": 18.1,
+        "Vietnamese": 73.0,
+        "Norwegian": 58.1,
+        "Khmer": 6.0
+      }
+    }
   }
 ]
