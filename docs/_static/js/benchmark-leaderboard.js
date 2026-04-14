@@ -95,9 +95,6 @@
 
     const icon = document.createElement("img");
     icon.className = "benchmark-model-icon";
-    if (row.iconInvertDark) {
-      icon.classList.add("benchmark-model-icon--invert-dark");
-    }
     icon.alt = `${row.modelName} icon`;
     icon.src = resolvePath(row.iconPath);
     iconFrame.append(icon);

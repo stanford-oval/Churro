@@ -307,11 +307,6 @@ html[data-theme="dark"] .bd-content .benchmark-model-icon-frame,
   border-radius: 0;
 }
 
-html[data-theme="dark"] .bd-content .benchmark-model-icon--invert-dark,
-[data-bs-theme="dark"] .bd-content .benchmark-model-icon--invert-dark {
-  filter: invert(1);
-}
-
 @media (min-width: 1200px) {
   .bd-page-width {
     max-width: 96rem;
