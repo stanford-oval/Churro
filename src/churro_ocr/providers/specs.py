@@ -26,6 +26,7 @@ from churro_ocr.providers._ocr_processing import (
     olmocr_image_preprocessor,
     olmocr_text_postprocessor,
     paddleocr_vl_text_postprocessor,
+    qianfan_ocr_text_postprocessor,
 )
 from churro_ocr.templates import (
     CHANDRA_OCR_2_MODEL_ID,
@@ -56,6 +57,8 @@ from churro_ocr.templates import (
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
     PADDLEOCR_VL_1_5_MODEL_ID,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
+    QIANFAN_OCR_MODEL_ID,
+    QIANFAN_OCR_OCR_TEMPLATE,
     OCRConversation,
     OCRPromptTemplateLike,
 )
@@ -80,6 +83,7 @@ INFINITY_PARSER_7B_MAX_TOKENS = 8_192
 NANONETS_OCR2_3B_MAX_TOKENS = 15_000
 OLMOCR_MAX_TOKENS = 8_000
 PADDLEOCR_VL_MAX_TOKENS = 4_096
+QIANFAN_OCR_MAX_TOKENS = 4_096
 INFINITY_PARSER_7B_MIN_PIXELS = 256 * 28 * 28
 INFINITY_PARSER_7B_MAX_PIXELS = 2304 * 28 * 28
 MISTRAL_OCR_MODEL_IDS: tuple[MistralOCRModel, ...] = (
@@ -342,6 +346,31 @@ def nanonets_ocr2_3b_profile() -> OCRModelProfile:
     )
 
 
+def qianfan_ocr_profile() -> OCRModelProfile:
+    """Return the built-in ``baidu/Qianfan-OCR`` OCR profile."""
+    return OCRModelProfile(
+        profile_name=QIANFAN_OCR_MODEL_ID,
+        template=QIANFAN_OCR_OCR_TEMPLATE,
+        image_preprocessor=ensure_rgb,
+        text_postprocessor=qianfan_ocr_text_postprocessor,
+        display_name="Qianfan-OCR",
+        transport=LiteLLMTransportConfig(
+            completion_kwargs={
+                "max_tokens": QIANFAN_OCR_MAX_TOKENS,
+                "temperature": 0.0,
+            }
+        ),
+        huggingface=HuggingFaceOptions(
+            generation_kwargs={
+                "max_new_tokens": QIANFAN_OCR_MAX_TOKENS,
+                "do_sample": False,
+            },
+            trust_remote_code=True,
+            backend_variant="qianfan-ocr",
+        ),
+    )
+
+
 def glm_ocr_profile() -> OCRModelProfile:
     """Return the built-in ``zai-org/GLM-OCR`` OCR profile."""
     return OCRModelProfile(
@@ -549,6 +578,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
     olmocr_profile = olmocr_2_7b_1025_profile()
     olmocr_fp8_profile = olmocr_2_7b_1025_fp8_profile()
     paddleocr_vl_profile = paddleocr_vl_1_5_profile()
+    qianfan_profile = qianfan_ocr_profile()
     return {
         default_profile.profile_name: default_profile,
         churro_profile.profile_name: churro_profile,
@@ -565,6 +595,7 @@ def _profile_registry() -> dict[str, OCRModelProfile]:
         olmocr_profile.profile_name: olmocr_profile,
         olmocr_fp8_profile.profile_name: olmocr_fp8_profile,
         paddleocr_vl_profile.profile_name: paddleocr_vl_profile,
+        qianfan_profile.profile_name: qianfan_profile,
     }
 
 
@@ -636,6 +667,8 @@ __all__ = [
     "olmocr_text_postprocessor",
     "paddleocr_vl_1_5_profile",
     "paddleocr_vl_text_postprocessor",
+    "qianfan_ocr_profile",
+    "qianfan_ocr_text_postprocessor",
     "resolve_ocr_profile",
     "validate_mistral_ocr_model",
 ]

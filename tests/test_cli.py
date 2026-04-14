@@ -39,6 +39,8 @@ from churro_ocr.templates import (
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
     PADDLEOCR_VL_1_5_MODEL_ID,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
+    QIANFAN_OCR_MODEL_ID,
+    QIANFAN_OCR_OCR_TEMPLATE,
 )
 
 if TYPE_CHECKING:
@@ -322,6 +324,26 @@ def test_build_ocr_backend_aligns_templates_for_nanonets_ocr2_3b() -> None:
     }
     assert openai_backend.transport.config.completion_kwargs == {
         "max_tokens": 15_000,
+        "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_aligns_templates_for_qianfan_ocr() -> None:
+    litellm_backend = _build_litellm_backend(QIANFAN_OCR_MODEL_ID)
+    hf_backend = _build_hf_backend(QIANFAN_OCR_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(QIANFAN_OCR_MODEL_ID)
+
+    assert litellm_backend.template == QIANFAN_OCR_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "Qianfan-OCR"
+    assert hf_backend.model_name == "Qianfan-OCR"
+    assert openai_backend.model_name == "Qianfan-OCR"
+    assert litellm_backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+    }
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
         "temperature": 0.0,
     }
 

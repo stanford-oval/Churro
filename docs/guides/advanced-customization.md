@@ -47,6 +47,7 @@ Use the [templates API](../api/templates.md) for exact signatures.
 | `DEEPSEEK_OCR_2_OCR_TEMPLATE` | Built-in template for `deepseek-ai/DeepSeek-OCR-2`. |
 | `FIRERED_OCR_OCR_TEMPLATE` | Built-in markdown-conversion template for `FireRedTeam/FireRed-OCR`. |
 | `NANONETS_OCR2_3B_OCR_TEMPLATE` | Built-in structured-markdown template for `nanonets/Nanonets-OCR2-3B`. |
+| `QIANFAN_OCR_OCR_TEMPLATE` | Built-in markdown-conversion template for `baidu/Qianfan-OCR`. |
 | `DOTS_OCR_1_5_OCR_TEMPLATE` | Built-in template for `kristaller486/dots.ocr-1.5`. |
 | `DOTS_MOCR_OCR_TEMPLATE` | Built-in template for `rednote-hilab/dots.mocr`. |
 | `INFINITY_PARSER_7B_OCR_TEMPLATE` | Built-in markdown-conversion template for `infly/Infinity-Parser-7B`. |

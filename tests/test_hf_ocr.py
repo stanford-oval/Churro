@@ -36,6 +36,7 @@ from churro_ocr.providers.hf import (
     LFM25VLOCRBackend,
     MinerU25OCRBackend,
     PaddleOCRVL15OCRBackend,
+    QianfanOCROCRBackend,
 )
 from churro_ocr.providers.specs import (
     DEFAULT_OCR_MAX_TOKENS,
@@ -45,6 +46,7 @@ from churro_ocr.providers.specs import (
     infinity_parser_7b_text_postprocessor,
     lfm2_5_vl_text_postprocessor,
     nanonets_ocr2_3b_text_postprocessor,
+    qianfan_ocr_text_postprocessor,
 )
 from churro_ocr.templates import (
     CHANDRA_OCR_2_MODEL_ID,
@@ -92,6 +94,9 @@ from churro_ocr.templates import (
     PADDLEOCR_VL_1_5_MODEL_ID,
     PADDLEOCR_VL_1_5_OCR_PROMPT,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
+    QIANFAN_OCR_MODEL_ID,
+    QIANFAN_OCR_OCR_PROMPT,
+    QIANFAN_OCR_OCR_TEMPLATE,
     HFChatTemplate,
     OCRConversation,
 )
@@ -163,6 +168,16 @@ def test_nanonets_ocr2_3b_template_matches_documented_prompt_shape() -> None:
     assert conversation[1]["role"] == "user"
     assert conversation[1]["content"][0]["type"] == "image"
     assert conversation[1]["content"][1]["text"] == NANONETS_OCR2_3B_OCR_PROMPT
+
+
+def test_qianfan_ocr_template_matches_documented_prompt_shape() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = QIANFAN_OCR_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "user"
+    assert conversation[0]["content"][0]["type"] == "image"
+    assert conversation[0]["content"][1]["text"] == QIANFAN_OCR_OCR_PROMPT
 
 
 def test_infinity_parser_template_matches_documented_prompt_shape() -> None:
@@ -425,6 +440,30 @@ def test_nanonets_ocr2_3b_text_postprocessor_strips_prompt_echo_and_preserves_ra
     }
 
 
+def test_qianfan_ocr_text_postprocessor_strips_prompt_echo_and_preserves_raw_markdown() -> None:
+    processed = qianfan_ocr_text_postprocessor(
+        f"{QIANFAN_OCR_OCR_PROMPT}\n"
+        "assistant:\n"
+        "```markdown\n"
+        "# Heading\n\n"
+        "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+        "Paragraph with [note](https://example.test).\n"
+        "```\n"
+        "<|im_end|>"
+    )
+    assert isinstance(processed, tuple)
+    text, metadata = processed
+
+    assert text == "Heading\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert metadata == {
+        "raw_markdown": (
+            "# Heading\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test)."
+        ),
+    }
+
+
 def test_deepseek_ocr_2_text_postprocessor_strips_prompt_echo_and_stop_token() -> None:
     assert (
         deepseek_ocr_2_text_postprocessor(
@@ -529,6 +568,32 @@ def test_build_ocr_backend_uses_nanonets_ocr2_3b_profile_defaults_for_hf() -> No
         "do_sample": False,
     }
     assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {}
+    preprocessed_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    assert preprocessed_image.size == (32, 16)
+    assert preprocessed_image.mode == "RGB"
+
+
+def test_build_ocr_backend_uses_qianfan_ocr_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "QianfanOCROCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=QIANFAN_OCR_MODEL_ID,
+            )
+        ),
+    )
+
+    assert isinstance(backend, QianfanOCROCRBackend)
+    assert backend.template == QIANFAN_OCR_OCR_TEMPLATE
+    assert backend.model_name == "Qianfan-OCR"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+    assert backend.trust_remote_code is True
     assert backend.processor_kwargs == {}
     assert backend.model_kwargs == {}
     preprocessed_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
@@ -951,6 +1016,138 @@ async def test_deepseek_ocr_2_huggingface_backend_uses_upstream_infer_contract(
     assert captured["saved_image_mode"] == "RGB"
     assert captured["saved_image_size"] == (32, 16)
     assert captured["output_dir_exists"] is True
+
+
+@pytest.mark.asyncio
+async def test_qianfan_ocr_huggingface_backend_uses_model_chat_and_profile_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeTokenizer:
+        pass
+
+    class FakeTokenizerCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeTokenizer:
+            captured["tokenizer_model_id"] = model_id
+            captured["tokenizer_from_pretrained_kwargs"] = kwargs
+            return FakeTokenizer()
+
+    class FakeTensor:
+        def __init__(self) -> None:
+            self.to_calls: list[object] = []
+
+        def to(self, target: object) -> FakeTensor:
+            self.to_calls.append(target)
+            return self
+
+    class FakeNoGrad:
+        def __enter__(self) -> None:
+            captured["no_grad_entered"] = True
+            return None
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            captured["no_grad_exited"] = True
+            return False
+
+    class FakeTorch:
+        bfloat16 = "fake-bfloat16"
+
+        def from_numpy(self, array: object) -> FakeTensor:
+            captured.setdefault("tile_shapes", []).append(cast("Any", array).shape)
+            return FakeTensor()
+
+        def stack(self, tensors: list[FakeTensor]) -> FakeTensor:
+            captured["stack_input_count"] = len(tensors)
+            stacked = FakeTensor()
+            captured["stacked_tensor"] = stacked
+            return stacked
+
+        def no_grad(self) -> FakeNoGrad:
+            captured["no_grad_called"] = True
+            return FakeNoGrad()
+
+    class FakeModel:
+        device = "fake-device"
+        dtype = "fake-model-dtype"
+
+        def eval(self) -> FakeModel:
+            captured["eval_called"] = True
+            return self
+
+        def chat(
+            self,
+            tokenizer: object,
+            *,
+            pixel_values: object,
+            question: str,
+            generation_config: dict[str, object],
+        ) -> str:
+            captured["chat_tokenizer"] = tokenizer
+            captured["chat_pixel_values"] = pixel_values
+            captured["chat_question"] = question
+            captured["chat_generation_config"] = generation_config
+            return (
+                f"{QIANFAN_OCR_OCR_PROMPT}\nassistant:\n```markdown\n# Heading\n\nParagraph.\n```\n<|im_end|>"
+            )
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeModel:
+            captured["model_model_id"] = model_id
+            captured["model_from_pretrained_kwargs"] = kwargs
+            return FakeModel()
+
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_hf_auto_model_runtime",
+        lambda: SimpleNamespace(
+            processor_cls=FakeTokenizerCls,
+            model_cls=FakeModelCls,
+            process_vision_info=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_torch_module",
+        lambda: FakeTorch(),
+    )
+
+    backend = cast(
+        "QianfanOCROCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=QIANFAN_OCR_MODEL_ID,
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == "Heading\n\nParagraph."
+    assert result.metadata == {
+        "raw_markdown": "# Heading\n\nParagraph.",
+    }
+    assert captured["tokenizer_model_id"] == QIANFAN_OCR_MODEL_ID
+    assert captured["tokenizer_from_pretrained_kwargs"] == {"trust_remote_code": True}
+    assert captured["model_model_id"] == QIANFAN_OCR_MODEL_ID
+    assert captured["model_from_pretrained_kwargs"] == {"trust_remote_code": True}
+    assert captured["eval_called"] is True
+    assert captured["stack_input_count"] == 3
+    assert captured["tile_shapes"] == [(3, 448, 448), (3, 448, 448), (3, 448, 448)]
+    stacked_tensor = cast("FakeTensor", captured["stacked_tensor"])
+    assert stacked_tensor.to_calls == ["fake-model-dtype", "fake-device"]
+    assert captured["chat_tokenizer"].__class__ is FakeTokenizer
+    assert captured["chat_pixel_values"] is stacked_tensor
+    assert captured["chat_question"] == QIANFAN_OCR_OCR_PROMPT
+    assert captured["chat_generation_config"] == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+    assert captured["no_grad_called"] is True
+    assert captured["no_grad_entered"] is True
+    assert captured["no_grad_exited"] is True
 
 
 @pytest.mark.asyncio
@@ -1715,6 +1912,22 @@ def test_deepseek_ocr_2_backend_uses_expected_defaults() -> None:
     assert backend.base_size == 1_024
     assert backend.image_size == 768
     assert backend.crop_mode is True
+
+
+def test_qianfan_ocr_backend_uses_expected_defaults() -> None:
+    backend = QianfanOCROCRBackend()
+
+    assert backend.model_id == QIANFAN_OCR_MODEL_ID
+    assert backend.template == QIANFAN_OCR_OCR_TEMPLATE
+    assert backend.model_name == "Qianfan-OCR"
+    assert backend.trust_remote_code is True
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {}
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+    assert backend.image_preprocessor(Image.new("RGBA", (10, 10), color=(255, 255, 255, 255))).mode == "RGB"
 
 
 @pytest.mark.asyncio

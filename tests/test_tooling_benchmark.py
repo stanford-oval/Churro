@@ -8,7 +8,11 @@ from datasets import Dataset
 from PIL import Image
 
 from churro_ocr.ocr import OCRResult
-from churro_ocr.providers.hf import GlmOCROCRBackend, HuggingFaceVisionOCRBackend
+from churro_ocr.providers.hf import (
+    GlmOCROCRBackend,
+    HuggingFaceVisionOCRBackend,
+    QianfanOCROCRBackend,
+)
 from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
 from churro_ocr.templates import (
     CHURRO_3B_XML_TEMPLATE,
@@ -21,6 +25,7 @@ from churro_ocr.templates import (
     MINERU2_5_2509_1_2B_OCR_TEMPLATE,
     NANONETS_OCR2_3B_OCR_TEMPLATE,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
+    QIANFAN_OCR_OCR_TEMPLATE,
 )
 from tooling.benchmarking import benchmark
 
@@ -551,6 +556,55 @@ def test_build_ocr_backend_uses_nanonets_ocr2_3b_preset_for_openai_compatible() 
     assert backend.template == NANONETS_OCR2_3B_OCR_TEMPLATE
     assert backend.transport.config.completion_kwargs == {
         "max_tokens": 15_000,
+        "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_uses_qianfan_ocr_preset_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="hf",
+                dataset_split="dev",
+                model="baidu/Qianfan-OCR",
+            )
+        ),
+    )
+
+    assert isinstance(backend, QianfanOCROCRBackend)
+    assert backend.model_name == "Qianfan-OCR"
+    assert backend.template == QIANFAN_OCR_OCR_TEMPLATE
+    assert backend.trust_remote_code is True
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {
+        "device_map": "auto",
+        "torch_dtype": "auto",
+    }
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+
+
+def test_build_ocr_backend_uses_qianfan_ocr_preset_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="baidu/Qianfan-OCR",
+                base_url="http://127.0.0.1:8000/v1",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.model_name == "Qianfan-OCR"
+    assert backend.template == QIANFAN_OCR_OCR_TEMPLATE
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
         "temperature": 0.0,
     }
 

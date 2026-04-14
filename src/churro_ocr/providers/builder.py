@@ -16,6 +16,7 @@ from churro_ocr.providers.hf import (
     LFM25VLOCRBackend,
     MinerU25OCRBackend,
     PaddleOCRVL15OCRBackend,
+    QianfanOCROCRBackend,
     _default_dots_ocr_1_5_model_kwargs,
 )
 from churro_ocr.providers.ocr import (
@@ -209,6 +210,8 @@ def _build_huggingface_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -
         backend_cls = PaddleOCRVL15OCRBackend
     elif options.backend_variant == "lfm2.5-vl":
         backend_cls = LFM25VLOCRBackend
+    elif options.backend_variant == "qianfan-ocr":
+        backend_cls = QianfanOCROCRBackend
     return backend_cls(
         model_id=spec.model,
         template=profile.template,

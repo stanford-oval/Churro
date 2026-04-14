@@ -16,6 +16,7 @@ DEEPSEEK_OCR_2_MODEL_ID = "deepseek-ai/DeepSeek-OCR-2"
 GLM_OCR_MODEL_ID = "zai-org/GLM-OCR"
 FIRERED_OCR_MODEL_ID = "FireRedTeam/FireRed-OCR"
 NANONETS_OCR2_3B_MODEL_ID = "nanonets/Nanonets-OCR2-3B"
+QIANFAN_OCR_MODEL_ID = "baidu/Qianfan-OCR"
 DOTS_OCR_1_5_MODEL_ID = "kristaller486/dots.ocr-1.5"
 DOTS_MOCR_MODEL_ID = "rednote-hilab/dots.mocr"
 INFINITY_PARSER_7B_MODEL_ID = "infly/Infinity-Parser-7B"
@@ -90,6 +91,11 @@ NANONETS_OCR2_3B_OCR_PROMPT = (
 NANONETS_OCR2_3B_OCR_TEMPLATE = HFChatTemplate(
     system_message=NANONETS_OCR2_3B_SYSTEM_PROMPT,
     user_prompt=NANONETS_OCR2_3B_OCR_PROMPT,
+)
+QIANFAN_OCR_OCR_PROMPT = "Parse this document to Markdown."
+QIANFAN_OCR_OCR_TEMPLATE = HFChatTemplate(
+    system_message=None,
+    user_prompt=QIANFAN_OCR_OCR_PROMPT,
 )
 DOTS_OCR_1_5_OCR_PROMPT = "Extract the text content from this image."
 DOTS_OCR_1_5_OCR_TEMPLATE = HFChatTemplate(
@@ -207,4 +213,7 @@ __all__ = [
     "PADDLEOCR_VL_1_5_MODEL_ID",
     "PADDLEOCR_VL_1_5_OCR_PROMPT",
     "PADDLEOCR_VL_1_5_OCR_TEMPLATE",
+    "QIANFAN_OCR_MODEL_ID",
+    "QIANFAN_OCR_OCR_PROMPT",
+    "QIANFAN_OCR_OCR_TEMPLATE",
 ]

@@ -57,6 +57,9 @@ from churro_ocr.templates.presets import (
     PADDLEOCR_VL_1_5_MODEL_ID,
     PADDLEOCR_VL_1_5_OCR_PROMPT,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
+    QIANFAN_OCR_MODEL_ID,
+    QIANFAN_OCR_OCR_PROMPT,
+    QIANFAN_OCR_OCR_TEMPLATE,
 )
 
 __all__ = [
@@ -108,6 +111,9 @@ __all__ = [
     "PADDLEOCR_VL_1_5_MODEL_ID",
     "PADDLEOCR_VL_1_5_OCR_PROMPT",
     "PADDLEOCR_VL_1_5_OCR_TEMPLATE",
+    "QIANFAN_OCR_MODEL_ID",
+    "QIANFAN_OCR_OCR_PROMPT",
+    "QIANFAN_OCR_OCR_TEMPLATE",
     "HFChatTemplate",
     "OCRConversation",
     "OCRPromptTemplate",

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, cast
+
+import numpy as np
+from PIL import Image
 
 from churro_ocr._internal.image import ensure_rgb
 from churro_ocr._internal.prompt_logging import log_prompt_payload_once
@@ -55,14 +59,14 @@ from churro_ocr.templates import (
     MINERU2_5_2509_1_2B_TABLE_TEMPLATE,
     PADDLEOCR_VL_1_5_MODEL_ID,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
+    QIANFAN_OCR_MODEL_ID,
+    QIANFAN_OCR_OCR_TEMPLATE,
     OCRConversation,
     OCRPromptTemplateLike,
     build_ocr_conversation,
 )
 
 if TYPE_CHECKING:
-    from PIL import Image
-
     from churro_ocr.providers._mineru25 import MinerU25PipelineHelper
 
 _HF_EXTRA_INSTALL_HINT = _runtime._HF_EXTRA_INSTALL_HINT
@@ -80,6 +84,21 @@ _move_batch_to_model = _helpers._move_batch_to_model
 _paddleocr_vl_processor_kwargs = _helpers._paddleocr_vl_processor_kwargs
 _provider_error = _runtime._provider_error
 _resolve_model_max_length = _helpers._resolve_model_max_length
+_QIANFAN_IMAGE_SIZE = 448
+_QIANFAN_MAX_TILES = 12
+_QIANFAN_MAX_NEW_TOKENS = 4_096
+_QIANFAN_IMAGENET_MEAN = np.asarray((0.485, 0.456, 0.406), dtype=np.float32)[:, None, None]
+_QIANFAN_IMAGENET_STD = np.asarray((0.229, 0.224, 0.225), dtype=np.float32)[:, None, None]
+_QIANFAN_TARGET_RATIOS = sorted(
+    {
+        (width, height)
+        for num_tiles in range(1, _QIANFAN_MAX_TILES + 1)
+        for width in range(1, num_tiles + 1)
+        for height in range(1, num_tiles + 1)
+        if 1 <= width * height <= _QIANFAN_MAX_TILES
+    },
+    key=lambda ratio: ratio[0] * ratio[1],
+)
 
 
 def _load_torch_module() -> _runtime._TorchModuleLike:
@@ -133,6 +152,168 @@ def _patch_dots_ocr_prepare_inputs_for_generation(model: object) -> None:
 
 def _default_dots_ocr_1_5_model_kwargs() -> dict[str, object]:
     return _dots._default_dots_ocr_1_5_model_kwargs(load_torch_module=_load_torch_module)
+
+
+def _qianfan_find_closest_aspect_ratio(
+    aspect_ratio: float,
+    *,
+    width: int,
+    height: int,
+    image_size: int,
+) -> tuple[int, int]:
+    best_ratio = (1, 1)
+    best_ratio_diff = float("inf")
+    area = width * height
+    for ratio in _QIANFAN_TARGET_RATIOS:
+        target_aspect_ratio = ratio[0] / ratio[1]
+        ratio_diff = abs(aspect_ratio - target_aspect_ratio)
+        if ratio_diff < best_ratio_diff:
+            best_ratio_diff = ratio_diff
+            best_ratio = ratio
+            continue
+        if ratio_diff == best_ratio_diff and area > 0.5 * image_size * image_size * ratio[0] * ratio[1]:
+            best_ratio = ratio
+    return best_ratio
+
+
+def _qianfan_dynamic_preprocess(
+    image: Image.Image,
+    *,
+    image_size: int = _QIANFAN_IMAGE_SIZE,
+    use_thumbnail: bool = True,
+) -> list[Image.Image]:
+    rgb_image = ensure_rgb(image)
+    width, height = rgb_image.size
+    aspect_ratio = width / max(height, 1)
+    target_ratio = _qianfan_find_closest_aspect_ratio(
+        aspect_ratio,
+        width=width,
+        height=height,
+        image_size=image_size,
+    )
+    target_width = image_size * target_ratio[0]
+    target_height = image_size * target_ratio[1]
+    blocks = target_ratio[0] * target_ratio[1]
+    bicubic = Image.Resampling.BICUBIC
+    resized = rgb_image.resize((target_width, target_height), resample=bicubic)
+    processed_images: list[Image.Image] = []
+    grid_width = target_width // image_size
+    for index in range(blocks):
+        left = (index % grid_width) * image_size
+        top = (index // grid_width) * image_size
+        processed_images.append(
+            resized.crop(
+                (
+                    left,
+                    top,
+                    left + image_size,
+                    top + image_size,
+                )
+            )
+        )
+    if use_thumbnail and len(processed_images) != 1:
+        processed_images.append(rgb_image.resize((image_size, image_size), resample=bicubic))
+    return processed_images
+
+
+def _qianfan_image_to_tensor(image: Image.Image, *, torch: object) -> object:
+    from_numpy = getattr(torch, "from_numpy", None)
+    if not callable(from_numpy):
+        message = "Qianfan-OCR HF backend requires `torch.from_numpy(...)` support."
+        raise _configuration_error(message)
+    array = np.asarray(ensure_rgb(image), dtype=np.float32) / 255.0
+    array = np.ascontiguousarray(array.transpose(2, 0, 1))
+    array = (array - _QIANFAN_IMAGENET_MEAN) / _QIANFAN_IMAGENET_STD
+    return from_numpy(array)
+
+
+def _qianfan_load_pixel_values(
+    image: Image.Image,
+    *,
+    torch: object,
+) -> object:
+    stack = getattr(torch, "stack", None)
+    if not callable(stack):
+        message = "Qianfan-OCR HF backend requires `torch.stack(...)` support."
+        raise _configuration_error(message)
+    images = _qianfan_dynamic_preprocess(image)
+    return stack([_qianfan_image_to_tensor(processed_image, torch=torch) for processed_image in images])
+
+
+def _qianfan_prompt_from_conversation(conversation: OCRConversation) -> str:
+    prompt_parts: list[str] = []
+    for message in conversation:
+        if message.get("role") == "system":
+            continue
+        content = cast("list[dict[str, object]]", message.get("content", []))
+        for item in content:
+            text = item.get("text")
+            if item.get("type") == "text" and isinstance(text, str) and text.strip():
+                prompt_parts.append(text)
+    prompt = "\n".join(prompt_parts).strip()
+    if not prompt:
+        message = "Qianfan-OCR requires a text prompt."
+        raise _configuration_error(message)
+    return prompt
+
+
+def _qianfan_model_dtype(model: object, *, torch: object) -> object:
+    model_dtype = getattr(model, "dtype", None)
+    if model_dtype is not None:
+        return model_dtype
+    parameters = getattr(model, "parameters", None)
+    if callable(parameters):
+        try:
+            first_parameter = next(parameters())
+        except (StopIteration, TypeError):
+            first_parameter = None
+        if first_parameter is not None:
+            parameter_dtype = getattr(first_parameter, "dtype", None)
+            if parameter_dtype is not None:
+                return parameter_dtype
+    return getattr(torch, "bfloat16", None)
+
+
+def _qianfan_model_device(model: object) -> object | None:
+    model_device = getattr(model, "device", None)
+    if model_device is not None:
+        return model_device
+    parameters = getattr(model, "parameters", None)
+    if callable(parameters):
+        try:
+            first_parameter = next(parameters())
+        except (StopIteration, TypeError):
+            first_parameter = None
+        if first_parameter is not None:
+            return getattr(first_parameter, "device", None)
+    return None
+
+
+def _qianfan_move_tensor(tensor: object, target: object) -> object:
+    if target is None:
+        return tensor
+    to_method = getattr(tensor, "to", None)
+    if not callable(to_method):
+        return tensor
+    moved = to_method(target)
+    return tensor if moved is None else moved
+
+
+def _qianfan_response_to_text(response: object) -> str:
+    if isinstance(response, str):
+        return response
+    if isinstance(response, (tuple, list)):
+        for item in response:
+            if isinstance(item, str):
+                return item
+    if isinstance(response, dict):
+        response_dict = cast("dict[str, object]", response)
+        for key in ("text", "response", "output"):
+            value = response_dict.get(key)
+            if isinstance(value, str):
+                return value
+    message = "Qianfan-OCR returned no OCR text."
+    raise _provider_error(message)
 
 
 @dataclass(slots=True)
@@ -801,6 +982,120 @@ class DeepSeekOCR2OCRBackend(HuggingFaceVisionOCRBackend):
 
 
 @dataclass(slots=True)
+class QianfanOCROCRBackend(HuggingFaceVisionOCRBackend):
+    """Preset OCR backend for ``baidu/Qianfan-OCR``."""
+
+    model_id: str = QIANFAN_OCR_MODEL_ID
+    template: OCRPromptTemplateLike = QIANFAN_OCR_OCR_TEMPLATE
+    model_name: str | None = "Qianfan-OCR"
+    trust_remote_code: bool = True
+    image_preprocessor: ImagePreprocessor = ensure_rgb
+    generation_kwargs: dict[str, object] = field(
+        default_factory=lambda: {"max_new_tokens": _QIANFAN_MAX_NEW_TOKENS, "do_sample": False}
+    )
+
+    def _load_runtime(self) -> _HFRuntime:
+        return _load_hf_auto_model_runtime()
+
+    def _get_model(self, runtime: _HFRuntime) -> object:
+        if self._model is None:
+            with self._init_lock:
+                if self._model is None:
+                    model = runtime.model_cls.from_pretrained(
+                        self._get_model_source(),
+                        trust_remote_code=self.trust_remote_code,
+                        **self.model_kwargs,
+                    )
+                    eval_method = getattr(model, "eval", None)
+                    if callable(eval_method):
+                        maybe_evaluated = eval_method()
+                        if maybe_evaluated is not None:
+                            model = maybe_evaluated
+                    self._model = model
+        return self._model
+
+    def _infer_qianfan_page(
+        self,
+        *,
+        tokenizer: object,
+        model: object,
+        page: DocumentPage,
+        batch_size: int,
+    ) -> OCRResult:
+        torch = _load_torch_module()
+        conversation = build_ocr_conversation(self.template, page)
+        prompt = _qianfan_prompt_from_conversation(conversation)
+        self._log_prompt_payload(
+            rendered_prompt=prompt,
+            conversation=conversation,
+            batch_size=batch_size,
+        )
+        pixel_values = _qianfan_load_pixel_values(page.image, torch=torch)
+        pixel_values = _qianfan_move_tensor(pixel_values, _qianfan_model_dtype(model, torch=torch))
+        pixel_values = _qianfan_move_tensor(pixel_values, _qianfan_model_device(model))
+
+        chat_method = getattr(model, "chat", None)
+        if not callable(chat_method):
+            message = "Qianfan-OCR requires a model object with `chat(...)` support."
+            raise _configuration_error(message)
+
+        no_grad = getattr(torch, "no_grad", None)
+        inference_context = no_grad() if callable(no_grad) else nullcontext()
+        with inference_context:
+            response = chat_method(
+                tokenizer,
+                pixel_values=pixel_values,
+                question=prompt,
+                generation_config=dict(self.generation_kwargs),
+            )
+        return build_ocr_result(
+            _qianfan_response_to_text(response),
+            provider_name=self.provider_name,
+            model_name=self.model_name or self.model_id,
+            text_postprocessor=self.text_postprocessor,
+        )
+
+    def _ocr_sync(self, page: DocumentPage) -> OCRResult:
+        prepared_page = preprocess_backend_page(
+            page,
+            image_preprocessor=self.image_preprocessor,
+        )
+        runtime = self._load_runtime()
+        tokenizer = self._get_processor(runtime)
+        model = self._get_model(runtime)
+        return self._infer_qianfan_page(
+            tokenizer=tokenizer,
+            model=model,
+            page=prepared_page,
+            batch_size=1,
+        )
+
+    def _ocr_batch_sync(self, pages: list[DocumentPage]) -> list[OCRResult]:
+        if not pages:
+            return []
+
+        runtime = self._load_runtime()
+        tokenizer = self._get_processor(runtime)
+        model = self._get_model(runtime)
+        batch_size = len(pages)
+        results: list[OCRResult] = []
+        for page in pages:
+            prepared_page = preprocess_backend_page(
+                page,
+                image_preprocessor=self.image_preprocessor,
+            )
+            results.append(
+                self._infer_qianfan_page(
+                    tokenizer=tokenizer,
+                    model=model,
+                    page=prepared_page,
+                    batch_size=batch_size,
+                )
+            )
+        return results
+
+
+@dataclass(slots=True)
 class DotsOCR15OCRBackend(HuggingFaceVisionOCRBackend):
     """Preset OCR backend for ``kristaller486/dots.ocr-1.5``.
 
@@ -1315,4 +1610,5 @@ __all__ = [
     "LFM25VLOCRBackend",
     "MinerU25OCRBackend",
     "PaddleOCRVL15OCRBackend",
+    "QianfanOCROCRBackend",
 ]
