@@ -3189,7 +3189,7 @@
     "modelName": "Step 3 VL",
     "modelId": "stepfun-ai/Step3-VL-10B",
     "modelUrl": "https://huggingface.co/stepfun-ai/Step3-VL-10B",
-    "iconPath": null,
+    "iconPath": "_static/img/stepfun-logo.svg",
     "printed": 55.9,
     "handwritten": 38.6,
     "total": 46.6,
