@@ -136,22 +136,34 @@
     const textBlock = document.createElement("div");
     textBlock.className = "benchmark-model-text";
 
-    const nameNode = row.modelUrl ? document.createElement("a") : document.createElement("span");
+    const nameNode = document.createElement("span");
     nameNode.className = "benchmark-model-name";
     nameNode.textContent = row.modelName;
-    if (row.modelUrl) {
-      nameNode.href = row.modelUrl;
-      nameNode.target = "_blank";
-      nameNode.rel = "noreferrer noopener";
-    }
-
     textBlock.append(nameNode);
 
     if (row.modelId) {
       const metaNode = document.createElement("code");
       metaNode.className = "benchmark-model-id";
       metaNode.textContent = row.modelId;
-      textBlock.append(metaNode);
+      if (row.modelUrl) {
+        const metaLink = document.createElement("a");
+        metaLink.className = "benchmark-model-id-link";
+        metaLink.href = row.modelUrl;
+        metaLink.target = "_blank";
+        metaLink.rel = "noreferrer noopener";
+        metaLink.append(metaNode);
+        textBlock.append(metaLink);
+      } else {
+        textBlock.append(metaNode);
+      }
+    } else if (row.modelUrl) {
+      const nameLink = document.createElement("a");
+      nameLink.className = "benchmark-model-name benchmark-model-name-link";
+      nameLink.href = row.modelUrl;
+      nameLink.target = "_blank";
+      nameLink.rel = "noreferrer noopener";
+      nameLink.textContent = row.modelName;
+      textBlock.replaceChildren(nameLink);
     }
 
     wrapper.append(textBlock);
@@ -263,14 +275,17 @@
 
   function renderLeaderboard(container, rows, sortState, expandedGroups) {
     normalizeSortState(sortState, expandedGroups);
-    container.replaceChildren();
+
+    const existingWrapper = container.querySelector(".benchmark-table-wrapper");
+    const previousScrollLeft = existingWrapper ? existingWrapper.scrollLeft : 0;
+    const previousScrollTop = existingWrapper ? existingWrapper.scrollTop : 0;
 
     const groupLanguages = getGroupLanguages(rows);
     const sortedRows = [...rows].sort((left, right) => compareRows(left, right, sortState));
     const hasExpandedGroups = GROUP_DEFINITIONS.some((group) => expandedGroups[group.key]);
     const visibleScoreColumns = createVisibleScoreColumns(groupLanguages, expandedGroups);
 
-    const wrapper = document.createElement("div");
+    const wrapper = existingWrapper || document.createElement("div");
     wrapper.className = "benchmark-table-wrapper";
 
     const table = document.createElement("table");
@@ -296,6 +311,7 @@
     const topHeaderRow = document.createElement("tr");
 
     const rankHeader = document.createElement("th");
+    rankHeader.className = "benchmark-rank";
     rankHeader.scope = "col";
     rankHeader.textContent = "#";
     if (hasExpandedGroups) {
@@ -304,6 +320,7 @@
     topHeaderRow.append(rankHeader);
 
     const modelHeader = createStandaloneHeaderCell("modelName", "Model", sortState, handleSort);
+    modelHeader.classList.add("benchmark-sticky-column", "benchmark-sticky-column--model");
     if (hasExpandedGroups) {
       modelHeader.rowSpan = 2;
     }
@@ -390,6 +407,7 @@
       tr.append(rankCell);
 
       const modelCell = document.createElement("td");
+      modelCell.classList.add("benchmark-sticky-column", "benchmark-sticky-column--model");
       modelCell.append(createModelCell(row));
       tr.append(modelCell);
 
@@ -404,8 +422,19 @@
     });
 
     table.append(tbody);
-    wrapper.append(table);
-    container.append(wrapper);
+    wrapper.replaceChildren(table);
+
+    if (!existingWrapper) {
+      container.replaceChildren(wrapper);
+    }
+
+    // Keep the user's horizontal position stable when a header click rerenders the table.
+    wrapper.scrollLeft = previousScrollLeft;
+    wrapper.scrollTop = previousScrollTop;
+    requestAnimationFrame(() => {
+      wrapper.scrollLeft = previousScrollLeft;
+      wrapper.scrollTop = previousScrollTop;
+    });
   }
 
   function renderError(container, message) {
