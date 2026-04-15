@@ -1782,7 +1782,7 @@
     }
   },
   {
-    "modelName": "PaddleOCR-VL 1.5",
+    "modelName": "PaddleOCR VL 1.5",
     "modelId": "PaddlePaddle/PaddleOCR-VL-1.5",
     "modelUrl": "https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.5",
     "iconPath": "_static/img/paddleocr-logo.png",
@@ -3182,6 +3182,60 @@
         "Vietnamese": 73.0,
         "Norwegian": 58.1,
         "Khmer": 6.0
+      }
+    }
+  },
+  {
+    "modelName": "Step 3 VL",
+    "modelId": "stepfun-ai/Step3-VL-10B",
+    "modelUrl": "https://huggingface.co/stepfun-ai/Step3-VL-10B",
+    "iconPath": null,
+    "printed": 55.9,
+    "handwritten": 38.6,
+    "total": 46.6,
+    "main_language_and_type_metrics": {
+      "print": {
+        "Czech": 81.8,
+        "German": 54.2,
+        "Latin": 76.1,
+        "French": 76.5,
+        "English": 76.9,
+        "Hindi": 52.7,
+        "Sanskrit": 39.7,
+        "Swedish": 57.8,
+        "Chinese": 3.1,
+        "Dutch": 59.5,
+        "Finnish": 18.2,
+        "Polish": 55.7,
+        "Spanish": 79.5,
+        "Slovenian": 87.7,
+        "Bulgarian": 68.2,
+        "Japanese": 30.7,
+        "Bangla": 42.2,
+        "Romanian": 46.1
+      },
+      "handwriting": {
+        "Spanish": 45.0,
+        "Dutch": 54.9,
+        "French": 55.4,
+        "Latin": 45.7,
+        "Hebrew": 6.2,
+        "Japanese": 9.3,
+        "Italian": 66.0,
+        "German": 43.6,
+        "Greek": 23.0,
+        "Swedish": 56.8,
+        "Arabic": 32.4,
+        "Chinese": 29.5,
+        "English": 68.0,
+        "Catalan": 58.2,
+        "Portuguese": 32.1,
+        "Sanskrit": 6.5,
+        "Turkish": 20.0,
+        "Persian": 26.4,
+        "Vietnamese": 43.5,
+        "Norwegian": 78.3,
+        "Khmer": 9.9
       }
     }
   }
