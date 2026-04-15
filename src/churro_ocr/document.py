@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from churro_ocr._internal.runtime import run_sync
 from churro_ocr.errors import ConfigurationError
@@ -16,6 +15,15 @@ from churro_ocr.page_detection import (
     PageDetectionBackendLike,
     PageDetectionRequest,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from churro_ocr.types import MetadataDict
+
+
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
 
 
 @dataclass(slots=True)
@@ -29,7 +37,7 @@ class DocumentOCRResult:
 
     pages: list[DocumentPage]
     source_type: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: MetadataDict = field(default_factory=dict)
 
     def texts(self) -> list[str]:
         """Return OCR text for each page in order.
@@ -80,7 +88,8 @@ class DocumentOCRPipeline:
         :raises ConfigurationError: If ``max_concurrency`` is less than 1.
         """
         if max_concurrency < 1:
-            raise ConfigurationError("DocumentOCRPipeline max_concurrency must be at least 1.")
+            message = "DocumentOCRPipeline max_concurrency must be at least 1."
+            raise _configuration_error(message)
         self._ocr_client = OCRClient(ocr_backend)
         self._page_detector = page_detector or DocumentPageDetector(backend=detection_backend)
         self.max_concurrency = max_concurrency
@@ -89,7 +98,7 @@ class DocumentOCRPipeline:
         self,
         request: PageDetectionRequest,
         *,
-        ocr_metadata: dict[str, Any] | None = None,
+        ocr_metadata: MetadataDict | None = None,
     ) -> DocumentOCRResult:
         """Detect pages and OCR a single input image.
 
@@ -110,7 +119,7 @@ class DocumentOCRPipeline:
         self,
         request: PageDetectionRequest,
         *,
-        ocr_metadata: dict[str, Any] | None = None,
+        ocr_metadata: MetadataDict | None = None,
     ) -> DocumentOCRResult:
         """Synchronously detect pages and OCR a single input image.
 
@@ -127,7 +136,7 @@ class DocumentOCRPipeline:
         *,
         dpi: int = 300,
         trim_margin: int = 30,
-        ocr_metadata: dict[str, Any] | None = None,
+        ocr_metadata: MetadataDict | None = None,
     ) -> DocumentOCRResult:
         """Rasterize, detect pages, and OCR a PDF.
 
@@ -156,7 +165,7 @@ class DocumentOCRPipeline:
         *,
         dpi: int = 300,
         trim_margin: int = 30,
-        ocr_metadata: dict[str, Any] | None = None,
+        ocr_metadata: MetadataDict | None = None,
     ) -> DocumentOCRResult:
         """Synchronously rasterize, detect pages, and OCR a PDF.
 
@@ -180,8 +189,8 @@ class DocumentOCRPipeline:
         self,
         detected_pages: list[DocumentPage],
         source_type: str,
-        metadata: dict[str, Any],
-        ocr_metadata: dict[str, Any] | None,
+        metadata: MetadataDict,
+        ocr_metadata: MetadataDict | None,
     ) -> DocumentOCRResult:
         semaphore = asyncio.Semaphore(self.max_concurrency)
 
@@ -200,7 +209,7 @@ class DocumentOCRPipeline:
         self,
         page: DocumentPage,
         *,
-        ocr_metadata: dict[str, Any] | None,
+        ocr_metadata: MetadataDict | None,
     ) -> DocumentPage:
         page_metadata = dict(page.metadata)
         page_metadata.update(ocr_metadata or {})

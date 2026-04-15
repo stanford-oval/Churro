@@ -1,6 +1,6 @@
 # AGENTS
 
-This repo is `churro-ocr`, a Python 3.12 OCR and page-detection toolkit for historical documents.
+This repo is `churro-ocr`, a Python 3.12+ OCR and page-detection toolkit for historical documents.
 
 ## Repo Layout
 
@@ -22,6 +22,8 @@ pixi run test
 pixi run docs-build
 pixi run package-check
 ```
+
+After each change, review docs to see if it needs updating and run the relevant Pixi tasks to check your work.
 
 ## Guardrails
 

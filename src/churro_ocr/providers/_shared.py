@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any
+from typing import TYPE_CHECKING
 
 from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRResult
-from churro_ocr.page_detection import DocumentPage
-from churro_ocr.providers.specs import ImagePreprocessor, TextPostprocessor
 from churro_ocr.templates import (
     OCRConversation,
     OCRPromptTemplateLike,
     build_ocr_conversation,
 )
+
+if TYPE_CHECKING:
+    from churro_ocr.page_detection import DocumentPage
+    from churro_ocr.providers.specs import ImagePreprocessor, TextPostprocessor
+    from churro_ocr.types import MetadataDict
+
+
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
 
 
 def preprocess_backend_page(
@@ -53,10 +60,11 @@ def render_ocr_prompt(
         )
         return rendered, conversation
 
-    raise ConfigurationError(
+    message = (
         "OCR prompt rendering requires either `processor.apply_chat_template(...)`, "
         "or `processor.tokenizer.apply_chat_template(...)`."
     )
+    raise _configuration_error(message)
 
 
 def normalize_media_inputs(media_inputs: object | None) -> object | None:
@@ -74,11 +82,11 @@ def build_ocr_result(
     provider_name: str,
     model_name: str,
     text_postprocessor: TextPostprocessor,
-    metadata: dict[str, Any] | None = None,
+    metadata: MetadataDict | None = None,
 ) -> OCRResult:
     """Build a normalized OCR result after postprocessing."""
     processed = text_postprocessor(text)
-    postprocessor_metadata: dict[str, Any] = {}
+    postprocessor_metadata: MetadataDict = {}
     if isinstance(processed, tuple):
         processed_text, postprocessor_metadata = processed
     else:

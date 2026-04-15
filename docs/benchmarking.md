@@ -27,6 +27,7 @@ The evaluation pipeline strips the default OCR wrapper tag, flattens supported X
 - `--language` and `--document-type`: filter the benchmark subset before slicing
 - `--output-dir PATH`: override the default results directory
 - `--max-concurrency N`: cap the number of in-flight OCR requests
+- `--reasoning-effort VALUE`: forward LiteLLM/OpenAI `reasoning_effort` for `litellm` and `openai-compatible` backends
 
 ## Output Files
 
@@ -49,9 +50,10 @@ That means for example `--language Arabic --offset 100 --input-size 50` selects 
 
 ## Example Commands
 
-If you want to benchmark a model using vLLM, run a vLLM server separately and point `--backend openai-compatible` at its OpenAI-compatible endpoint. See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html).
+If you want to benchmark a model using vLLM or llama.cpp, run the server separately and point `--backend openai-compatible` at its OpenAI-compatible endpoint. See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html) or the [official llama.cpp serving docs](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
 
 | Model | Model ID | Backend | Full command |
 | --- | --- | --- | --- |
 | Gemini 2.5 Pro | `vertex_ai/gemini-2.5-pro` | `litellm` | `pixi run python -m tooling.benchmarking.benchmark --backend litellm --dataset-split test --model vertex_ai/gemini-2.5-pro --output-dir workdir/results/test/litellm_vertex_ai_gemini-2.5-pro` |
+| GPT-5.4 | `gpt-5.4` | `litellm` | `pixi run python -m tooling.benchmarking.benchmark --backend litellm --dataset-split test --model gpt-5.4 --api-key "$OPENAI_API_KEY" --max-concurrency 16 --output-dir workdir/results/test/litellm_gpt-5.4` |
 | Qwen 3.5-0.8B | `Qwen/Qwen3.5-0.8B` | `openai-compatible` | `pixi run python -m tooling.benchmarking.benchmark --backend openai-compatible --dataset-split test --model Qwen/Qwen3.5-0.8B --base-url http://127.0.0.1:8000/v1 --output-dir workdir/results/test/openai-compatible_Qwen_Qwen3.5-0.8B` |

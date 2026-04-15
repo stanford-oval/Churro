@@ -1,31 +1,66 @@
 # CLI
 
-Use the CLI when you want a quick sanity check before writing Python code.
+Use the CLI when you want to validate a backend, transcribe one image, or extract page crops without writing Python.
 
 Use `churro-ocr --help` or `python -m churro_ocr --help` to inspect the top-level commands.
-Install Churro in [Getting Started](getting-started.md), and use
-[Providers And Configuration](guides/providers.md)
-for backend-specific runtime setup.
 
-## Command Summary
+## Install the CLI
 
-| Command | Use it when |
-| --- | --- |
-| `install` | you want Churro to install an optional runtime into the active UV environment |
-| `transcribe` | you want OCR text for one image |
-| `extract-pages` | you want page crops from an image or PDF |
-
-## `install` Examples
-
-### Install Local Transformers OCR
+Python 3.12 or newer is required.
 
 ```bash
-churro-ocr install hf
+uv tool install churro-ocr
+```
+
+If you are adding `churro-ocr` to a project instead, use `uv add churro-ocr` and prefix the commands on this page with `uv run`.
+
+## Install a Runtime
+
+Choose the optional runtime that matches the backend or feature you want to use:
+
+| Target | Command | Use it when |
+| --- | --- | --- |
+| `hf` | `churro-ocr install hf` | you want local Transformers OCR in-process |
+| `llm` | `churro-ocr install llm` | you want hosted multimodal OCR through LiteLLM-backed providers |
+| `local` | `churro-ocr install local` | you have a local or self-hosted OpenAI-style server |
+| `azure` | `churro-ocr install azure` | you want Azure Document Intelligence OCR or page detection |
+| `mistral` | `churro-ocr install mistral` | you want Mistral OCR |
+| `pdf` | `churro-ocr install pdf` | you want `extract-pages --pdf` or PDF workflows in Python |
+| `all` | `churro-ocr install all` | you want every optional runtime in one environment |
+
+Use `--torch-backend` with `hf` or `all` when you need a specific PyTorch build:
+
+```bash
+churro-ocr install hf --torch-backend cu126
+```
+
+The examples below use the local `hf` path first.
+For backend choice and Python setup, continue with [Providers And Configuration](guides/providers.md).
+
+## First Successful Transcription
+
+```bash
+churro-ocr transcribe \
+  --image scan.png \
+  --backend hf \
+  --model stanford-oval/churro-3B
 ```
 
 ## `transcribe` Examples
 
-### OCR One Image
+### Write OCR Text To A File
+
+```bash
+churro-ocr transcribe \
+  --image scan.png \
+  --backend hf \
+  --model stanford-oval/churro-3B \
+  --output output.txt
+```
+
+This writes the OCR text to `output.txt` and prints that written path to stdout.
+
+### OCR With LiteLLM
 
 ```bash
 churro-ocr transcribe \
@@ -44,7 +79,8 @@ churro-ocr transcribe \
   --base-url http://127.0.0.1:8000/v1
 ```
 
-For vLLM, serve the model separately with its OpenAI-compatible server and then use this same `openai-compatible` route. See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html).
+For vLLM or llama.cpp, serve the model separately with its OpenAI-compatible server and then use this same `openai-compatible` route.
+See the [official vLLM serving docs](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html) or the [official llama.cpp serving docs](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
 
 ## `extract-pages` Examples
 
@@ -71,6 +107,14 @@ churro-ocr extract-pages \
 
 ### Extract Pages From A PDF
 
+Install `pdf` first if you have not already:
+
+```bash
+churro-ocr install pdf
+```
+
+Then extract rasterized PDF pages as PNG files:
+
 ```bash
 churro-ocr extract-pages \
   --pdf document.pdf \
@@ -78,6 +122,9 @@ churro-ocr extract-pages \
   --dpi 300 \
   --trim-margin 30
 ```
+
+Use [Page Detection](guides/page-detection.md) when you want the Python API for detection only.
+Use [OCR Workflows](guides/ocr-workflows.md) when you want page detection and OCR together in Python.
 
 ## Command Contracts
 
@@ -102,6 +149,7 @@ churro-ocr extract-pages \
 ## Additional Rules
 
 - `transcribe` requires exactly one `--image`.
+- `--output` writes OCR text to a file and prints the written path.
 - `extract-pages` requires exactly one of `--image` or `--pdf`.
 - `--dpi` only affects the `--pdf` path because PDFs are rasterized before page detection.
 - `--trim-margin` expands each detected crop by the requested number of pixels, clipped to image bounds.

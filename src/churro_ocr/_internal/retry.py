@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
+from time import monotonic
 from typing import cast
 
 from tenacity import AsyncRetrying, RetryCallState, retry_if_exception, stop_after_attempt
@@ -19,14 +20,19 @@ RETRYABLE_EXCEPTION_CLASS_NAMES = frozenset(
     {
         "APIConnectionError",
         "APITimeoutError",
+        "ClientConnectionError",
+        "ClientConnectorError",
+        "ClientOSError",
         "ConnectError",
         "ConnectTimeout",
+        "ConnectionError",
         "PoolTimeout",
         "RateLimitError",
         "ReadTimeout",
         "RemoteProtocolError",
         "ServiceRequestError",
         "ServiceResponseError",
+        "ServerDisconnectedError",
         "WriteTimeout",
     }
 )
@@ -35,6 +41,10 @@ RETRYABLE_EXCEPTION_MODULE_PREFIXES = ("httpcore", "httpx")
 retry_sleep = asyncio.sleep
 
 type RetryPredicate = Callable[[BaseException], bool]
+
+
+def _assertion_error(message: str) -> AssertionError:
+    return AssertionError(message)
 
 
 def _coerce_status_code(value: object) -> int | None:
@@ -107,9 +117,21 @@ def compute_retry_delay_seconds(
     )
 
 
+def _remaining_retry_budget_seconds(
+    *,
+    started_at: float,
+    max_total_seconds: float | None,
+) -> float | None:
+    if max_total_seconds is None:
+        return None
+    return max(0.0, max_total_seconds - (monotonic() - started_at))
+
+
 def is_retryable_api_error(exc: BaseException) -> bool:
     """Return whether a provider exception should be retried."""
     if isinstance(exc, TimeoutError):
+        return True
+    if isinstance(exc, ConnectionError):
         return True
 
     status_code = get_error_status_code(exc)
@@ -157,25 +179,48 @@ async def retry_api_call[T](
     operation_name: str,
     context: str | None = None,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    max_total_seconds: float | None = None,
     retry_filter: RetryPredicate = is_retryable_api_error,
     initial_backoff_seconds: float = DEFAULT_INITIAL_BACKOFF_SECONDS,
     max_backoff_seconds: float = DEFAULT_MAX_BACKOFF_SECONDS,
 ) -> T:
     """Execute an async provider request with shared retry behavior."""
+    started_at = monotonic()
+
+    def _retryable_within_budget(exc: BaseException) -> bool:
+        remaining_budget = _remaining_retry_budget_seconds(
+            started_at=started_at,
+            max_total_seconds=max_total_seconds,
+        )
+        if remaining_budget is not None and remaining_budget <= 0:
+            return False
+        return retry_filter(exc)
+
+    def _retry_wait_seconds(retry_state: RetryCallState) -> float:
+        if retry_state.outcome is None or not retry_state.outcome.failed:
+            return 0.0
+        exc = retry_state.outcome.exception()
+        if exc is None:
+            return 0.0
+        delay_seconds = compute_retry_delay_seconds(
+            exc,
+            attempt_number=retry_state.attempt_number,
+            initial_backoff_seconds=initial_backoff_seconds,
+            max_backoff_seconds=max_backoff_seconds,
+        )
+        remaining_budget = _remaining_retry_budget_seconds(
+            started_at=started_at,
+            max_total_seconds=max_total_seconds,
+        )
+        if remaining_budget is None:
+            return delay_seconds
+        return min(delay_seconds, remaining_budget)
+
     retrying = AsyncRetrying(
         reraise=True,
         stop=stop_after_attempt(max_attempts),
-        retry=retry_if_exception(retry_filter),
-        wait=lambda retry_state: (
-            0.0
-            if retry_state.outcome is None or not retry_state.outcome.failed
-            else compute_retry_delay_seconds(
-                retry_state.outcome.exception(),
-                attempt_number=retry_state.attempt_number,
-                initial_backoff_seconds=initial_backoff_seconds,
-                max_backoff_seconds=max_backoff_seconds,
-            )
-        ),
+        retry=retry_if_exception(_retryable_within_budget),
+        wait=_retry_wait_seconds,
         before_sleep=_build_before_sleep_callback(
             operation_name=operation_name,
             context=context,
@@ -188,7 +233,8 @@ async def retry_api_call[T](
         with attempt:
             return await fn()
 
-    raise AssertionError("AsyncRetrying exited without returning or raising.")
+    message = "AsyncRetrying exited without returning or raising."
+    raise _assertion_error(message)
 
 
 __all__ = [

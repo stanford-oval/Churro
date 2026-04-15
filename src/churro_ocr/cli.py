@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path  # noqa: TC003 - Typer evaluates these annotations at runtime.
 
 import typer
 
@@ -11,8 +11,13 @@ from churro_ocr._internal.install import (
     install_runtime_dependencies,
 )
 from churro_ocr.errors import ConfigurationError
-from churro_ocr.ocr import OCRClient
-from churro_ocr.page_detection import DocumentPage, DocumentPageDetector, PageDetectionRequest
+from churro_ocr.ocr import OCRBackend, OCRClient
+from churro_ocr.page_detection import (
+    DocumentPage,
+    DocumentPageDetector,
+    PageDetectionBackendLike,
+    PageDetectionRequest,
+)
 from churro_ocr.providers import (
     AzureDocumentIntelligenceOptions,
     AzurePageDetector,
@@ -29,10 +34,13 @@ from churro_ocr.providers.specs import MISTRAL_OCR_MODEL_IDS, validate_mistral_o
 app = typer.Typer(help="churro-ocr library-first CLI")
 
 _INSTALL_TARGET_METAVAR = "{" + "|".join(INSTALL_TARGETS) + "}"
-_MISTRAL_MODEL_OPTION_ERROR = (
-    "--model is required for backend=mistral and must be one of: "
-    + ", ".join(MISTRAL_OCR_MODEL_IDS)
+_MISTRAL_MODEL_OPTION_ERROR = "--model is required for backend=mistral and must be one of: " + ", ".join(
+    MISTRAL_OCR_MODEL_IDS
 )
+
+
+def _bad_parameter(message: str) -> typer.BadParameter:
+    return typer.BadParameter(message)
 
 
 def _build_ocr_backend(
@@ -43,10 +51,11 @@ def _build_ocr_backend(
     api_key: str | None,
     base_url: str | None,
     api_version: str | None,
-):
+) -> OCRBackend:
     if backend == "litellm":
         if not model:
-            raise typer.BadParameter("--model is required for backend=litellm")
+            message = "--model is required for backend=litellm"
+            raise _bad_parameter(message)
         return build_ocr_backend(
             OCRBackendSpec(
                 provider="litellm",
@@ -60,7 +69,8 @@ def _build_ocr_backend(
         )
     if backend == "openai-compatible":
         if not model or not base_url:
-            raise typer.BadParameter("--model and --base-url are required for backend=openai-compatible")
+            message = "--model and --base-url are required for backend=openai-compatible"
+            raise _bad_parameter(message)
         return build_ocr_backend(
             OCRBackendSpec(
                 provider="openai-compatible",
@@ -75,7 +85,8 @@ def _build_ocr_backend(
         )
     if backend == "azure":
         if not endpoint or not api_key:
-            raise typer.BadParameter("--endpoint and --api-key are required for backend=azure")
+            message = "--endpoint and --api-key are required for backend=azure"
+            raise _bad_parameter(message)
         return build_ocr_backend(
             OCRBackendSpec(
                 provider="azure",
@@ -88,7 +99,8 @@ def _build_ocr_backend(
         )
     if backend == "mistral":
         if not api_key:
-            raise typer.BadParameter("--api-key is required for backend=mistral")
+            message = "--api-key is required for backend=mistral"
+            raise _bad_parameter(message)
         try:
             mistral_model = validate_mistral_ocr_model(model)
         except ConfigurationError as exc:
@@ -102,7 +114,8 @@ def _build_ocr_backend(
         )
     if backend == "hf":
         if not model:
-            raise typer.BadParameter("--model is required for backend=hf")
+            message = "--model is required for backend=hf"
+            raise _bad_parameter(message)
         return build_ocr_backend(
             OCRBackendSpec(
                 provider="hf",
@@ -110,7 +123,8 @@ def _build_ocr_backend(
                 options=HuggingFaceOptions(model_kwargs={"device_map": "auto", "torch_dtype": "auto"}),
             )
         )
-    raise typer.BadParameter(f"Unsupported backend: {backend}")
+    message = f"Unsupported backend: {backend}"
+    raise _bad_parameter(message)
 
 
 def _build_page_detector(
@@ -121,7 +135,7 @@ def _build_page_detector(
     api_key: str | None,
     base_url: str | None,
     api_version: str | None,
-):
+) -> PageDetectionBackendLike | None:
     transport = None
     if base_url or api_key or api_version:
         transport = LiteLLMTransportConfig(
@@ -132,14 +146,16 @@ def _build_page_detector(
     detector_backend = None
     if page_detector == "llm":
         if not model:
-            raise typer.BadParameter("--model is required when --page-detector=llm")
+            message = "--model is required when --page-detector=llm"
+            raise _bad_parameter(message)
         detector_backend = LLMPageDetector(
             model=model,
             transport=transport,
         )
     elif page_detector == "azure":
         if not endpoint or not api_key:
-            raise typer.BadParameter("--endpoint and --api-key are required when --page-detector=azure")
+            message = "--endpoint and --api-key are required when --page-detector=azure"
+            raise _bad_parameter(message)
         detector_backend = AzurePageDetector(endpoint=endpoint, api_key=api_key)
     return detector_backend
 
@@ -208,7 +224,8 @@ def extract_pages_command(
 ) -> None:
     """Extract page crops as PNG files and print each written path."""
     if (image is None) == (pdf is None):
-        raise typer.BadParameter("Provide exactly one of --image or --pdf.")
+        message = "Provide exactly one of --image or --pdf."
+        raise _bad_parameter(message)
     detector_backend = _build_page_detector(
         page_detector=page_detector,
         model=model,

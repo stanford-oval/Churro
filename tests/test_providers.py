@@ -4,14 +4,14 @@ import base64
 import json
 import sys
 from types import ModuleType, SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from PIL import Image
 
 import churro_ocr._internal.retry as retry_module
 from churro_ocr._internal.litellm import LiteLLMTransport
-from churro_ocr.errors import ProviderError
+from churro_ocr.errors import ConfigurationError, ProviderError
 from churro_ocr.page_detection import DocumentPage
 from churro_ocr.prompts import (
     CHANDRA_OCR_LAYOUT_PROMPT,
@@ -32,10 +32,9 @@ from churro_ocr.providers import (
     locate_text_block_bbox_with_llm,
     resolve_ocr_profile,
 )
-from churro_ocr.providers.hf import HuggingFaceVisionOCRBackend
 from churro_ocr.providers.ocr import (
     AzureDocumentIntelligenceOCRBackend,
-    LiteLLMVisionOCRBackend,
+    MinerU25OpenAICompatibleOCRBackend,
     MistralOCRBackend,
     OpenAICompatibleOCRBackend,
 )
@@ -53,13 +52,37 @@ from churro_ocr.templates import (
     DEEPSEEK_OCR_2_OCR_TEMPLATE,
     DEFAULT_OCR_TEMPLATE,
     DOTS_MOCR_OCR_TEMPLATE,
+    FIRERED_OCR_MODEL_ID,
+    FIRERED_OCR_OCR_PROMPT,
+    FIRERED_OCR_OCR_TEMPLATE,
+    INFINITY_PARSER_7B_MODEL_ID,
+    INFINITY_PARSER_7B_OCR_PROMPT,
+    INFINITY_PARSER_7B_OCR_TEMPLATE,
+    INFINITY_PARSER_7B_SYSTEM_PROMPT,
+    MINERU2_5_2509_1_2B_MODEL_ID,
+    MINERU2_5_2509_1_2B_OCR_PROMPT,
+    MINERU2_5_2509_1_2B_OCR_TEMPLATE,
+    NANONETS_OCR2_3B_MODEL_ID,
+    NANONETS_OCR2_3B_OCR_PROMPT,
+    NANONETS_OCR2_3B_OCR_TEMPLATE,
+    NANONETS_OCR2_3B_SYSTEM_PROMPT,
     OLMOCR_2_7B_1025_FP8_MODEL_ID,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
     PADDLEOCR_VL_1_5_MODEL_ID,
     PADDLEOCR_VL_1_5_OCR_PROMPT,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
+    QIANFAN_OCR_MODEL_ID,
+    QIANFAN_OCR_OCR_PROMPT,
+    QIANFAN_OCR_OCR_TEMPLATE,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
+    from churro_ocr.providers.hf import HuggingFaceVisionOCRBackend
+    from churro_ocr.providers.ocr import LiteLLMVisionOCRBackend
+    from tests._types import HasKey, ReadableBody
 
 
 def _extract_user_text_parts(messages: list[dict[str, Any]]) -> list[str]:
@@ -95,7 +118,7 @@ async def test_litellm_ocr_backend_uses_transport(monkeypatch: pytest.MonkeyPatc
         return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
 
     async def _fake_complete_text(
-        self: LiteLLMTransport,
+        _transport: LiteLLMTransport,
         *,
         model: str,
         messages: list[dict[str, object]],
@@ -103,7 +126,7 @@ async def test_litellm_ocr_backend_uses_transport(monkeypatch: pytest.MonkeyPatc
         output_json: bool = False,
         allow_empty: bool = False,
     ) -> str:
-        captured["transport"] = self
+        captured["transport"] = _transport
         captured["model"] = model
         captured["messages"] = messages
         captured["timeout_seconds"] = timeout_seconds
@@ -147,7 +170,7 @@ async def test_litellm_ocr_backend_logs_prompt_only_once(monkeypatch: pytest.Mon
         def debug(self, message: str, *args: object) -> None:
             prompt_logs.append(message % args if args else message)
 
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return "ok"
 
     monkeypatch.setattr(
@@ -209,7 +232,7 @@ async def test_litellm_transport_tracks_total_cost(monkeypatch: pytest.MonkeyPat
 async def test_litellm_ocr_backend_strips_default_output_tags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return f"<{DEFAULT_OCR_OUTPUT_TAG}>\ntranscribed text\n</{DEFAULT_OCR_OUTPUT_TAG}>"
 
     monkeypatch.setattr(
@@ -234,7 +257,7 @@ async def test_litellm_ocr_backend_strips_default_output_tags(
 async def test_litellm_ocr_backend_accepts_empty_transport_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return ""
 
     monkeypatch.setattr(
@@ -259,7 +282,7 @@ async def test_litellm_ocr_backend_accepts_empty_transport_output(
 async def test_openai_compatible_backend_reports_display_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return "openai compatible text"
 
     monkeypatch.setattr("churro_ocr._internal.litellm.LiteLLMTransport.complete_text", _fake_complete_text)
@@ -296,21 +319,21 @@ async def test_azure_ocr_backend_reuses_client(monkeypatch: pytest.MonkeyPatch) 
             return SimpleNamespace(content="azure text")
 
     class FakeClient:
-        def __init__(self, *, endpoint: str, credential: Any) -> None:
+        def __init__(self, *, endpoint: str, credential: object) -> None:
             calls["client_inits"] += 1
             assert endpoint == "https://example.test"
-            assert credential.key == "secret"
+            assert cast("HasKey", credential).key == "secret"
 
         async def begin_analyze_document(
             self,
             *,
             model_id: str,
-            body: Any,
+            body: object,
             content_type: str,
         ) -> FakePoller:
             calls["requests"] += 1
             assert model_id == "prebuilt-layout"
-            assert body.read() == b"image-bytes"
+            assert cast("ReadableBody", body).read() == b"image-bytes"
             assert content_type == "application/octet-stream"
             return FakePoller()
 
@@ -379,21 +402,21 @@ async def test_azure_ocr_backend_retries_transient_errors(
             return SimpleNamespace(content="azure text")
 
     class FakeClient:
-        def __init__(self, *, endpoint: str, credential: Any) -> None:
+        def __init__(self, *, endpoint: str, credential: object) -> None:
             calls["client_inits"] += 1
             assert endpoint == "https://example.test"
-            assert credential.key == "secret"
+            assert cast("HasKey", credential).key == "secret"
 
         async def begin_analyze_document(
             self,
             *,
             model_id: str,
-            body: Any,
+            body: object,
             content_type: str,
         ) -> FakePoller:
             calls["requests"] += 1
             assert model_id == "prebuilt-layout"
-            assert body.read() == b"image-bytes"
+            assert cast("ReadableBody", body).read() == b"image-bytes"
             assert content_type == "application/octet-stream"
             if calls["requests"] < 3:
                 raise FakeAzureError(503)
@@ -599,7 +622,7 @@ async def test_mistral_ocr_backend_retries_request_timeouts(
     async def _fake_sleep(delay: float) -> None:
         sleep_calls.append(delay)
 
-    async def _fake_wait_for(awaitable: Any, **kwargs: float) -> Any:
+    async def _fake_wait_for(awaitable: Awaitable[SimpleNamespace], **kwargs: float) -> SimpleNamespace:
         calls["wait_for"] += 1
         timeout = kwargs["timeout"]
         assert timeout == 60.0
@@ -778,6 +801,28 @@ def test_build_ocr_backend_resolves_olmocr_fp8_profile_defaults_for_openai_compa
     }
 
 
+def test_build_ocr_backend_uses_infinity_parser_profile_defaults_for_openai_compatible() -> None:
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=INFINITY_PARSER_7B_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+
+    assert type(backend) is OpenAICompatibleOCRBackend
+    assert backend.template == INFINITY_PARSER_7B_OCR_TEMPLATE
+    assert backend.model_name == "Infinity-Parser-7B"
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_192,
+        "temperature": 0.0,
+        "top_p": 0.95,
+    }
+
+
 def test_build_ocr_backend_uses_paddleocr_vl_profile_defaults_for_openai_compatible() -> None:
     backend = cast(
         "OpenAICompatibleOCRBackend",
@@ -796,6 +841,34 @@ def test_build_ocr_backend_uses_paddleocr_vl_profile_defaults_for_openai_compati
         "max_tokens": 4_096,
         "temperature": 0.0,
     }
+
+
+def test_build_ocr_backend_uses_mineru2_5_profile_defaults_for_openai_compatible() -> None:
+    backend = cast(
+        "MinerU25OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=MINERU2_5_2509_1_2B_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+
+    assert isinstance(backend, MinerU25OpenAICompatibleOCRBackend)
+    assert backend.template == MINERU2_5_2509_1_2B_OCR_TEMPLATE
+    assert backend.model_name == "MinerU2.5-2509-1.2B"
+    assert backend.transport.config.completion_kwargs == {}
+
+
+def test_build_ocr_backend_rejects_mineru2_5_for_litellm() -> None:
+    with pytest.raises(ConfigurationError, match=r"MinerU2\.5 requires the built-in two-step pipeline"):
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="litellm",
+                model=MINERU2_5_2509_1_2B_MODEL_ID,
+            )
+        )
 
 
 def test_build_ocr_backend_uses_dots_mocr_profile_defaults_for_openai_compatible() -> None:
@@ -838,6 +911,79 @@ def test_build_ocr_backend_uses_deepseek_ocr_2_profile_defaults_for_openai_compa
     }
 
 
+def test_build_ocr_backend_uses_firered_ocr_profile_defaults_for_openai_compatible() -> None:
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=FIRERED_OCR_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+
+    assert type(backend) is OpenAICompatibleOCRBackend
+    assert backend.template == FIRERED_OCR_OCR_TEMPLATE
+    assert backend.model_name == "FireRed-OCR"
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+        "top_p": 1.0,
+    }
+    prompt_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    assert prompt_image.size == (32, 16)
+    assert prompt_image.mode == "RGB"
+
+
+def test_build_ocr_backend_uses_nanonets_ocr2_3b_profile_defaults_for_openai_compatible() -> None:
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=NANONETS_OCR2_3B_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+
+    assert type(backend) is OpenAICompatibleOCRBackend
+    assert backend.template == NANONETS_OCR2_3B_OCR_TEMPLATE
+    assert backend.model_name == "Nanonets-OCR2-3B"
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 15_000,
+        "temperature": 0.0,
+    }
+    prompt_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    assert prompt_image.size == (32, 16)
+    assert prompt_image.mode == "RGB"
+
+
+def test_build_ocr_backend_uses_qianfan_ocr_profile_defaults_for_openai_compatible() -> None:
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=QIANFAN_OCR_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+
+    assert type(backend) is OpenAICompatibleOCRBackend
+    assert backend.template == QIANFAN_OCR_OCR_TEMPLATE
+    assert backend.model_name == "Qianfan-OCR"
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+    }
+    prompt_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    assert prompt_image.size == (32, 16)
+    assert prompt_image.mode == "RGB"
+
+
 @pytest.mark.asyncio
 async def test_openai_compatible_backend_uses_deepseek_ocr_2_prompt_and_postprocessing(
     monkeypatch: pytest.MonkeyPatch,
@@ -853,7 +999,7 @@ async def test_openai_compatible_backend_uses_deepseek_ocr_2_prompt_and_postproc
         return conversation
 
     async def _fake_complete_text(
-        self: LiteLLMTransport,
+        _transport: LiteLLMTransport,
         *,
         model: str,
         messages: list[dict[str, object]],
@@ -900,6 +1046,282 @@ async def test_openai_compatible_backend_uses_deepseek_ocr_2_prompt_and_postproc
 
 
 @pytest.mark.asyncio
+async def test_openai_compatible_backend_uses_firered_prompt_and_markdown_postprocessing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_prepare_messages_from_conversation(
+        self: LiteLLMTransport,
+        conversation: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        captured["conversation"] = conversation
+        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+
+    async def _fake_complete_text(
+        _transport: LiteLLMTransport,
+        *,
+        model: str,
+        messages: list[dict[str, object]],
+        timeout_seconds: int = 600,
+        output_json: bool = False,
+        allow_empty: bool = False,
+    ) -> str:
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["timeout_seconds"] = timeout_seconds
+        captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
+        captured["completion_kwargs"] = dict(_transport.config.completion_kwargs)
+        return (
+            f"{FIRERED_OCR_OCR_PROMPT}\n"
+            "assistant:\n"
+            "```markdown\n"
+            "# Ledger\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr>"
+            "<tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test).\n"
+            "```\n"
+            "<|im_end|>"
+        )
+
+    monkeypatch.setattr(
+        LiteLLMTransport,
+        "prepare_messages_from_conversation",
+        _fake_prepare_messages_from_conversation,
+    )
+    monkeypatch.setattr(LiteLLMTransport, "complete_text", _fake_complete_text)
+
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=FIRERED_OCR_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == "Ledger\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert result.metadata == {
+        "raw_markdown": (
+            "# Ledger\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test)."
+        ),
+    }
+    assert captured["model"] == f"openai/{FIRERED_OCR_MODEL_ID}"
+    assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+    assert captured["timeout_seconds"] == 600
+    assert captured["output_json"] is False
+    assert captured["allow_empty"] is True
+    assert captured["completion_kwargs"] == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+        "top_p": 1.0,
+    }
+    conversation = cast("list[dict[str, object]]", captured["conversation"])
+    assert conversation[0]["role"] == "user"
+    user_content = cast("list[dict[str, object]]", conversation[0]["content"])
+    assert user_content[0]["type"] == "image"
+    assert user_content[1] == {"type": "text", "text": FIRERED_OCR_OCR_PROMPT}
+    prompt_image = cast("Image.Image", user_content[0]["image"])
+    assert prompt_image.size == (32, 16)
+    assert prompt_image.mode == "RGB"
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_backend_uses_nanonets_prompt_and_markdown_postprocessing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_prepare_messages_from_conversation(
+        self: LiteLLMTransport,
+        conversation: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        captured["conversation"] = conversation
+        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+
+    async def _fake_complete_text(
+        _transport: LiteLLMTransport,
+        *,
+        model: str,
+        messages: list[dict[str, object]],
+        timeout_seconds: int = 600,
+        output_json: bool = False,
+        allow_empty: bool = False,
+    ) -> str:
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["timeout_seconds"] = timeout_seconds
+        captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
+        captured["completion_kwargs"] = dict(_transport.config.completion_kwargs)
+        return (
+            f"{NANONETS_OCR2_3B_SYSTEM_PROMPT}\n"
+            f"{NANONETS_OCR2_3B_OCR_PROMPT}\n"
+            "assistant:\n"
+            "```markdown\n"
+            "# Ledger\n\n"
+            "<watermark>OFFICIAL COPY</watermark>\n\n"
+            "<page_number>9/22</page_number>\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr>"
+            "<tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test).\n"
+            "```\n"
+            "<|im_end|>"
+        )
+
+    monkeypatch.setattr(
+        LiteLLMTransport,
+        "prepare_messages_from_conversation",
+        _fake_prepare_messages_from_conversation,
+    )
+    monkeypatch.setattr(LiteLLMTransport, "complete_text", _fake_complete_text)
+
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=NANONETS_OCR2_3B_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == "Ledger\n\nOFFICIAL COPY\n\n9/22\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert result.metadata == {
+        "raw_markdown": (
+            "# Ledger\n\n"
+            "<watermark>OFFICIAL COPY</watermark>\n\n"
+            "<page_number>9/22</page_number>\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test)."
+        ),
+    }
+    assert captured["model"] == f"openai/{NANONETS_OCR2_3B_MODEL_ID}"
+    assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+    assert captured["timeout_seconds"] == 600
+    assert captured["output_json"] is False
+    assert captured["allow_empty"] is True
+    assert captured["completion_kwargs"] == {
+        "max_tokens": 15_000,
+        "temperature": 0.0,
+    }
+    conversation = cast("list[dict[str, object]]", captured["conversation"])
+    assert conversation[0]["role"] == "system"
+    system_content = cast("list[dict[str, object]]", conversation[0]["content"])
+    assert system_content[0] == {"type": "text", "text": NANONETS_OCR2_3B_SYSTEM_PROMPT}
+    assert conversation[1]["role"] == "user"
+    user_content = cast("list[dict[str, object]]", conversation[1]["content"])
+    assert user_content[0]["type"] == "image"
+    assert user_content[1] == {"type": "text", "text": NANONETS_OCR2_3B_OCR_PROMPT}
+    prompt_image = cast("Image.Image", user_content[0]["image"])
+    assert prompt_image.size == (32, 16)
+    assert prompt_image.mode == "RGB"
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_backend_uses_qianfan_prompt_and_markdown_postprocessing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_prepare_messages_from_conversation(
+        self: LiteLLMTransport,
+        conversation: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        captured["conversation"] = conversation
+        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+
+    async def _fake_complete_text(
+        _transport: LiteLLMTransport,
+        *,
+        model: str,
+        messages: list[dict[str, object]],
+        timeout_seconds: int = 600,
+        output_json: bool = False,
+        allow_empty: bool = False,
+    ) -> str:
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["timeout_seconds"] = timeout_seconds
+        captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
+        captured["completion_kwargs"] = dict(_transport.config.completion_kwargs)
+        return (
+            f"{QIANFAN_OCR_OCR_PROMPT}\n"
+            "assistant:\n"
+            "```markdown\n"
+            "# Ledger\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr>"
+            "<tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test).\n"
+            "```\n"
+            "<|im_end|>"
+        )
+
+    monkeypatch.setattr(
+        LiteLLMTransport,
+        "prepare_messages_from_conversation",
+        _fake_prepare_messages_from_conversation,
+    )
+    monkeypatch.setattr(LiteLLMTransport, "complete_text", _fake_complete_text)
+
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=QIANFAN_OCR_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == "Ledger\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert result.metadata == {
+        "raw_markdown": (
+            "# Ledger\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test)."
+        ),
+    }
+    assert captured["model"] == f"openai/{QIANFAN_OCR_MODEL_ID}"
+    assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+    assert captured["timeout_seconds"] == 600
+    assert captured["output_json"] is False
+    assert captured["allow_empty"] is True
+    assert captured["completion_kwargs"] == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+    }
+    conversation = cast("list[dict[str, object]]", captured["conversation"])
+    assert conversation[0]["role"] == "user"
+    user_content = cast("list[dict[str, object]]", conversation[0]["content"])
+    assert user_content[0]["type"] == "image"
+    assert user_content[1] == {"type": "text", "text": QIANFAN_OCR_OCR_PROMPT}
+    prompt_image = cast("Image.Image", user_content[0]["image"])
+    assert prompt_image.size == (32, 16)
+    assert prompt_image.mode == "RGB"
+
+
+@pytest.mark.asyncio
 async def test_openai_compatible_backend_uses_olmocr_prompt_and_plain_text_postprocessing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -914,7 +1336,7 @@ async def test_openai_compatible_backend_uses_olmocr_prompt_and_plain_text_postp
         return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
 
     async def _fake_complete_text(
-        self: LiteLLMTransport,
+        _transport: LiteLLMTransport,
         *,
         model: str,
         messages: list[dict[str, object]],
@@ -927,7 +1349,7 @@ async def test_openai_compatible_backend_uses_olmocr_prompt_and_plain_text_postp
         captured["timeout_seconds"] = timeout_seconds
         captured["output_json"] = output_json
         captured["allow_empty"] = allow_empty
-        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        captured["completion_kwargs"] = dict(_transport.config.completion_kwargs)
         return (
             "---\n"
             "primary_language: en\n"
@@ -996,6 +1418,94 @@ async def test_openai_compatible_backend_uses_olmocr_prompt_and_plain_text_postp
     assert user_content[1]["type"] == "image"
     prompt_image = cast("Image.Image", user_content[1]["image"])
     assert prompt_image.size == (1_288, 772)
+    assert prompt_image.mode == "RGB"
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_backend_uses_infinity_parser_prompt_and_markdown_postprocessing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_prepare_messages_from_conversation(
+        self: LiteLLMTransport,
+        conversation: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        captured["conversation"] = conversation
+        captured["completion_kwargs"] = dict(self.config.completion_kwargs)
+        return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+
+    async def _fake_complete_text(
+        _transport: LiteLLMTransport,
+        *,
+        model: str,
+        messages: list[dict[str, object]],
+        timeout_seconds: int = 600,
+        output_json: bool = False,
+        allow_empty: bool = False,
+    ) -> str:
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["timeout_seconds"] = timeout_seconds
+        captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
+        captured["completion_kwargs"] = dict(_transport.config.completion_kwargs)
+        return (
+            f"{INFINITY_PARSER_7B_OCR_PROMPT}\n"
+            "assistant:\n"
+            "# Ledger\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr>"
+            "<tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test).\n"
+        )
+
+    monkeypatch.setattr(
+        LiteLLMTransport,
+        "prepare_messages_from_conversation",
+        _fake_prepare_messages_from_conversation,
+    )
+    monkeypatch.setattr(LiteLLMTransport, "complete_text", _fake_complete_text)
+
+    backend = cast(
+        "OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=INFINITY_PARSER_7B_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == "Ledger\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert result.metadata == {
+        "raw_markdown": (
+            "# Ledger\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test)."
+        ),
+    }
+    assert captured["model"] == f"openai/{INFINITY_PARSER_7B_MODEL_ID}"
+    assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+    assert captured["timeout_seconds"] == 600
+    assert captured["output_json"] is False
+    assert captured["allow_empty"] is True
+    assert captured["completion_kwargs"] == {
+        "max_tokens": 8_192,
+        "temperature": 0.0,
+        "top_p": 0.95,
+    }
+    conversation = cast("list[dict[str, object]]", captured["conversation"])
+    assert conversation[0]["role"] == "system"
+    assert conversation[0]["content"] == [{"type": "text", "text": INFINITY_PARSER_7B_SYSTEM_PROMPT}]
+    user_content = cast("list[dict[str, object]]", conversation[1]["content"])
+    assert user_content[0]["type"] == "image"
+    assert user_content[1] == {"type": "text", "text": INFINITY_PARSER_7B_OCR_PROMPT}
+    prompt_image = cast("Image.Image", user_content[0]["image"])
+    assert prompt_image.size == (32, 16)
     assert prompt_image.mode == "RGB"
 
 
@@ -1160,10 +1670,122 @@ async def test_openai_compatible_backend_uses_paddleocr_vl_prompt_and_strips_pro
 
 
 @pytest.mark.asyncio
+async def test_openai_compatible_backend_uses_mineru2_5_two_step_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    captured: dict[str, object] = {"calls": calls}
+
+    def _fake_prepare_messages_from_conversation(
+        self: LiteLLMTransport,
+        conversation: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        calls.append(
+            {
+                "conversation": conversation,
+                "completion_kwargs": dict(self.config.completion_kwargs),
+            }
+        )
+        return [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+
+    async def _fake_complete_text(
+        _transport: LiteLLMTransport,
+        *,
+        model: str,
+        messages: list[dict[str, object]],
+        timeout_seconds: int = 600,
+        output_json: bool = False,
+        allow_empty: bool = False,
+    ) -> str:
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["timeout_seconds"] = timeout_seconds
+        captured["output_json"] = output_json
+        captured["allow_empty"] = allow_empty
+        call_index = len(calls) - 1
+        call = calls[call_index]
+        conversation = cast("list[dict[str, object]]", call["conversation"])
+        user_content = cast("list[dict[str, object]]", conversation[1]["content"])
+        prompt = cast("str", user_content[1]["text"])
+        if prompt == MINERU2_5_2509_1_2B_OCR_PROMPT:
+            return "plain body<|im_end|><|endoftext|>"
+        return "<|box_start|>0 100 1000 400<|box_end|><|ref_start|>text<|ref_end|>\n"
+
+    monkeypatch.setattr(
+        LiteLLMTransport,
+        "prepare_messages_from_conversation",
+        _fake_prepare_messages_from_conversation,
+    )
+    monkeypatch.setattr(LiteLLMTransport, "complete_text", _fake_complete_text)
+
+    backend = cast(
+        "MinerU25OpenAICompatibleOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="openai-compatible",
+                model=MINERU2_5_2509_1_2B_MODEL_ID,
+                transport=LiteLLMTransportConfig(api_base="http://127.0.0.1:8000/v1"),
+            )
+        ),
+    )
+    result = await backend.ocr(DocumentPage.from_image(Image.new("RGB", (10, 10), color="white")))
+
+    assert result.text == "plain body"
+    assert result.model_name == "MinerU2.5-2509-1.2B"
+    assert result.metadata["output_format"] == "markdown"
+    pipeline_metrics = cast("dict[str, object]", result.metadata["pipeline_metrics"])
+    assert pipeline_metrics["num_blocks"] == 1
+    assert cast("float", pipeline_metrics["layout_elapsed"]) >= 0.0
+    assert cast("float", pipeline_metrics["extract_elapsed"]) >= 0.0
+    assert cast("float", pipeline_metrics["total_elapsed"]) >= cast(
+        "float", pipeline_metrics["extract_elapsed"]
+    )
+    assert [block["type"] for block in cast("list[dict[str, object]]", result.metadata["blocks"])] == ["text"]
+    assert captured["model"] == f"openai/{MINERU2_5_2509_1_2B_MODEL_ID}"
+    assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "prompt"}]}]
+    assert captured["timeout_seconds"] == 600
+    assert captured["output_json"] is False
+    assert captured["allow_empty"] is True
+    assert len(calls) == 2
+    layout_conversation = cast("list[dict[str, object]]", calls[0]["conversation"])
+    assert layout_conversation[0]["role"] == "system"
+    layout_system_content = cast("list[dict[str, object]]", layout_conversation[0]["content"])
+    assert layout_system_content[0]["text"] == "You are a helpful assistant."
+    assert layout_conversation[1]["role"] == "user"
+    layout_user_content = cast("list[dict[str, object]]", layout_conversation[1]["content"])
+    assert layout_user_content[0]["type"] == "image"
+    assert layout_user_content[1]["text"] == "\nLayout Detection:"
+    assert calls[0]["completion_kwargs"] == {
+        "skip_special_tokens": False,
+        "temperature": 0.0,
+        "top_p": 0.01,
+        "top_k": 1,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "repetition_penalty": 1.0,
+        "vllm_xargs": {"no_repeat_ngram_size": 100, "debug": False},
+    }
+    ocr_conversation = cast("list[dict[str, object]]", calls[1]["conversation"])
+    ocr_user_content = cast("list[dict[str, object]]", ocr_conversation[1]["content"])
+    assert ocr_user_content[0]["type"] == "image"
+    assert ocr_user_content[1] == {"type": "text", "text": MINERU2_5_2509_1_2B_OCR_PROMPT}
+    assert calls[1]["completion_kwargs"] == {
+        "skip_special_tokens": False,
+        "temperature": 0.0,
+        "top_p": 0.01,
+        "top_k": 1,
+        "presence_penalty": 1.0,
+        "frequency_penalty": 0.05,
+        "repetition_penalty": 1.0,
+        "vllm_xargs": {"no_repeat_ngram_size": 100, "debug": False},
+    }
+
+
+@pytest.mark.asyncio
 async def test_llm_page_detector_uses_prompt_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return json.dumps(
             {
                 "pages": [
@@ -1188,7 +1810,7 @@ async def test_llm_page_detector_uses_prompt_transport(
 async def test_llm_page_detector_rejects_malformed_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return '{"pages":"oops"}'
 
     monkeypatch.setattr("churro_ocr._internal.litellm.LiteLLMTransport.complete_text", _fake_complete_text)
@@ -1246,7 +1868,7 @@ async def test_llm_page_detector_applies_iterative_review(
     )
     prompts: list[str | None] = []
 
-    async def _fake_complete_text(self, **kwargs: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **kwargs: object) -> str:
         messages = cast("list[dict[str, Any]]", kwargs["messages"])
         user_text_parts = _extract_user_text_parts(messages)
         assert len(messages) == 1
@@ -1276,7 +1898,7 @@ async def test_locate_text_block_bbox_with_llm_uses_block_prompt_transport(
 ) -> None:
     prompts: list[str | None] = []
 
-    async def _fake_complete_text(self, **kwargs: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **kwargs: object) -> str:
         messages = cast("list[dict[str, Any]]", kwargs["messages"])
         user_text_parts = _extract_user_text_parts(messages)
         assert len(messages) == 1
@@ -1356,7 +1978,7 @@ async def test_locate_text_block_bbox_with_llm_accepts_shared_transport_instance
 async def test_locate_text_block_bbox_with_llm_returns_none_when_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake_complete_text(self, **_: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **_kwargs: object) -> str:
         return json.dumps({"block_found": False, "block": None})
 
     monkeypatch.setattr("churro_ocr._internal.litellm.LiteLLMTransport.complete_text", _fake_complete_text)
@@ -1475,7 +2097,7 @@ async def test_locate_text_block_bbox_with_llm_applies_iterative_review(
     )
     prompts: list[str | None] = []
 
-    async def _fake_complete_text(self, **kwargs: object) -> str:  # noqa: ANN001
+    async def _fake_complete_text(_transport: LiteLLMTransport, **kwargs: object) -> str:
         messages = cast("list[dict[str, Any]]", kwargs["messages"])
         user_text_parts = _extract_user_text_parts(messages)
         assert len(messages) == 1
@@ -1539,22 +2161,22 @@ async def test_azure_page_detector_detects_pages_and_closes_client(monkeypatch: 
             )
 
     class FakeClient:
-        def __init__(self, *, endpoint: str, credential: Any) -> None:
+        def __init__(self, *, endpoint: str, credential: object) -> None:
             calls["client_inits"] += 1
             assert endpoint == "https://example.test"
-            assert credential.key == "secret"
+            assert cast("HasKey", credential).key == "secret"
 
         async def begin_analyze_document(
             self,
             *,
             model_id: str,
-            body: Any,
+            body: object,
             content_type: str,
         ) -> FakePoller:
             calls["requests"] += 1
             assert model_id == "prebuilt-layout"
             assert content_type == "application/octet-stream"
-            assert body.read()
+            assert cast("ReadableBody", body).read()
             return FakePoller()
 
         async def close(self) -> None:
@@ -1565,9 +2187,9 @@ async def test_azure_page_detector_detects_pages_and_closes_client(monkeypatch: 
             self.key = key
 
     azure_document_module = ModuleType("azure.ai.documentintelligence.aio")
-    cast(Any, azure_document_module).DocumentIntelligenceClient = FakeClient
+    cast("Any", azure_document_module).DocumentIntelligenceClient = FakeClient
     azure_credentials_module = ModuleType("azure.core.credentials")
-    cast(Any, azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
+    cast("Any", azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
     monkeypatch.setitem(sys.modules, "azure.ai.documentintelligence.aio", azure_document_module)
     monkeypatch.setitem(sys.modules, "azure.core.credentials", azure_credentials_module)
 
@@ -1605,14 +2227,14 @@ async def test_azure_page_detector_returns_full_image_when_service_returns_no_pa
             return SimpleNamespace(pages=[])
 
     class FakeClient:
-        def __init__(self, *, endpoint: str, credential: Any) -> None:
+        def __init__(self, *, endpoint: str, credential: object) -> None:
             del endpoint, credential
 
         async def begin_analyze_document(
             self,
             *,
             model_id: str,
-            body: Any,
+            body: object,
             content_type: str,
         ) -> FakePoller:
             del model_id, body, content_type
@@ -1626,9 +2248,9 @@ async def test_azure_page_detector_returns_full_image_when_service_returns_no_pa
             self.key = key
 
     azure_document_module = ModuleType("azure.ai.documentintelligence.aio")
-    cast(Any, azure_document_module).DocumentIntelligenceClient = FakeClient
+    cast("Any", azure_document_module).DocumentIntelligenceClient = FakeClient
     azure_credentials_module = ModuleType("azure.core.credentials")
-    cast(Any, azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
+    cast("Any", azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
     monkeypatch.setitem(sys.modules, "azure.ai.documentintelligence.aio", azure_document_module)
     monkeypatch.setitem(sys.modules, "azure.core.credentials", azure_credentials_module)
 
@@ -1672,21 +2294,21 @@ async def test_azure_page_detector_retries_transient_errors(
             )
 
     class FakeClient:
-        def __init__(self, *, endpoint: str, credential: Any) -> None:
+        def __init__(self, *, endpoint: str, credential: object) -> None:
             calls["client_inits"] += 1
             assert endpoint == "https://example.test"
-            assert credential.key == "secret"
+            assert cast("HasKey", credential).key == "secret"
 
         async def begin_analyze_document(
             self,
             *,
             model_id: str,
-            body: Any,
+            body: object,
             content_type: str,
         ) -> FakePoller:
             calls["requests"] += 1
             assert model_id == "prebuilt-layout"
-            assert body.read()
+            assert cast("ReadableBody", body).read()
             assert content_type == "application/octet-stream"
             if calls["requests"] == 1:
                 raise FakeAzureError(429, headers={"retry-after": "4"})
@@ -1703,9 +2325,9 @@ async def test_azure_page_detector_retries_transient_errors(
         sleep_calls.append(delay)
 
     azure_document_module = ModuleType("azure.ai.documentintelligence.aio")
-    cast(Any, azure_document_module).DocumentIntelligenceClient = FakeClient
+    cast("Any", azure_document_module).DocumentIntelligenceClient = FakeClient
     azure_credentials_module = ModuleType("azure.core.credentials")
-    cast(Any, azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
+    cast("Any", azure_credentials_module).AzureKeyCredential = FakeAzureKeyCredential
     monkeypatch.setitem(sys.modules, "azure.ai.documentintelligence.aio", azure_document_module)
     monkeypatch.setitem(sys.modules, "azure.core.credentials", azure_credentials_module)
     monkeypatch.setattr(retry_module, "retry_sleep", _fake_sleep)

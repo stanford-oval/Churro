@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import sys
 from base64 import b64encode
 from threading import Lock
 from types import ModuleType, SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from PIL import Image
@@ -23,15 +24,30 @@ from churro_ocr.providers.hf import _load_hf_causal_runtime, _load_hf_runtime
 from churro_ocr.providers.specs import LiteLLMTransportConfig
 from churro_ocr.templates import HFChatTemplate
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from pathlib import Path
+
+    from tests._types import ImportFailurePatcher
+
+
+def _connection_error(message: str) -> ConnectionError:
+    return ConnectionError(message)
+
+
+def _import_error(message: str) -> ImportError:
+    return ImportError(message)
+
 
 def _make_fake_litellm_module(*, acompletion: object, completion_cost: object | None = None) -> ModuleType:
-    module = cast(Any, ModuleType("litellm"))
+    module = cast("Any", ModuleType("litellm"))
     module.acompletion = acompletion
     module.completion_cost = completion_cost or (lambda **_: None)
+    module.model_cost = {"example/model": {}}
     module.turn_off_message_logging = False
     module.success_callback = ["stale"]
     module.failure_callback = ["stale"]
-    module._logging = SimpleNamespace(_logged_requests=["stale"])  # noqa: SLF001
+    module._logging = SimpleNamespace(_logged_requests=["stale"])
     module.drop_params = False
     module.suppress_debug_info = False
     module.set_verbose = True
@@ -40,7 +56,7 @@ def _make_fake_litellm_module(*, acompletion: object, completion_cost: object | 
     return module
 
 
-def test_load_image_rejects_missing_path(tmp_path) -> None:
+def test_load_image_rejects_missing_path(tmp_path: Path) -> None:
     missing = tmp_path / "missing.png"
 
     with pytest.raises(ConfigurationError, match="Image path does not exist"):
@@ -95,6 +111,24 @@ def test_prepare_messages_from_conversation_converts_images_and_preserves_unknow
         {"type": "text", "text": "prompt"},
         {"type": "audio", "audio": "raw"},
     ]
+
+
+def test_is_retryable_api_error_accepts_builtin_connection_error() -> None:
+    assert retry_module.is_retryable_api_error(ConnectionError("Connection lost"))
+
+
+def test_is_retryable_api_error_accepts_aiohttp_client_oserror() -> None:
+    client_oserror_type = type(
+        "ClientOSError",
+        (OSError,),
+        {"__module__": "aiohttp.client_exceptions"},
+    )
+
+    assert retry_module.is_retryable_api_error(client_oserror_type("Broken pipe"))
+
+
+def test_is_retryable_api_error_rejects_generic_oserror() -> None:
+    assert not retry_module.is_retryable_api_error(OSError("not retryable"))
 
 
 def test_render_ocr_prompt_supports_transformers_v5_chat_template_contract() -> None:
@@ -206,6 +240,23 @@ def test_extract_response_cost_returns_none_for_non_numeric_fallback(monkeypatch
     assert cost is None
 
 
+def test_extract_response_cost_returns_none_for_unmapped_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion_cost_calls: list[dict[str, object]] = []
+    fake_module = _make_fake_litellm_module(
+        acompletion=lambda **_: None,
+        completion_cost=lambda **kwargs: completion_cost_calls.append(kwargs) or 0.75,
+    )
+    cast("Any", fake_module).model_cost = {}
+    monkeypatch.setitem(sys.modules, "litellm", fake_module)
+
+    cost = litellm_module._extract_response_cost(model="openai/example/model", response=SimpleNamespace())
+
+    assert cost is None
+    assert completion_cost_calls == []
+
+
 def test_ensure_initialized_wraps_logging_worker_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_module = _make_fake_litellm_module(acompletion=lambda **_: None)
     worker_calls: list[object] = []
@@ -234,12 +285,14 @@ def test_ensure_initialized_wraps_logging_worker_when_present(monkeypatch: pytes
     assert fake_module.failure_callback == []
 
 
-def test_configure_disk_cache_enables_and_updates_cache(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_configure_disk_cache_enables_and_updates_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     fake_module = _make_fake_litellm_module(acompletion=lambda **_: None)
     enable_calls: list[dict[str, object]] = []
     update_calls: list[dict[str, object]] = []
 
-    caching_module = cast(Any, ModuleType("litellm.caching.caching"))
+    caching_module = cast("Any", ModuleType("litellm.caching.caching"))
     caching_module.enable_cache = lambda **kwargs: enable_calls.append(kwargs)
     caching_module.update_cache = lambda **kwargs: update_calls.append(kwargs)
 
@@ -253,7 +306,7 @@ def test_configure_disk_cache_enables_and_updates_cache(monkeypatch: pytest.Monk
     second_cache_dir = tmp_path / "second"
     litellm_module.configure_disk_cache(disk_cache_dir=first_cache_dir)
 
-    fake_module = cast(Any, fake_module)
+    fake_module = cast("Any", fake_module)
     fake_module.cache = object()
     fake_module.input_callback = ["cache"]
     litellm_module.configure_disk_cache(disk_cache_dir=second_cache_dir)
@@ -325,6 +378,168 @@ async def test_transport_complete_text_retries_transient_errors(
     assert result == "ok"
     assert calls == {"acompletion": 2}
     assert sleep_calls == [3.0]
+
+
+@pytest.mark.asyncio
+async def test_retry_api_call_stops_after_total_time_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"count": 0}
+    sleep_calls: list[float] = []
+    now = {"value": 100.0}
+
+    async def _fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+        now["value"] += delay
+
+    async def _always_fail() -> object:
+        calls["count"] += 1
+        message = "still failing"
+        raise _connection_error(message)
+
+    monkeypatch.setattr(retry_module, "retry_sleep", _fake_sleep)
+    monkeypatch.setattr(retry_module, "monotonic", lambda: now["value"])
+
+    with pytest.raises(ConnectionError, match="still failing"):
+        await retry_module.retry_api_call(
+            _always_fail,
+            operation_name="test operation",
+            max_attempts=6,
+            max_total_seconds=3.0,
+        )
+
+    assert calls == {"count": 3}
+    assert sleep_calls == [1.0, 2.0]
+
+
+@pytest.mark.asyncio
+async def test_transport_complete_text_uses_stable_provider_timeout_with_total_timeout_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"acompletion": 0}
+    captured_retry: dict[str, object] = {}
+    attempt_timeouts: list[float] = []
+    now = {"value": 100.0}
+
+    class FakeLiteLLMError(Exception):
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+            self.headers = {}
+            self.raw_response = SimpleNamespace(headers=self.headers)
+            super().__init__(f"Status {status_code}")
+
+    async def _flaky_acompletion(**kwargs: object) -> object:
+        calls["acompletion"] += 1
+        attempt_timeouts.append(float(cast("float", kwargs["timeout"])))
+        if calls["acompletion"] == 1:
+            now["value"] = 103.0
+            raise FakeLiteLLMError(429)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+            _hidden_params={},
+        )
+
+    async def _fake_retry_api_call(
+        fn: Callable[[], Awaitable[object]],
+        *,
+        operation_name: str,
+        context: str | None = None,
+        max_attempts: int = retry_module.DEFAULT_MAX_ATTEMPTS,
+        max_total_seconds: float | None = None,
+        **_: object,
+    ) -> object:
+        captured_retry["operation_name"] = operation_name
+        captured_retry["context"] = context
+        captured_retry["max_attempts"] = max_attempts
+        captured_retry["max_total_seconds"] = max_total_seconds
+        try:
+            return await fn()
+        except FakeLiteLLMError:
+            return await fn()
+
+    fake_module = _make_fake_litellm_module(acompletion=_flaky_acompletion)
+    monkeypatch.setitem(sys.modules, "litellm", fake_module)
+    monkeypatch.setattr(litellm_module, "_INITIALIZED", False)
+    monkeypatch.setattr(litellm_module, "retry_api_call", _fake_retry_api_call)
+    monkeypatch.setattr(litellm_module, "monotonic", lambda: now["value"])
+
+    transport = LiteLLMTransport()
+    result = await transport.complete_text(
+        model="example/model",
+        messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+        timeout_seconds=10,
+    )
+
+    assert result == "ok"
+    assert calls == {"acompletion": 2}
+    assert attempt_timeouts == [10.0, 10.0]
+    assert captured_retry == {
+        "operation_name": "LiteLLM request",
+        "context": "for model 'example/model'",
+        "max_attempts": retry_module.DEFAULT_MAX_ATTEMPTS,
+        "max_total_seconds": 10.0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_transport_complete_text_enforces_wall_clock_timeout_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"acompletion": 0}
+
+    async def _hanging_acompletion(**kwargs: object) -> object:
+        calls["acompletion"] += 1
+        await asyncio.sleep(float(cast("float", kwargs["timeout"])) * 10)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="late"))],
+            _hidden_params={},
+        )
+
+    fake_module = _make_fake_litellm_module(acompletion=_hanging_acompletion)
+    monkeypatch.setitem(sys.modules, "litellm", fake_module)
+    monkeypatch.setattr(litellm_module, "_INITIALIZED", False)
+
+    transport = LiteLLMTransport()
+    with pytest.raises(
+        ProviderError,
+        match="LiteLLM request failed for model 'example/model':",
+    ):
+        await transport.complete_text(
+            model="example/model",
+            messages=[{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+            timeout_seconds=0.01,
+        )
+    assert calls == {"acompletion": 1}
+
+
+@pytest.mark.asyncio
+async def test_close_litellm_async_clients_closes_cached_async_clients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed: list[str] = []
+
+    class FakeAsyncOpenAI:
+        async def close(self) -> None:
+            closed.append("client")
+
+    class FakeAsyncHTTPClient:
+        async def aclose(self) -> None:
+            closed.append("http")
+
+    fake_module = _make_fake_litellm_module(acompletion=lambda **_: None)
+    fake_litellm_module = cast("Any", fake_module)
+    fake_litellm_module.in_memory_llm_clients_cache = SimpleNamespace(
+        cache_dict={
+            "openai": FakeAsyncOpenAI(),
+            "wrapper": SimpleNamespace(client=FakeAsyncHTTPClient()),
+        }
+    )
+    fake_litellm_module.aclient_session = FakeAsyncHTTPClient()
+    monkeypatch.setitem(sys.modules, "litellm", fake_module)
+
+    await litellm_module.close_litellm_async_clients()
+
+    assert closed == ["client", "http", "http"]
+    assert fake_litellm_module.in_memory_llm_clients_cache.cache_dict == {}
+    assert fake_litellm_module.aclient_session is None
 
 
 @pytest.mark.asyncio
@@ -471,17 +686,18 @@ def test_log_prompt_payload_once_sanitizes_nested_payloads(monkeypatch: pytest.M
     ],
 )
 def test_optional_dependency_loaders_raise_configuration_error(
-    loader: Any,
+    loader: Callable[[], object],
     dependency_name: str,
     message: str,
-    patch_import_failure,
+    patch_import_failure: ImportFailurePatcher,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     if dependency_name == "torch":
 
         def _fake_import_module(name: str) -> object:
             if name == "torch":
-                raise ImportError("missing torch")
+                error_message = "missing torch"
+                raise _import_error(error_message)
             return __import__(name)
 
         monkeypatch.setattr("churro_ocr.providers.hf.import_module", _fake_import_module)

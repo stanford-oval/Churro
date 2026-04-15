@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from churro_ocr.page_detection import DocumentPage
-
-OCRConversation = list[dict[str, Any]]
+from churro_ocr.types import OCRConversation
 
 
 @runtime_checkable
@@ -48,9 +47,9 @@ HFOCRTemplateLike = OCRPromptTemplateLike
 
 
 __all__ = [
-    "build_ocr_conversation",
     "OCRConversation",
     "OCRPromptTemplate",
     "OCRPromptTemplateCallable",
     "OCRPromptTemplateLike",
+    "build_ocr_conversation",
 ]

@@ -20,20 +20,33 @@ from churro_ocr.prompts import (
     parse_olmocr_response,
 )
 from churro_ocr.providers import OCRBackendSpec, build_ocr_backend
+from churro_ocr.providers._mineru25 import (
+    MinerU25PipelineHelper,
+    convert_mineru2_5_otsl_to_html,
+    wrap_mineru2_5_equation,
+)
 from churro_ocr.providers.hf import (
     ChandraOCR2OCRBackend,
     Churro3BOCRBackend,
     DeepSeekOCR2OCRBackend,
     DotsMOCROCRBackend,
     DotsOCR15OCRBackend,
+    GlmOCROCRBackend,
     HuggingFaceVisionOCRBackend,
     LFM25VLOCRBackend,
+    MinerU25OCRBackend,
     PaddleOCRVL15OCRBackend,
+    QianfanOCROCRBackend,
 )
 from churro_ocr.providers.specs import (
     DEFAULT_OCR_MAX_TOKENS,
     deepseek_ocr_2_text_postprocessor,
+    firered_ocr_text_postprocessor,
+    glm_ocr_text_postprocessor,
+    infinity_parser_7b_text_postprocessor,
     lfm2_5_vl_text_postprocessor,
+    nanonets_ocr2_3b_text_postprocessor,
+    qianfan_ocr_text_postprocessor,
 )
 from churro_ocr.templates import (
     CHANDRA_OCR_2_MODEL_ID,
@@ -48,13 +61,42 @@ from churro_ocr.templates import (
     DOTS_OCR_1_5_MODEL_ID,
     DOTS_OCR_1_5_OCR_PROMPT,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    FIRERED_OCR_MODEL_ID,
+    FIRERED_OCR_OCR_PROMPT,
+    FIRERED_OCR_OCR_TEMPLATE,
+    GLM_OCR_MODEL_ID,
+    GLM_OCR_OCR_PROMPT,
+    GLM_OCR_OCR_TEMPLATE,
+    INFINITY_PARSER_7B_MODEL_ID,
+    INFINITY_PARSER_7B_OCR_PROMPT,
+    INFINITY_PARSER_7B_OCR_TEMPLATE,
+    INFINITY_PARSER_7B_SYSTEM_PROMPT,
     LFM2_5_VL_1_6B_MODEL_ID,
     LFM2_5_VL_1_6B_OCR_TEMPLATE,
+    MINERU2_5_2509_1_2B_FORMULA_PROMPT,
+    MINERU2_5_2509_1_2B_FORMULA_TEMPLATE,
+    MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT,
+    MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_TEMPLATE,
+    MINERU2_5_2509_1_2B_LAYOUT_PROMPT,
+    MINERU2_5_2509_1_2B_LAYOUT_TEMPLATE,
+    MINERU2_5_2509_1_2B_MODEL_ID,
+    MINERU2_5_2509_1_2B_OCR_PROMPT,
+    MINERU2_5_2509_1_2B_OCR_TEMPLATE,
+    MINERU2_5_2509_1_2B_SYSTEM_PROMPT,
+    MINERU2_5_2509_1_2B_TABLE_PROMPT,
+    MINERU2_5_2509_1_2B_TABLE_TEMPLATE,
+    NANONETS_OCR2_3B_MODEL_ID,
+    NANONETS_OCR2_3B_OCR_PROMPT,
+    NANONETS_OCR2_3B_OCR_TEMPLATE,
+    NANONETS_OCR2_3B_SYSTEM_PROMPT,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
     PADDLEOCR_VL_1_5_MODEL_ID,
     PADDLEOCR_VL_1_5_OCR_PROMPT,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
+    QIANFAN_OCR_MODEL_ID,
+    QIANFAN_OCR_OCR_PROMPT,
+    QIANFAN_OCR_OCR_TEMPLATE,
     HFChatTemplate,
     OCRConversation,
 )
@@ -104,6 +146,139 @@ def test_deepseek_ocr_2_template_builds_image_before_prompt() -> None:
     assert conversation[0]["role"] == "user"
     assert conversation[0]["content"][0]["type"] == "image"
     assert conversation[0]["content"][1]["text"] == DEEPSEEK_OCR_2_OCR_PROMPT
+
+
+def test_firered_ocr_template_matches_documented_prompt_shape() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = FIRERED_OCR_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "user"
+    assert conversation[0]["content"][0]["type"] == "image"
+    assert conversation[0]["content"][1]["text"] == FIRERED_OCR_OCR_PROMPT
+
+
+def test_nanonets_ocr2_3b_template_matches_documented_prompt_shape() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = NANONETS_OCR2_3B_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "system"
+    assert conversation[0]["content"][0]["text"] == NANONETS_OCR2_3B_SYSTEM_PROMPT
+    assert conversation[1]["role"] == "user"
+    assert conversation[1]["content"][0]["type"] == "image"
+    assert conversation[1]["content"][1]["text"] == NANONETS_OCR2_3B_OCR_PROMPT
+
+
+def test_qianfan_ocr_template_matches_documented_prompt_shape() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = QIANFAN_OCR_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "user"
+    assert conversation[0]["content"][0]["type"] == "image"
+    assert conversation[0]["content"][1]["text"] == QIANFAN_OCR_OCR_PROMPT
+
+
+def test_infinity_parser_template_matches_documented_prompt_shape() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = INFINITY_PARSER_7B_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "system"
+    assert conversation[0]["content"][0]["text"] == INFINITY_PARSER_7B_SYSTEM_PROMPT
+    assert conversation[1]["role"] == "user"
+    assert conversation[1]["content"][0]["type"] == "image"
+    assert conversation[1]["content"][1]["text"] == INFINITY_PARSER_7B_OCR_PROMPT
+
+
+def test_mineru2_5_template_matches_upstream_prompt_shape() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    conversation = MINERU2_5_2509_1_2B_OCR_TEMPLATE.build_conversation(page)
+
+    assert conversation[0]["role"] == "system"
+    assert conversation[0]["content"][0]["text"] == MINERU2_5_2509_1_2B_SYSTEM_PROMPT
+    assert conversation[1]["role"] == "user"
+    assert conversation[1]["content"][0]["type"] == "image"
+    assert conversation[1]["content"][1]["text"] == MINERU2_5_2509_1_2B_OCR_PROMPT
+
+
+def test_mineru2_5_end_to_end_templates_cover_layout_table_formula_and_image_prompts() -> None:
+    page = DocumentPage.from_image(Image.new("RGB", (20, 20), color="white"))
+
+    layout_conversation = MINERU2_5_2509_1_2B_LAYOUT_TEMPLATE.build_conversation(page)
+    table_conversation = MINERU2_5_2509_1_2B_TABLE_TEMPLATE.build_conversation(page)
+    formula_conversation = MINERU2_5_2509_1_2B_FORMULA_TEMPLATE.build_conversation(page)
+    image_conversation = MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_TEMPLATE.build_conversation(page)
+
+    assert layout_conversation[0]["content"][0]["text"] == MINERU2_5_2509_1_2B_SYSTEM_PROMPT
+    assert layout_conversation[1]["content"][1]["text"] == MINERU2_5_2509_1_2B_LAYOUT_PROMPT
+    assert table_conversation[1]["content"][1]["text"] == MINERU2_5_2509_1_2B_TABLE_PROMPT
+    assert formula_conversation[1]["content"][1]["text"] == MINERU2_5_2509_1_2B_FORMULA_PROMPT
+    assert image_conversation[1]["content"][1]["text"] == MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT
+
+
+def test_parse_and_render_mineru2_5_end_to_end_blocks() -> None:
+    helper = MinerU25PipelineHelper(
+        prompts={
+            "[default]": MINERU2_5_2509_1_2B_OCR_PROMPT,
+            "[layout]": MINERU2_5_2509_1_2B_LAYOUT_PROMPT,
+            "table": MINERU2_5_2509_1_2B_TABLE_PROMPT,
+            "equation": MINERU2_5_2509_1_2B_FORMULA_PROMPT,
+            "image": MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT,
+            "chart": MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_PROMPT,
+        },
+        system_prompt=MINERU2_5_2509_1_2B_SYSTEM_PROMPT,
+    )
+    blocks = helper.parse_layout_output(
+        "<|box_start|>0 0 1000 100<|box_end|><|ref_start|>header<|ref_end|>\n"
+        "<|box_start|>0 100 1000 400<|box_end|><|ref_start|>text<|ref_end|>\n"
+        "<|box_start|>0 400 1000 500<|box_end|><|ref_start|>text<|ref_end|>txt_contd_tgt\n"
+        "<|box_start|>0 500 1000 800<|box_end|><|ref_start|>table<|ref_end|>\n"
+        "<|box_start|>0 800 1000 1000<|box_end|><|ref_start|>equation<|ref_end|><|rotate_right|>\n"
+        "<|box_start|>1001 0 1100 10<|box_end|><|ref_start|>bad<|ref_end|>"
+    )
+    blocks[0].content = "Page header"
+    blocks[1].content = "Body"
+    blocks[2].content = "text"
+    blocks[3].content = "<fcel>Year<fcel>Value<nl><fcel>1900<fcel>42<nl>"
+    blocks[4].content = "x = y"
+
+    assert [block.type for block in blocks] == ["header", "text", "text", "table", "equation"]
+    assert blocks[2].merge_prev is True
+    assert blocks[4].angle == 90
+    assert convert_mineru2_5_otsl_to_html(blocks[3].content or "") == (
+        "<table><tr><td>Year</td><td>Value</td></tr><tr><td>1900</td><td>42</td></tr></table>"
+    )
+    assert wrap_mineru2_5_equation("x = y") == "\\[\nx = y\n\\]"
+    processed = helper.post_process(blocks)
+    assert helper.render_markdown(processed) == (
+        "Page header\n\n"
+        "Body text\n\n"
+        "<table><tr><td>Year</td><td>Value</td></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+        "\\[\nx = y\n\\]"
+    )
+
+
+def test_mineru2_5_clean_response_strips_prompt_echo_and_role_scaffold() -> None:
+    helper = MinerU25PipelineHelper(
+        prompts={"[default]": MINERU2_5_2509_1_2B_OCR_PROMPT},
+        system_prompt=MINERU2_5_2509_1_2B_SYSTEM_PROMPT,
+    )
+
+    assert (
+        helper.clean_response(
+            (
+                f"{MINERU2_5_2509_1_2B_SYSTEM_PROMPT}\n"
+                f"{MINERU2_5_2509_1_2B_OCR_PROMPT}\n"
+                "assistant:\n"
+                "plain text<|im_end|>"
+            ),
+            step_key="[default]",
+        )
+        == "plain text"
+    )
 
 
 def test_parse_olmocr_response_extracts_plain_text_and_metadata() -> None:
@@ -173,11 +348,134 @@ def test_lfm25_text_postprocessor_strips_role_only_prefix() -> None:
     assert lfm2_5_vl_text_postprocessor("assistant:\nplain text") == "plain text"
 
 
+def test_infinity_parser_text_postprocessor_strips_prompt_echo_and_preserves_raw_markdown() -> None:
+    processed = infinity_parser_7b_text_postprocessor(
+        f"{INFINITY_PARSER_7B_OCR_PROMPT}\n"
+        "assistant:\n"
+        "# Heading\n\n"
+        "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+        "Paragraph with [note](https://example.test).\n"
+    )
+    assert isinstance(processed, tuple)
+    text, metadata = processed
+
+    assert text == "Heading\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert metadata == {
+        "raw_markdown": (
+            "# Heading\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test)."
+        ),
+    }
+
+
+def test_infinity_parser_text_postprocessor_strips_outer_markdown_fence() -> None:
+    processed = infinity_parser_7b_text_postprocessor(
+        f"{INFINITY_PARSER_7B_OCR_PROMPT}\n"
+        "assistant:\n"
+        "```markdown\n"
+        "169\n\n"
+        "které wětšj gsau nynj žigjejch;\n"
+        "```"
+    )
+    assert isinstance(processed, tuple)
+    text, metadata = processed
+
+    assert text == "169\n\nkteré wětšj gsau nynj žigjejch;"
+    assert metadata == {
+        "raw_markdown": "169\n\nkteré wětšj gsau nynj žigjejch;",
+    }
+
+
+def test_firered_ocr_text_postprocessor_strips_prompt_echo_and_preserves_raw_markdown() -> None:
+    processed = firered_ocr_text_postprocessor(
+        f"{FIRERED_OCR_OCR_PROMPT}\n"
+        "assistant:\n"
+        "```markdown\n"
+        "# Heading\n\n"
+        "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+        "Paragraph with [note](https://example.test).\n"
+        "```\n"
+        "<|im_end|>"
+    )
+    assert isinstance(processed, tuple)
+    text, metadata = processed
+
+    assert text == "Heading\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert metadata == {
+        "raw_markdown": (
+            "# Heading\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test)."
+        ),
+    }
+
+
+def test_nanonets_ocr2_3b_text_postprocessor_strips_prompt_echo_and_preserves_raw_markdown() -> None:
+    processed = nanonets_ocr2_3b_text_postprocessor(
+        f"{NANONETS_OCR2_3B_SYSTEM_PROMPT}\n"
+        f"{NANONETS_OCR2_3B_OCR_PROMPT}\n"
+        "assistant:\n"
+        "```markdown\n"
+        "# Heading\n\n"
+        "<watermark>OFFICIAL COPY</watermark>\n\n"
+        "<page_number>9/22</page_number>\n\n"
+        "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+        "Paragraph with [note](https://example.test).\n"
+        "```\n"
+        "<|im_end|>"
+    )
+    assert isinstance(processed, tuple)
+    text, metadata = processed
+
+    assert text == "Heading\n\nOFFICIAL COPY\n\n9/22\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert metadata == {
+        "raw_markdown": (
+            "# Heading\n\n"
+            "<watermark>OFFICIAL COPY</watermark>\n\n"
+            "<page_number>9/22</page_number>\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test)."
+        ),
+    }
+
+
+def test_qianfan_ocr_text_postprocessor_strips_prompt_echo_and_preserves_raw_markdown() -> None:
+    processed = qianfan_ocr_text_postprocessor(
+        f"{QIANFAN_OCR_OCR_PROMPT}\n"
+        "assistant:\n"
+        "```markdown\n"
+        "# Heading\n\n"
+        "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+        "Paragraph with [note](https://example.test).\n"
+        "```\n"
+        "<|im_end|>"
+    )
+    assert isinstance(processed, tuple)
+    text, metadata = processed
+
+    assert text == "Heading\n\nYear | Value\n1900 | 42\n\nParagraph with note."
+    assert metadata == {
+        "raw_markdown": (
+            "# Heading\n\n"
+            "<table><tr><th>Year</th><th>Value</th></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+            "Paragraph with [note](https://example.test)."
+        ),
+    }
+
+
 def test_deepseek_ocr_2_text_postprocessor_strips_prompt_echo_and_stop_token() -> None:
     assert (
         deepseek_ocr_2_text_postprocessor(
             "<image>\nFree OCR.\n<｜Assistant｜>\nplain text<｜end▁of▁sentence｜>"
         )
+        == "plain text"
+    )
+
+
+def test_glm_ocr_text_postprocessor_strips_prompt_echo_and_trailing_tokens() -> None:
+    assert (
+        glm_ocr_text_postprocessor("Text Recognition:\n<|assistant|>\nplain text\n<|user|>\n<|endoftext|>")
         == "plain text"
     )
 
@@ -225,6 +523,113 @@ def test_build_ocr_backend_uses_deepseek_ocr_2_profile_defaults_for_hf() -> None
     assert backend.crop_mode is True
 
 
+def test_build_ocr_backend_uses_firered_ocr_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=FIRERED_OCR_MODEL_ID,
+            )
+        ),
+    )
+
+    assert type(backend) is HuggingFaceVisionOCRBackend
+    assert backend.template == FIRERED_OCR_OCR_TEMPLATE
+    assert backend.model_name == "FireRed-OCR"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {}
+    preprocessed_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    assert preprocessed_image.size == (32, 16)
+    assert preprocessed_image.mode == "RGB"
+
+
+def test_build_ocr_backend_uses_nanonets_ocr2_3b_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=NANONETS_OCR2_3B_MODEL_ID,
+            )
+        ),
+    )
+
+    assert type(backend) is HuggingFaceVisionOCRBackend
+    assert backend.template == NANONETS_OCR2_3B_OCR_TEMPLATE
+    assert backend.model_name == "Nanonets-OCR2-3B"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 15_000,
+        "do_sample": False,
+    }
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {}
+    preprocessed_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    assert preprocessed_image.size == (32, 16)
+    assert preprocessed_image.mode == "RGB"
+
+
+def test_build_ocr_backend_uses_qianfan_ocr_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "QianfanOCROCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=QIANFAN_OCR_MODEL_ID,
+            )
+        ),
+    )
+
+    assert isinstance(backend, QianfanOCROCRBackend)
+    assert backend.template == QIANFAN_OCR_OCR_TEMPLATE
+    assert backend.model_name == "Qianfan-OCR"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+    assert backend.trust_remote_code is True
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {}
+    preprocessed_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    assert preprocessed_image.size == (32, 16)
+    assert preprocessed_image.mode == "RGB"
+
+
+def test_build_ocr_backend_uses_glm_ocr_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "GlmOCROCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=GLM_OCR_MODEL_ID,
+            )
+        ),
+    )
+
+    assert isinstance(backend, GlmOCROCRBackend)
+    assert backend.template == GLM_OCR_OCR_TEMPLATE
+    assert backend.model_name == "GLM-OCR"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 8_192,
+        "do_sample": False,
+    }
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {}
+    preprocessed_image = backend.image_preprocessor(
+        Image.new("RGBA", (3_508, 2_720), color=(255, 255, 255, 255))
+    )
+    assert preprocessed_image.size == (2_464, 1_904)
+    assert preprocessed_image.mode == "RGB"
+    assert (preprocessed_image.size[0] // 28) * (preprocessed_image.size[1] // 28) <= 6_084
+
+
 def test_build_ocr_backend_uses_olmocr_profile_defaults_for_hf() -> None:
     backend = cast(
         "HuggingFaceVisionOCRBackend",
@@ -244,6 +649,34 @@ def test_build_ocr_backend_uses_olmocr_profile_defaults_for_hf() -> None:
         "do_sample": True,
     }
     assert backend.image_preprocessor(Image.new("RGB", (5_000, 3_000), color="white")).size == (1_288, 772)
+
+
+def test_build_ocr_backend_uses_infinity_parser_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=INFINITY_PARSER_7B_MODEL_ID,
+            )
+        ),
+    )
+
+    assert type(backend) is HuggingFaceVisionOCRBackend
+    assert backend.template == INFINITY_PARSER_7B_OCR_TEMPLATE
+    assert backend.model_name == "Infinity-Parser-7B"
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+    }
+    assert backend.processor_kwargs == {
+        "min_pixels": 200_704,
+        "max_pixels": 1_806_336,
+    }
+    assert backend.trust_remote_code is False
+    assert backend.model_kwargs == {}
+    preprocessed_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    assert preprocessed_image.size == (32, 16)
+    assert preprocessed_image.mode == "RGB"
 
 
 def test_build_ocr_backend_uses_lfm25_profile_defaults_for_hf() -> None:
@@ -285,6 +718,29 @@ def test_build_ocr_backend_uses_paddleocr_vl_profile_defaults_for_hf() -> None:
         "max_new_tokens": 4_096,
         "do_sample": False,
     }
+
+
+def test_build_ocr_backend_uses_mineru2_5_profile_defaults_for_hf() -> None:
+    backend = cast(
+        "MinerU25OCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=MINERU2_5_2509_1_2B_MODEL_ID,
+            )
+        ),
+    )
+
+    assert isinstance(backend, MinerU25OCRBackend)
+    assert backend.template == MINERU2_5_2509_1_2B_OCR_TEMPLATE
+    assert backend.model_name == "MinerU2.5-2509-1.2B"
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {"use_fast": True}
+    assert backend.model_kwargs == {}
+    preprocessed_image = backend.image_preprocessor(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    assert preprocessed_image.size == (32, 16)
+    assert preprocessed_image.mode == "RGB"
+    assert backend.generation_kwargs == {}
 
 
 def test_build_ocr_backend_uses_dots_mocr_profile_defaults_for_hf() -> None:
@@ -563,6 +1019,292 @@ async def test_deepseek_ocr_2_huggingface_backend_uses_upstream_infer_contract(
 
 
 @pytest.mark.asyncio
+async def test_qianfan_ocr_huggingface_backend_uses_model_chat_and_profile_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeTokenizer:
+        pass
+
+    class FakeTokenizerCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeTokenizer:
+            captured["tokenizer_model_id"] = model_id
+            captured["tokenizer_from_pretrained_kwargs"] = kwargs
+            return FakeTokenizer()
+
+    class FakeTensor:
+        def __init__(self) -> None:
+            self.to_calls: list[object] = []
+
+        def to(self, target: object) -> FakeTensor:
+            self.to_calls.append(target)
+            return self
+
+    class FakeNoGrad:
+        def __enter__(self) -> None:
+            captured["no_grad_entered"] = True
+            return None
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            captured["no_grad_exited"] = True
+            return False
+
+    class FakeTorch:
+        bfloat16 = "fake-bfloat16"
+
+        def from_numpy(self, array: object) -> FakeTensor:
+            captured.setdefault("tile_shapes", []).append(cast("Any", array).shape)
+            return FakeTensor()
+
+        def stack(self, tensors: list[FakeTensor]) -> FakeTensor:
+            captured["stack_input_count"] = len(tensors)
+            stacked = FakeTensor()
+            captured["stacked_tensor"] = stacked
+            return stacked
+
+        def no_grad(self) -> FakeNoGrad:
+            captured["no_grad_called"] = True
+            return FakeNoGrad()
+
+    class FakeModel:
+        device = "fake-device"
+        dtype = "fake-model-dtype"
+
+        def eval(self) -> FakeModel:
+            captured["eval_called"] = True
+            return self
+
+        def chat(
+            self,
+            tokenizer: object,
+            *,
+            pixel_values: object,
+            question: str,
+            generation_config: dict[str, object],
+        ) -> str:
+            captured["chat_tokenizer"] = tokenizer
+            captured["chat_pixel_values"] = pixel_values
+            captured["chat_question"] = question
+            captured["chat_generation_config"] = generation_config
+            return (
+                f"{QIANFAN_OCR_OCR_PROMPT}\nassistant:\n```markdown\n# Heading\n\nParagraph.\n```\n<|im_end|>"
+            )
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeModel:
+            captured["model_model_id"] = model_id
+            captured["model_from_pretrained_kwargs"] = kwargs
+            return FakeModel()
+
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_hf_auto_model_runtime",
+        lambda: SimpleNamespace(
+            processor_cls=FakeTokenizerCls,
+            model_cls=FakeModelCls,
+            process_vision_info=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_torch_module",
+        lambda: FakeTorch(),
+    )
+
+    backend = cast(
+        "QianfanOCROCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=QIANFAN_OCR_MODEL_ID,
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == "Heading\n\nParagraph."
+    assert result.metadata == {
+        "raw_markdown": "# Heading\n\nParagraph.",
+    }
+    assert captured["tokenizer_model_id"] == QIANFAN_OCR_MODEL_ID
+    assert captured["tokenizer_from_pretrained_kwargs"] == {"trust_remote_code": True}
+    assert captured["model_model_id"] == QIANFAN_OCR_MODEL_ID
+    assert captured["model_from_pretrained_kwargs"] == {"trust_remote_code": True}
+    assert captured["eval_called"] is True
+    assert captured["stack_input_count"] == 3
+    assert captured["tile_shapes"] == [(3, 448, 448), (3, 448, 448), (3, 448, 448)]
+    stacked_tensor = cast("FakeTensor", captured["stacked_tensor"])
+    assert stacked_tensor.to_calls == ["fake-model-dtype", "fake-device"]
+    assert captured["chat_tokenizer"].__class__ is FakeTokenizer
+    assert captured["chat_pixel_values"] is stacked_tensor
+    assert captured["chat_question"] == QIANFAN_OCR_OCR_PROMPT
+    assert captured["chat_generation_config"] == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+    assert captured["no_grad_called"] is True
+    assert captured["no_grad_entered"] is True
+    assert captured["no_grad_exited"] is True
+
+
+@pytest.mark.asyncio
+async def test_glm_ocr_huggingface_backend_uses_tokenized_chat_template_and_profile_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeAttentionMask:
+        def sum(self, dim: int) -> SimpleNamespace:
+            captured["attention_mask_sum_dim"] = dim
+            return SimpleNamespace(tolist=lambda: [4])
+
+    class FakeBatch(dict[str, object]):
+        def to(self, device: object) -> FakeBatch:
+            captured["device"] = device
+            return self
+
+    class FakeTokenizer:
+        def __init__(self) -> None:
+            self.padding_side = "right"
+
+    class FakeProcessor:
+        def __init__(self) -> None:
+            self.tokenizer = FakeTokenizer()
+
+        def apply_chat_template(
+            self,
+            conversation: object,
+            *,
+            add_generation_prompt: bool,
+            tokenize: bool,
+            return_dict: bool | None = None,
+            return_tensors: str | None = None,
+            padding: bool | None = None,
+        ) -> object:
+            captured.setdefault("chat_calls", []).append(
+                {
+                    "conversation": conversation,
+                    "add_generation_prompt": add_generation_prompt,
+                    "tokenize": tokenize,
+                    "return_dict": return_dict,
+                    "return_tensors": return_tensors,
+                    "padding": padding,
+                }
+            )
+            if not tokenize:
+                return "<glm-rendered>"
+            return FakeBatch(
+                {
+                    "input_ids": SimpleNamespace(shape=(1, 4)),
+                    "attention_mask": FakeAttentionMask(),
+                    "token_type_ids": "unused-token-type-ids",
+                    "mm_token_type_ids": "kept-mm-token-type-ids",
+                }
+            )
+
+        def __call__(self, **kwargs: object) -> object:
+            del kwargs
+            message = "processor(...) should not be used for GLM-OCR"
+            raise AssertionError(message)
+
+        def batch_decode(
+            self,
+            generated_ids: object,
+            *,
+            skip_special_tokens: bool,
+            clean_up_tokenization_spaces: bool,
+        ) -> list[str]:
+            captured["generated_ids"] = generated_ids
+            captured["skip_special_tokens"] = skip_special_tokens
+            captured["clean_up_tokenization_spaces"] = clean_up_tokenization_spaces
+            return ["Text Recognition:\n<|assistant|>\nglm transcription\n<|user|>"]
+
+    class FakeProcessorCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeProcessor:
+            captured["processor_model_id"] = model_id
+            captured["processor_from_pretrained_kwargs"] = kwargs
+            return FakeProcessor()
+
+    class FakeModel:
+        device = "fake-device"
+        dtype = None
+
+        def eval(self) -> FakeModel:
+            captured["eval_called"] = True
+            return self
+
+        def generate(self, **kwargs: object) -> list[list[int | str]]:
+            captured["generate_kwargs"] = kwargs
+            return [[0, 1, 2, 3, "completion"]]
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeModel:
+            captured["model_model_id"] = model_id
+            captured["model_from_pretrained_kwargs"] = kwargs
+            return FakeModel()
+
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_hf_runtime",
+        lambda: SimpleNamespace(
+            processor_cls=FakeProcessorCls,
+            model_cls=FakeModelCls,
+            process_vision_info=None,
+        ),
+    )
+
+    backend = cast(
+        "GlmOCROCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=GLM_OCR_MODEL_ID,
+            )
+        ),
+    )
+    result = await backend.ocr(DocumentPage.from_image(Image.new("RGB", (32, 32), color="white")))
+
+    assert result.text == "glm transcription"
+    assert captured["processor_model_id"] == GLM_OCR_MODEL_ID
+    assert captured["model_model_id"] == GLM_OCR_MODEL_ID
+    assert captured["processor_from_pretrained_kwargs"] == {"trust_remote_code": False}
+    assert captured["model_from_pretrained_kwargs"] == {"trust_remote_code": False}
+    assert captured["eval_called"] is True
+    assert cast("FakeProcessor", backend._processor).tokenizer.padding_side == "left"
+    assert len(cast("list[dict[str, object]]", captured["chat_calls"])) == 2
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[0]["tokenize"] is False
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["tokenize"] is True
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["return_dict"] is True
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["return_tensors"] == "pt"
+    assert cast("list[dict[str, object]]", captured["chat_calls"])[1]["padding"] is False
+    render_conversation = cast("list[dict[str, object]]", captured["chat_calls"])[0]["conversation"]
+    assert cast("list[dict[str, object]]", render_conversation)[0]["role"] == "user"
+    render_content = cast(
+        "list[dict[str, object]]",
+        cast("list[dict[str, object]]", render_conversation)[0]["content"],
+    )
+    assert render_content[0]["type"] == "image"
+    assert render_content[1] == {"type": "text", "text": GLM_OCR_OCR_PROMPT}
+    assert captured["device"] == "fake-device"
+    assert captured["attention_mask_sum_dim"] == 1
+    assert captured["generate_kwargs"] == {
+        "input_ids": SimpleNamespace(shape=(1, 4)),
+        "attention_mask": cast("object", captured["generate_kwargs"]["attention_mask"]),
+        "mm_token_type_ids": "kept-mm-token-type-ids",
+        "max_new_tokens": 8_192,
+        "do_sample": False,
+    }
+    assert "token_type_ids" not in cast("dict[str, object]", captured["generate_kwargs"])
+    assert captured["generated_ids"] == [["completion"]]
+    assert captured["skip_special_tokens"] is True
+    assert captured["clean_up_tokenization_spaces"] is False
+
+
+@pytest.mark.asyncio
 async def test_lfm25_huggingface_backend_uses_tokenized_chat_template_and_ties_lm_head(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -612,7 +1354,9 @@ async def test_lfm25_huggingface_backend_uses_tokenized_chat_template_and_ties_l
             )
 
         def __call__(self, **kwargs: object) -> object:
-            raise AssertionError("processor(...) should not be used for LFM2.5-VL")
+            del kwargs
+            message = "processor(...) should not be used for LFM2.5-VL"
+            raise AssertionError(message)
 
         def batch_decode(
             self,
@@ -756,7 +1500,9 @@ async def test_lfm25_huggingface_backend_batches_pages_with_tokenized_chat_templ
             )
 
         def __call__(self, **kwargs: object) -> object:
-            raise AssertionError("processor(...) should not be used for LFM2.5-VL batches")
+            del kwargs
+            message = "processor(...) should not be used for LFM2.5-VL batches"
+            raise AssertionError(message)
 
         def batch_decode(
             self,
@@ -1062,6 +1808,7 @@ async def test_dots_ocr_15_backend_uses_expected_runtime_and_prompt(
             skip_special_tokens: bool,
             clean_up_tokenization_spaces: bool,
         ) -> list[str]:
+            del skip_special_tokens, clean_up_tokenization_spaces
             captured["generated_ids"] = generated_ids
             return ["dots transcription"]
 
@@ -1167,6 +1914,268 @@ def test_deepseek_ocr_2_backend_uses_expected_defaults() -> None:
     assert backend.crop_mode is True
 
 
+def test_qianfan_ocr_backend_uses_expected_defaults() -> None:
+    backend = QianfanOCROCRBackend()
+
+    assert backend.model_id == QIANFAN_OCR_MODEL_ID
+    assert backend.template == QIANFAN_OCR_OCR_TEMPLATE
+    assert backend.model_name == "Qianfan-OCR"
+    assert backend.trust_remote_code is True
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {}
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+    assert backend.image_preprocessor(Image.new("RGBA", (10, 10), color=(255, 255, 255, 255))).mode == "RGB"
+
+
+@pytest.mark.asyncio
+async def test_mineru2_5_huggingface_backend_uses_two_step_generation_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeBatch(dict[str, object]):
+        def to(self, device: object) -> FakeBatch:
+            captured["device"] = device
+            return self
+
+    class FakeProcessor:
+        def apply_chat_template(
+            self,
+            conversation: object,
+            *,
+            add_generation_prompt: bool,
+            tokenize: bool,
+        ) -> object:
+            captured.setdefault("chat_calls", []).append(
+                {
+                    "conversation": conversation,
+                    "add_generation_prompt": add_generation_prompt,
+                    "tokenize": tokenize,
+                }
+            )
+            if not tokenize:
+                conversation_messages = cast("list[dict[str, object]]", conversation)
+                user_content = cast("list[dict[str, object]]", conversation_messages[1]["content"])
+                prompt = cast("str", user_content[1]["text"])
+                return (f"<rendered:{prompt}>",)
+            message = "tokenized chat template should not be used for MinerU2.5"
+            raise AssertionError(message)
+
+        def __call__(self, **kwargs: object) -> FakeBatch:
+            captured.setdefault("processor_call_kwargs", []).append(kwargs)
+            return FakeBatch(
+                {
+                    "input_ids": object(),
+                    "attention_mask": object(),
+                    "pixel_values": object(),
+                }
+            )
+
+    class FakeProcessorCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeProcessor:
+            captured["processor_model_id"] = model_id
+            captured["processor_from_pretrained_kwargs"] = kwargs
+            return FakeProcessor()
+
+    class FakeModel:
+        device = "fake-device"
+        dtype = "fake-bfloat16"
+        config = SimpleNamespace(max_position_embeddings=8_192)
+
+        def eval(self) -> FakeModel:
+            captured["eval_called"] = True
+            return self
+
+        def generate(self, **kwargs: object) -> list[list[int]]:
+            captured.setdefault("generate_kwargs", []).append(kwargs)
+            return [[101, 102, 103]]
+
+    class FakeModelCls:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: object) -> FakeModel:
+            captured["model_model_id"] = model_id
+            captured["model_from_pretrained_kwargs"] = kwargs
+            return FakeModel()
+
+    def _fake_process_vision_info(
+        conversation: object,
+        **_: object,
+    ) -> tuple[list[object], None, None]:
+        conversation_messages = cast("list[dict[str, object]]", conversation)
+        user_content = cast("list[dict[str, object]]", conversation_messages[1]["content"])
+        return ([user_content[0]["image"]], None, None)
+
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._load_hf_runtime",
+        lambda: SimpleNamespace(
+            processor_cls=FakeProcessorCls,
+            model_cls=FakeModelCls,
+            process_vision_info=_fake_process_vision_info,
+        ),
+    )
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._default_mineru25_model_kwargs",
+        lambda: {"device_map": "auto", "dtype": "auto"},
+    )
+    decode_responses = [
+        "<|box_start|>0 0 1000 100<|box_end|><|ref_start|>header<|ref_end|>\n"
+        "<|box_start|>0 100 1000 550<|box_end|><|ref_start|>text<|ref_end|>\n"
+        "<|box_start|>0 550 1000 800<|box_end|><|ref_start|>table<|ref_end|>\n"
+        "<|box_start|>0 800 1000 1000<|box_end|><|ref_start|>equation<|ref_end|>",
+        "Page header<|im_end|><|endoftext|>",
+        "Body text<|im_end|><|endoftext|>",
+        "<fcel>Year<fcel>Value<nl><fcel>1900<fcel>42<nl><|im_end|><|endoftext|>",
+        "x = y<|im_end|><|endoftext|>",
+    ]
+    monkeypatch.setattr(
+        "churro_ocr.providers.hf._decode_completion_texts_with_options",
+        lambda _processor, _batch, _generated_ids, *, skip_special_tokens: (
+            [decode_responses.pop(0)]
+            if skip_special_tokens is False
+            else (_ for _ in ()).throw(
+                AssertionError("MinerU2.5 should preserve special tokens during decode")
+            )
+        ),
+    )
+
+    backend = cast(
+        "MinerU25OCRBackend",
+        build_ocr_backend(
+            OCRBackendSpec(
+                provider="hf",
+                model=MINERU2_5_2509_1_2B_MODEL_ID,
+            )
+        ),
+    )
+    result = await backend.ocr(
+        DocumentPage.from_image(Image.new("RGBA", (32, 16), color=(255, 255, 255, 255)))
+    )
+
+    assert result.text == (
+        "Page header\n\n"
+        "Body text\n\n"
+        "<table><tr><td>Year</td><td>Value</td></tr><tr><td>1900</td><td>42</td></tr></table>\n\n"
+        "\\[\nx = y\n\\]"
+    )
+    assert result.metadata["output_format"] == "markdown"
+    assert cast("dict[str, object]", result.metadata["pipeline_metrics"])["num_blocks"] == 4
+    block_metadata = cast("list[dict[str, object]]", result.metadata["blocks"])
+    assert [block["type"] for block in block_metadata] == ["header", "text", "table", "equation"]
+    assert block_metadata[0]["content"] == "Page header"
+    assert block_metadata[2]["content"] == (
+        "<table><tr><td>Year</td><td>Value</td></tr><tr><td>1900</td><td>42</td></tr></table>"
+    )
+    assert block_metadata[3]["content"] == "\\[\nx = y\n\\]"
+    assert captured["processor_model_id"] == MINERU2_5_2509_1_2B_MODEL_ID
+    assert captured["model_model_id"] == MINERU2_5_2509_1_2B_MODEL_ID
+    assert captured["processor_from_pretrained_kwargs"] == {
+        "trust_remote_code": False,
+        "use_fast": True,
+    }
+    assert captured["model_from_pretrained_kwargs"] == {
+        "trust_remote_code": False,
+        "device_map": "auto",
+        "dtype": "auto",
+    }
+    assert captured["eval_called"] is True
+    chat_calls = cast("list[dict[str, object]]", captured["chat_calls"])
+    render_conversation = chat_calls[0]["conversation"]
+    assert cast("list[dict[str, object]]", render_conversation)[0]["role"] == "system"
+    assert cast("list[dict[str, object]]", render_conversation)[1]["role"] == "user"
+    user_content = cast(
+        "list[dict[str, object]]",
+        cast("list[dict[str, object]]", render_conversation)[1]["content"],
+    )
+    assert user_content[0]["type"] == "image"
+    assert user_content[1] == {"type": "text", "text": MINERU2_5_2509_1_2B_LAYOUT_PROMPT}
+    processor_calls = cast("list[dict[str, object]]", captured["processor_call_kwargs"])
+    prompt_texts = [cast("list[str]", call["text"])[0] for call in processor_calls]
+    assert prompt_texts == [
+        f"<rendered:{MINERU2_5_2509_1_2B_LAYOUT_PROMPT}>",
+        f"<rendered:{MINERU2_5_2509_1_2B_OCR_PROMPT}>",
+        f"<rendered:{MINERU2_5_2509_1_2B_OCR_PROMPT}>",
+        f"<rendered:{MINERU2_5_2509_1_2B_TABLE_PROMPT}>",
+        f"<rendered:{MINERU2_5_2509_1_2B_FORMULA_PROMPT}>",
+    ]
+    assert processor_calls[0]["return_tensors"] == "pt"
+    assert processor_calls[0]["padding"] is True
+    assert cast("list[Image.Image]", processor_calls[0]["images"])[0].size == (1_036, 1_036)
+    assert captured["device"] == "fake-device"
+    generate_kwargs = cast("list[dict[str, object]]", captured["generate_kwargs"])
+    assert len(generate_kwargs) == 5
+    assert all(kwargs["do_sample"] is False for kwargs in generate_kwargs)
+    assert all(kwargs["no_repeat_ngram_size"] == 100 for kwargs in generate_kwargs)
+    assert all(kwargs["repetition_penalty"] == 1.0 for kwargs in generate_kwargs)
+    assert all(kwargs["max_length"] == 8_192 for kwargs in generate_kwargs)
+
+
+def test_mineru2_5_backend_uses_expected_defaults() -> None:
+    backend = MinerU25OCRBackend()
+
+    assert backend.model_id == MINERU2_5_2509_1_2B_MODEL_ID
+    assert backend.template == MINERU2_5_2509_1_2B_OCR_TEMPLATE
+    assert backend.layout_template == MINERU2_5_2509_1_2B_LAYOUT_TEMPLATE
+    assert backend.table_template == MINERU2_5_2509_1_2B_TABLE_TEMPLATE
+    assert backend.formula_template == MINERU2_5_2509_1_2B_FORMULA_TEMPLATE
+    assert backend.image_analysis_template == MINERU2_5_2509_1_2B_IMAGE_ANALYSIS_TEMPLATE
+    assert backend.model_name == "MinerU2.5-2509-1.2B"
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {}
+    assert backend.generation_kwargs == {}
+    assert backend.image_preprocessor(Image.new("RGBA", (10, 10), color=(255, 255, 255, 255))).mode == "RGB"
+
+
+def test_decode_completion_texts_can_preserve_special_tokens() -> None:
+    captured: dict[str, object] = {}
+
+    class FakeProcessor:
+        def batch_decode(
+            self, ids: object, *, skip_special_tokens: bool, clean_up_tokenization_spaces: bool
+        ) -> list[str]:
+            captured["ids"] = ids
+            captured["skip_special_tokens"] = skip_special_tokens
+            captured["clean_up_tokenization_spaces"] = clean_up_tokenization_spaces
+            return ["<|box_start|>0 0 1000 100<|box_end|>"]
+
+    class FakeMask:
+        def sum(self, dim: int) -> object:
+            assert dim == 1
+            return SimpleNamespace(tolist=lambda: [2])
+
+    batch = {
+        "attention_mask": FakeMask(),
+        "input_ids": SimpleNamespace(shape=(1, 2)),
+    }
+    generated_ids = [[11, 12, 13, 14]]
+
+    decoded = hf_module._decode_completion_texts_with_options(
+        FakeProcessor(),
+        batch,
+        generated_ids,
+        skip_special_tokens=False,
+    )
+
+    assert decoded == ["<|box_start|>0 0 1000 100<|box_end|>"]
+    assert captured["ids"] == [[13, 14]]
+    assert captured["skip_special_tokens"] is False
+    assert captured["clean_up_tokenization_spaces"] is False
+
+
+def test_resolve_model_max_length_supports_qwen2vl_text_config() -> None:
+    model = SimpleNamespace(
+        config=SimpleNamespace(
+            text_config=SimpleNamespace(max_position_embeddings=16_384),
+        )
+    )
+
+    assert hf_module._resolve_model_max_length(model) == 16_384
+
+
 def test_dots_mocr_backend_uses_expected_defaults() -> None:
     backend = DotsMOCROCRBackend()
 
@@ -1247,7 +2256,9 @@ async def test_paddleocr_vl_15_backend_uses_tokenized_chat_template_and_profile_
             )
 
         def __call__(self, **kwargs: object) -> object:
-            raise AssertionError("processor(...) should not be used for PaddleOCR-VL")
+            del kwargs
+            message = "processor(...) should not be used for PaddleOCR-VL"
+            raise AssertionError(message)
 
         def batch_decode(
             self,
@@ -1479,6 +2490,7 @@ def test_patch_dots_ocr_prepare_inputs_for_generation_skips_wrapped_dots_method(
             num_logits_to_keep: object = None,
             **kwargs: object,
         ) -> dict[str, object]:
+            del past_key_values, inputs_embeds, num_logits_to_keep, kwargs
             if cast("Any", cache_position)[0] == 0:
                 return {"pixel_values": pixel_values}
             return {
@@ -1571,9 +2583,7 @@ def test_patch_dots_ocr_prepare_inputs_for_generation_skips_duplicate_wrapped_do
         pass
 
     cast("Any", FakeDotsOwner).prepare_inputs_for_generation = shared_prepare_inputs_for_generation
-    cast("Any", WrappedFakeDotsModel).prepare_inputs_for_generation = (
-        shared_prepare_inputs_for_generation
-    )
+    cast("Any", WrappedFakeDotsModel).prepare_inputs_for_generation = shared_prepare_inputs_for_generation
 
     model = WrappedFakeDotsModel()
 
@@ -1625,7 +2635,8 @@ def test_dots_ocr_15_backend_batch_strips_unused_mm_token_type_ids(monkeypatch: 
             tokenize: bool,
         ) -> str:
             del add_generation_prompt, tokenize
-            image = cast(Image.Image, cast(list[dict[str, object]], conversation[0]["content"])[0]["image"])
+            image_content = cast("list[dict[str, object]]", conversation[0]["content"])
+            image = cast("Image.Image", image_content[0]["image"])
             return f"<dots-rendered:{image.width}>"
 
         def __call__(self, **kwargs: object) -> FakeBatch:
@@ -1814,15 +2825,15 @@ def test_hf_runtime_loaders_use_installed_modules(
 ) -> None:
     process_vision_info = object()
     qwen_module = ModuleType("qwen_vl_utils")
-    cast(Any, qwen_module).process_vision_info = process_vision_info
+    cast("Any", qwen_module).process_vision_info = process_vision_info
 
     processor_cls = object()
     image_text_model_cls = object()
     causal_model_cls = object()
     transformers_module = ModuleType("transformers")
-    cast(Any, transformers_module).AutoProcessor = processor_cls
-    cast(Any, transformers_module).AutoModelForImageTextToText = image_text_model_cls
-    cast(Any, transformers_module).AutoModelForCausalLM = causal_model_cls
+    cast("Any", transformers_module).AutoProcessor = processor_cls
+    cast("Any", transformers_module).AutoModelForImageTextToText = image_text_model_cls
+    cast("Any", transformers_module).AutoModelForCausalLM = causal_model_cls
 
     monkeypatch.setitem(sys.modules, "torch", ModuleType("torch"))
     monkeypatch.setitem(sys.modules, "qwen_vl_utils", qwen_module)
@@ -1871,8 +2882,8 @@ def test_prepare_dots_ocr_model_dir_downloads_and_patches(
     patched_paths: list[Path] = []
 
     huggingface_hub_module = ModuleType("huggingface_hub")
-    cast(Any, huggingface_hub_module).snapshot_download = lambda *, repo_id, local_dir: download_calls.append(
-        (repo_id, local_dir)
+    cast("Any", huggingface_hub_module).snapshot_download = lambda *, repo_id, local_dir: (
+        download_calls.append((repo_id, local_dir))
     )
     monkeypatch.setitem(sys.modules, "huggingface_hub", huggingface_hub_module)
     monkeypatch.setattr(hf_module.Path, "home", lambda: tmp_path)
@@ -1918,10 +2929,30 @@ def test_default_dots_ocr_1_5_model_kwargs_handles_cuda_variants(
             return free_bytes, 0
 
     torch_module = ModuleType("torch")
-    cast(Any, torch_module).cuda = _FakeCuda
+    cast("Any", torch_module).cuda = _FakeCuda
     monkeypatch.setitem(sys.modules, "torch", torch_module)
 
     assert hf_module._default_dots_ocr_1_5_model_kwargs() == expected
+
+
+def test_default_dots_ocr_1_5_model_kwargs_falls_back_when_mem_probe_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeCuda:
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @staticmethod
+        def mem_get_info() -> tuple[int, int]:
+            message = "cudaMemGetInfo failed"
+            raise RuntimeError(message)
+
+    torch_module = ModuleType("torch")
+    cast("Any", torch_module).cuda = _FakeCuda
+    monkeypatch.setitem(sys.modules, "torch", torch_module)
+
+    assert hf_module._default_dots_ocr_1_5_model_kwargs() == {"dtype": "auto"}
 
 
 @pytest.mark.asyncio
@@ -1969,8 +3000,8 @@ async def test_huggingface_vision_ocr_backend_batches_pages_with_custom_vision_i
             tokenize: bool,
         ) -> str:
             chat_calls.append((add_generation_prompt, tokenize))
-            user_content = cast(list[dict[str, object]], conversation[0]["content"])
-            image = cast(Image.Image, user_content[0]["image"])
+            user_content = cast("list[dict[str, object]]", conversation[0]["content"])
+            image = cast("Image.Image", user_content[0]["image"])
             return f"prompt:{image.width}"
 
         def __call__(self, **kwargs: object) -> FakeBatch:
@@ -2040,8 +3071,8 @@ async def test_huggingface_vision_ocr_backend_batches_pages_with_custom_vision_i
     monkeypatch.setattr("churro_ocr._internal.prompt_logging.logger", FakeLogger())
 
     def _vision_input_builder(conversation: list[dict[str, object]]) -> tuple[str, str]:
-        user_content = cast(list[dict[str, object]], conversation[0]["content"])
-        image = cast(Image.Image, user_content[0]["image"])
+        user_content = cast("list[dict[str, object]]", conversation[0]["content"])
+        image = cast("Image.Image", user_content[0]["image"])
         return f"image:{image.width}", f"video:{image.width}"
 
     backend = HuggingFaceVisionOCRBackend(
@@ -2078,10 +3109,10 @@ async def test_huggingface_vision_ocr_backend_batches_pages_with_custom_vision_i
         "padding": True,
     }
     assert captured["device"] == "cuda:0"
-    fake_pixel_values = cast(Any, captured["pixel_values"])
+    fake_pixel_values = cast("Any", captured["pixel_values"])
     assert fake_pixel_values.to_calls == ["float16"]
     assert captured["sum_dim"] == 1
-    generate_kwargs = cast(dict[str, object], captured["generate_kwargs"])
+    generate_kwargs = cast("dict[str, object]", captured["generate_kwargs"])
     assert generate_kwargs["temperature"] == 0.1
     assert generate_kwargs["max_new_tokens"] == DEFAULT_OCR_MAX_TOKENS
     assert generate_kwargs["attention_mask"].__class__.__name__ == ("FakeAttentionMask")
@@ -2130,7 +3161,7 @@ def test_dots_ocr_15_backend_get_model_sets_sdpa_on_vision_config(
             return object()
 
     transformers_module = ModuleType("transformers")
-    cast(Any, transformers_module).AutoConfig = FakeAutoConfig
+    cast("Any", transformers_module).AutoConfig = FakeAutoConfig
     monkeypatch.setitem(sys.modules, "transformers", transformers_module)
     monkeypatch.setattr(
         hf_module,

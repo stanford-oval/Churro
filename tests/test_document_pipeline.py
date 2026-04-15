@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 import pytest
 from PIL import Image
@@ -9,6 +10,9 @@ from churro_ocr.document import DocumentOCRPipeline
 from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRBackend, OCRResult
 from churro_ocr.page_detection import DocumentPage, PageCandidate, PageDetectionRequest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class _EchoOCRBackend(OCRBackend):
@@ -43,7 +47,7 @@ def test_document_ocr_pipeline_process_image_sync() -> None:
     assert result.pages[0].metadata["kind"] == "tight"
 
 
-def test_document_ocr_pipeline_process_pdf_sync(minimal_pdf_path) -> None:
+def test_document_ocr_pipeline_process_pdf_sync(minimal_pdf_path: Path) -> None:
     result = DocumentOCRPipeline(_EchoOCRBackend()).process_pdf_sync(
         minimal_pdf_path,
         dpi=150,

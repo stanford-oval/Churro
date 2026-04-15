@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import multiprocessing
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 try:  # pragma: no cover - optional dependency
     import nltk
@@ -16,15 +16,29 @@ from churro_ocr._internal.logging import logger
 from churro_ocr.prompts import strip_ocr_output_tag
 from tooling.evaluation.normalization import normalize_text_for_evaluation
 from tooling.evaluation.repetition import has_long_repetition
-from tooling.evaluation.types import (
-    EvaluationExample,
-    MetricInputExample,
-    PageEvaluationMetrics,
-    PageEvaluationResult,
-)
 from tooling.evaluation.xml_utils import extract_actual_text_from_xml
 
+if TYPE_CHECKING:
+    from tooling.evaluation.types import (
+        EvaluationExample,
+        MetricInputExample,
+        PageEvaluationMetrics,
+        PageEvaluationResult,
+    )
+
 bleu_metric: Any | None = None
+_METRIC_COMPUTATION_ERRORS = (
+    AttributeError,
+    LookupError,
+    ModuleNotFoundError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+)
+
+
+def _missing_dependency_error(message: str) -> ModuleNotFoundError:
+    return ModuleNotFoundError(message)
 
 
 def initialize_metrics() -> None:
@@ -33,13 +47,13 @@ def initialize_metrics() -> None:
     if bleu_metric is not None:
         return
     if nltk is None:
-        raise ModuleNotFoundError("BLEU evaluation requires the optional dependency 'nltk'.")
+        message = "BLEU evaluation requires the optional dependency 'nltk'."
+        raise _missing_dependency_error(message)
     try:  # pragma: no cover - optional dependency
         import evaluate
     except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
-        raise ModuleNotFoundError(
-            "BLEU evaluation requires the optional dependency 'evaluate'."
-        ) from exc
+        message = "BLEU evaluation requires the optional dependency 'evaluate'."
+        raise _missing_dependency_error(message) from exc
     nltk.download("wordnet", quiet=True)
     nltk.download("punkt_tab", quiet=True)
     nltk.download("omw-1.4", quiet=True)
@@ -98,7 +112,7 @@ def _compute_text_metrics_core(
                 predictions=[predicted_text],
                 references=[[gold_text]],
             )["bleu"]
-    except Exception as exc:  # pragma: no cover - defensive guard
+    except _METRIC_COMPUTATION_ERRORS as exc:  # pragma: no cover - defensive guard
         logger.error("Error in metric computation: %s", exc)
 
     return {
@@ -165,7 +179,7 @@ def calculate_metrics(inputs: tuple[MetricInputExample, str]) -> PageEvaluationM
             language=main_language,
             script=main_script,
         )
-    except Exception as exc:  # pragma: no cover - defensive guard
+    except _METRIC_COMPUTATION_ERRORS as exc:  # pragma: no cover - defensive guard
         logger.error("Error in evaluation of %s: %s", example_id, exc)
         return _build_failed_metrics(
             predicted_text=predicted_text,
@@ -207,6 +221,14 @@ def aggregate_results(
     return averaged, results
 
 
+def _should_use_multiprocessing_pool() -> bool:
+    """Use the process pool only when the runtime is already using fork."""
+    try:
+        return multiprocessing.get_start_method() == "fork"
+    except RuntimeError:
+        return False
+
+
 def batch_evaluate(
     dataset: list[EvaluationExample],
     predicted_texts: list[str],
@@ -215,6 +237,16 @@ def batch_evaluate(
     initialize_metrics()
     if len(dataset) <= 1:
         results = [evaluate_page(pair) for pair in zip(dataset, predicted_texts, strict=False)]
+        return aggregate_results(results)
+
+    if not _should_use_multiprocessing_pool():
+        results = list(
+            tqdm(
+                map(evaluate_page, zip(dataset, predicted_texts, strict=False)),
+                total=len(dataset),
+                mininterval=0.5,
+            )
+        )
         return aggregate_results(results)
 
     processes = min(8, max(1, multiprocessing.cpu_count()))

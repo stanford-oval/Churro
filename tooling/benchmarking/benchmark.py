@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from collections.abc import Iterable
-from dataclasses import dataclass
-from pathlib import Path
 import sys
 import threading
+from dataclasses import dataclass
+from pathlib import Path
 from time import time
-from typing import Any
+from typing import TYPE_CHECKING, cast
 
 from PIL import Image
 from tqdm import tqdm
@@ -21,32 +20,37 @@ if _REPO_SRC_PATH_STR in sys.path:
     sys.path.remove(_REPO_SRC_PATH_STR)
 sys.path.insert(0, _REPO_SRC_PATH_STR)
 
-from churro_ocr._internal.logging import logger
-from churro_ocr.errors import ConfigurationError
-from churro_ocr.ocr import BatchOCRBackend, OCRBackend, OCRBackendLike
-from churro_ocr.page_detection import DocumentPage
-from churro_ocr.providers import (
+from churro_ocr._internal.litellm import close_litellm_async_clients  # noqa: E402
+from churro_ocr._internal.logging import logger  # noqa: E402
+from churro_ocr.errors import ConfigurationError  # noqa: E402
+from churro_ocr.ocr import BatchOCRBackend, OCRBackend, OCRBackendLike  # noqa: E402
+from churro_ocr.page_detection import DocumentPage  # noqa: E402
+from churro_ocr.providers import (  # noqa: E402
     AzureDocumentIntelligenceOptions,
-    build_ocr_backend,
     HuggingFaceOptions,
     LiteLLMTransportConfig,
     MistralOptions,
     OCRBackendSpec,
     OpenAICompatibleOptions,
+    build_ocr_backend,
 )
-from churro_ocr.providers.specs import MISTRAL_OCR_MODEL_IDS, validate_mistral_ocr_model
-from tooling.benchmarking.dataset import (
+from churro_ocr.providers.specs import MISTRAL_OCR_MODEL_IDS, validate_mistral_ocr_model  # noqa: E402
+from tooling.benchmarking.dataset import (  # noqa: E402
     DatasetSelection,
     DatasetSubset,
     load_dataset_split,
 )
-from tooling.evaluation.metrics import compute_metrics
-from tooling.evaluation.types import (
-    BenchmarkDatasetExample,
-    BenchmarkPrediction,
-    EvaluationExample,
-    to_evaluation_example,
-)
+from tooling.evaluation.metrics import compute_metrics  # noqa: E402
+from tooling.evaluation.types import to_evaluation_example  # noqa: E402
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from tooling.evaluation.types import (
+        BenchmarkDatasetExample,
+        BenchmarkPrediction,
+        EvaluationExample,
+    )
 
 CHURRO_DATASET_ID = "stanford-oval/churro-dataset"
 VALID_DATASET_SPLITS = {"dev", "test"}
@@ -61,6 +65,13 @@ BENCHMARK_DATASET_COLUMNS = (
     "example_id",
     "main_language",
     "main_script",
+)
+_PREDICTION_FAILURES = (
+    AssertionError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
 )
 
 
@@ -81,6 +92,7 @@ class BenchmarkOptions:
     api_key: str | None = None
     base_url: str | None = None
     api_version: str | None = None
+    reasoning_effort: str | None = None
 
     def dataset_subset(self) -> DatasetSubset:
         """Return the normalized subset filters for this benchmark run."""
@@ -114,6 +126,7 @@ def build_parser(*, add_help: bool = True) -> argparse.ArgumentParser:
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--api-version", default=None)
+    parser.add_argument("--reasoning-effort", default=None)
     return parser
 
 
@@ -134,6 +147,7 @@ def parse_args(argv: list[str] | None = None) -> BenchmarkOptions:
         api_key=namespace.api_key,
         base_url=namespace.base_url,
         api_version=namespace.api_version,
+        reasoning_effort=namespace.reasoning_effort,
     )
 
 
@@ -146,6 +160,11 @@ def _validate_options(options: BenchmarkOptions) -> int:
         return 1
     if options.output_dir is not None and options.output_dir.exists() and not options.output_dir.is_dir():
         logger.error("Output path '%s' exists and is not a directory.", options.output_dir)
+        return 1
+    if options.reasoning_effort is not None and options.backend not in {"litellm", "openai-compatible"}:
+        logger.error(
+            "--reasoning-effort is only supported for backend=litellm and backend=openai-compatible."
+        )
         return 1
     if options.backend == "litellm" and not options.model:
         logger.error("--model is required for backend=litellm.")
@@ -192,12 +211,22 @@ def create_output_prefix(options: BenchmarkOptions) -> str:
     return str(output_dir)
 
 
-def _load_dataset(dataset_id: str, *, split: str) -> Any:
-    return load_dataset_split(dataset_id, split, columns=BENCHMARK_DATASET_COLUMNS)
+def _load_dataset(dataset_id: str, *, split: str) -> Iterable[BenchmarkDatasetExample]:
+    return cast(
+        "Iterable[BenchmarkDatasetExample]",
+        load_dataset_split(dataset_id, split, columns=BENCHMARK_DATASET_COLUMNS),
+    )
 
 
 def _default_litellm_cache_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "workdir" / "cache" / "litellm"
+
+
+def _transport_completion_kwargs(options: BenchmarkOptions) -> dict[str, object]:
+    completion_kwargs: dict[str, object] = {}
+    if options.reasoning_effort is not None:
+        completion_kwargs["reasoning_effort"] = options.reasoning_effort
+    return completion_kwargs
 
 
 def _create_progress_bar(*, total: int | None, desc: str, unit: str) -> tqdm[object]:
@@ -235,6 +264,7 @@ def _build_ocr_backend(options: BenchmarkOptions) -> OCRBackendLike:
                     api_base=options.base_url,
                     api_key=options.api_key,
                     api_version=options.api_version,
+                    completion_kwargs=_transport_completion_kwargs(options),
                     cache_dir=_default_litellm_cache_dir(),
                 ),
             )
@@ -250,6 +280,7 @@ def _build_ocr_backend(options: BenchmarkOptions) -> OCRBackendLike:
                     api_base=options.base_url,
                     api_key=options.api_key,
                     api_version=options.api_version,
+                    completion_kwargs=_transport_completion_kwargs(options),
                 ),
                 options=OpenAICompatibleOptions(),
             )
@@ -298,6 +329,42 @@ def _log_first_benchmark_output(*, options: BenchmarkOptions, text: str) -> None
     )
 
 
+def _failure_metadata(exc: BaseException) -> dict[str, object]:
+    message = str(exc).strip()
+    metadata: dict[str, object] = {
+        "benchmark_error": {
+            "type": type(exc).__name__,
+        }
+    }
+    if message:
+        metadata["benchmark_error"]["message"] = message
+    return metadata
+
+
+def _empty_prediction_for_failure(exc: BaseException) -> BenchmarkPrediction:
+    return {
+        "text": "",
+        "metadata": _failure_metadata(exc),
+    }
+
+
+def _log_prediction_failure(
+    *,
+    options: BenchmarkOptions,
+    example: BenchmarkDatasetExample,
+    exc: BaseException,
+) -> None:
+    del exc
+    logger.exception(
+        "Benchmark OCR failed for example_id=%s dataset_id=%s backend=%s model=%s; "
+        "treating prediction as empty.",
+        example["example_id"],
+        example["dataset_id"],
+        options.backend,
+        options.model or "<default>",
+    )
+
+
 async def _predict_texts(
     dataset: Iterable[BenchmarkDatasetExample],
     options: BenchmarkOptions,
@@ -333,35 +400,45 @@ async def _predict_texts(
                     break
 
                 progress.set_postfix(submitted=submitted_pages, in_flight=len(pages), refresh=False)
-                batch_results = await ocr_backend.ocr_batch(pages)
-                assert len(batch_results) == len(pages), (
-                    f"HF OCR batch returned {len(batch_results)} results for {len(pages)} pages."
-                )
-                if not has_logged_first_output and batch_results:
-                    _log_first_benchmark_output(
-                        options=options,
-                        text=batch_results[0].text or "",
+                try:
+                    batch_results = await ocr_backend.ocr_batch(pages)
+                    assert len(batch_results) == len(pages), (
+                        f"HF OCR batch returned {len(batch_results)} results for {len(pages)} pages."
                     )
-                    has_logged_first_output = True
-                predictions.extend(
-                    {
-                        "text": result.text or "",
-                        "metadata": dict(result.metadata),
-                    }
-                    for result in batch_results
-                )
-                progress.update(len(batch_results))
+                    if not has_logged_first_output and batch_results:
+                        _log_first_benchmark_output(
+                            options=options,
+                            text=batch_results[0].text or "",
+                        )
+                        has_logged_first_output = True
+                    predictions.extend(
+                        {
+                            "text": result.text or "",
+                            "metadata": dict(result.metadata),
+                        }
+                        for result in batch_results
+                    )
+                except _PREDICTION_FAILURES as exc:
+                    for example in batch_examples:
+                        _log_prediction_failure(options=options, example=example, exc=exc)
+                    predictions.extend(_empty_prediction_for_failure(exc) for _ in pages)
+                progress.update(len(pages))
                 progress.set_postfix(submitted=submitted_pages, in_flight=0, refresh=False)
 
         return evaluation_examples, predictions
 
-    async def _predict(index: int, image: Image.Image) -> tuple[int, BenchmarkPrediction]:
+    async def _predict(index: int, example: BenchmarkDatasetExample) -> tuple[int, BenchmarkPrediction]:
+        image = example["image"]
         page = DocumentPage(page_index=index, source_index=0, image=image)
-        if callable(ocr_backend) and not isinstance(ocr_backend, OCRBackend):
-            result = await ocr_backend(page)
-        else:
-            assert isinstance(ocr_backend, OCRBackend)
-            result = await ocr_backend.ocr(page)
+        try:
+            if callable(ocr_backend) and not isinstance(ocr_backend, OCRBackend):
+                result = await ocr_backend(page)
+            else:
+                assert isinstance(ocr_backend, OCRBackend)
+                result = await ocr_backend.ocr(page)
+        except _PREDICTION_FAILURES as exc:
+            _log_prediction_failure(options=options, example=example, exc=exc)
+            return index, _empty_prediction_for_failure(exc)
         return index, {
             "text": result.text or "",
             "metadata": dict(result.metadata),
@@ -407,7 +484,7 @@ async def _predict_texts(
                     assert isinstance(image, Image.Image)
                     evaluation_examples.append(_build_evaluation_example(example))
                     predictions.append({"text": "", "metadata": {}})
-                    pending_tasks.add(asyncio.create_task(_predict(next_index, image)))
+                    pending_tasks.add(asyncio.create_task(_predict(next_index, example)))
                     next_index += 1
                     _update_progress_status(progress)
 
@@ -445,26 +522,33 @@ async def run(options: BenchmarkOptions) -> int:
     if validation_status != 0:
         return validation_status
 
-    dataset_stream = _load_dataset(CHURRO_DATASET_ID, split=options.dataset_split)
-    dataset = _selected_dataset_examples(dataset_stream, options)
-    total_pages = getattr(dataset, "num_rows", None)
-    if not isinstance(total_pages, int):
-        total_pages = None
+    clients_closed = False
+    try:
+        dataset_stream = _load_dataset(CHURRO_DATASET_ID, split=options.dataset_split)
+        dataset = _selected_dataset_examples(dataset_stream, options)
+        total_pages = getattr(dataset, "num_rows", None)
+        if not isinstance(total_pages, int):
+            total_pages = None
 
-    output_prefix = create_output_prefix(options)
-    start_time = time()
-    evaluation_examples, predictions = await _predict_texts(
-        dataset,
-        options,
-        total_pages=total_pages,
-    )
-    elapsed_time = time() - start_time
+        output_prefix = create_output_prefix(options)
+        start_time = time()
+        evaluation_examples, predictions = await _predict_texts(
+            dataset,
+            options,
+            total_pages=total_pages,
+        )
+        elapsed_time = time() - start_time
+        await close_litellm_async_clients()
+        clients_closed = True
 
-    assert len(evaluation_examples) == len(predictions), (
-        f"Mismatch in dataset size ({len(evaluation_examples)}) and predictions ({len(predictions)})."
-    )
-    compute_metrics(evaluation_examples, predictions, output_prefix, elapsed_time)
-    return 0
+        assert len(evaluation_examples) == len(predictions), (
+            f"Mismatch in dataset size ({len(evaluation_examples)}) and predictions ({len(predictions)})."
+        )
+        compute_metrics(evaluation_examples, predictions, output_prefix, elapsed_time)
+        return 0
+    finally:
+        if not clients_closed:
+            await close_litellm_async_clients()
 
 
 def main(argv: list[str] | None = None) -> int:

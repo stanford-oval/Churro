@@ -2,22 +2,27 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from churro_ocr._internal.litellm import LiteLLMTransport
 from churro_ocr.errors import ConfigurationError
-from churro_ocr.ocr import OCRBackend
 from churro_ocr.providers.hf import (
     ChandraOCR2OCRBackend,
     DeepSeekOCR2OCRBackend,
     DotsMOCROCRBackend,
     DotsOCR15OCRBackend,
+    GlmOCROCRBackend,
     HuggingFaceVisionOCRBackend,
     LFM25VLOCRBackend,
+    MinerU25OCRBackend,
     PaddleOCRVL15OCRBackend,
+    QianfanOCROCRBackend,
     _default_dots_ocr_1_5_model_kwargs,
 )
 from churro_ocr.providers.ocr import (
     AzureDocumentIntelligenceOCRBackend,
     LiteLLMVisionOCRBackend,
+    MinerU25OpenAICompatibleOCRBackend,
     MistralOCRBackend,
     OpenAICompatibleOCRBackend,
 )
@@ -32,6 +37,14 @@ from churro_ocr.providers.specs import (
     resolve_ocr_profile,
     validate_mistral_ocr_model,
 )
+from churro_ocr.templates import MINERU2_5_2509_1_2B_MODEL_ID
+
+if TYPE_CHECKING:
+    from churro_ocr.ocr import OCRBackend
+
+
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
 
 
 def _merge_mapping(
@@ -108,10 +121,11 @@ def _ensure_options_type[T](options: object | None, expected: type[T], *, provid
     if options is None:
         return None
     if not isinstance(options, expected):
-        raise ConfigurationError(
+        message = (
             f"OCR provider '{provider}' requires options of type {expected.__name__}, "
             f"got {type(options).__name__}."
         )
+        raise _configuration_error(message)
     return options
 
 
@@ -125,7 +139,14 @@ def _resolve_model_name(profile: OCRModelProfile, model: str | None, *, fallback
 
 def _build_litellm_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -> OCRBackend:
     if spec.model is None:
-        raise ConfigurationError("OCR provider 'litellm' requires `model`.")
+        message = "OCR provider 'litellm' requires `model`."
+        raise _configuration_error(message)
+    if spec.model == MINERU2_5_2509_1_2B_MODEL_ID:
+        message = (
+            "MinerU2.5 requires the built-in two-step pipeline. Use provider 'hf' for local "
+            "Transformers inference or provider 'openai-compatible' for a served vLLM endpoint."
+        )
+        raise _configuration_error(message)
     transport_config = _merge_transport_config(profile.transport, spec.transport)
     return LiteLLMVisionOCRBackend(
         model=spec.model,
@@ -139,14 +160,19 @@ def _build_litellm_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -> OC
 
 def _build_openai_compatible_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -> OCRBackend:
     if spec.model is None:
-        raise ConfigurationError("OCR provider 'openai-compatible' requires `model`.")
+        message = "OCR provider 'openai-compatible' requires `model`."
+        raise _configuration_error(message)
     options = _merge_openai_options(
         _ensure_options_type(spec.options, OpenAICompatibleOptions, provider=spec.provider)
     )
     transport_config = _merge_transport_config(profile.transport, spec.transport)
     if not transport_config.api_base:
-        raise ConfigurationError("OCR provider 'openai-compatible' requires `transport.api_base`.")
-    return OpenAICompatibleOCRBackend(
+        message = "OCR provider 'openai-compatible' requires `transport.api_base`."
+        raise _configuration_error(message)
+    backend_cls: type[OpenAICompatibleOCRBackend] = OpenAICompatibleOCRBackend
+    if spec.model == MINERU2_5_2509_1_2B_MODEL_ID:
+        backend_cls = MinerU25OpenAICompatibleOCRBackend
+    return backend_cls(
         model=spec.model,
         model_prefix=options.model_prefix or "openai",
         model_name=_resolve_model_name(profile, spec.model, fallback=spec.model),
@@ -159,7 +185,8 @@ def _build_openai_compatible_backend(spec: OCRBackendSpec, profile: OCRModelProf
 
 def _build_huggingface_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -> OCRBackend:
     if spec.model is None:
-        raise ConfigurationError("OCR provider 'hf' requires `model`.")
+        message = "OCR provider 'hf' requires `model`."
+        raise _configuration_error(message)
     options = _merge_huggingface_options(
         profile.huggingface,
         _ensure_options_type(spec.options, HuggingFaceOptions, provider=spec.provider),
@@ -171,14 +198,20 @@ def _build_huggingface_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -
         if options.backend_variant == "dots-mocr":
             backend_cls = DotsMOCROCRBackend
         model_kwargs = _merge_mapping(_default_dots_ocr_1_5_model_kwargs(), model_kwargs)
+    elif options.backend_variant == "glm-ocr":
+        backend_cls = GlmOCROCRBackend
     elif options.backend_variant == "deepseek-ocr-2":
         backend_cls = DeepSeekOCR2OCRBackend
     elif options.backend_variant == "chandra-ocr-2":
         backend_cls = ChandraOCR2OCRBackend
+    elif options.backend_variant == "mineru2.5":
+        backend_cls = MinerU25OCRBackend
     elif options.backend_variant == "paddleocr-vl-1.5":
         backend_cls = PaddleOCRVL15OCRBackend
     elif options.backend_variant == "lfm2.5-vl":
         backend_cls = LFM25VLOCRBackend
+    elif options.backend_variant == "qianfan-ocr":
+        backend_cls = QianfanOCROCRBackend
     return backend_cls(
         model_id=spec.model,
         template=profile.template,
@@ -196,9 +229,8 @@ def _build_huggingface_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -
 def _build_azure_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -> OCRBackend:
     options = _ensure_options_type(spec.options, AzureDocumentIntelligenceOptions, provider=spec.provider)
     if options is None or not options.endpoint or not options.api_key:
-        raise ConfigurationError(
-            "OCR provider 'azure' requires AzureDocumentIntelligenceOptions(endpoint=..., api_key=...)."
-        )
+        message = "OCR provider 'azure' requires AzureDocumentIntelligenceOptions(endpoint=..., api_key=...)."
+        raise _configuration_error(message)
     model_id = spec.model or "prebuilt-layout"
     return AzureDocumentIntelligenceOCRBackend(
         endpoint=options.endpoint,
@@ -213,7 +245,8 @@ def _build_azure_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -> OCRB
 def _build_mistral_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -> OCRBackend:
     options = _ensure_options_type(spec.options, MistralOptions, provider=spec.provider)
     if options is None or not options.api_key:
-        raise ConfigurationError("OCR provider 'mistral' requires MistralOptions(api_key=...).")
+        message = "OCR provider 'mistral' requires MistralOptions(api_key=...)."
+        raise _configuration_error(message)
     model = validate_mistral_ocr_model(spec.model)
     return MistralOCRBackend(
         api_key=options.api_key,
@@ -244,7 +277,8 @@ def build_ocr_backend(spec: OCRBackendSpec) -> OCRBackend:
         return _build_azure_backend(spec, profile)
     if spec.provider == "mistral":
         return _build_mistral_backend(spec, profile)
-    raise ConfigurationError(f"Unsupported OCR provider '{spec.provider}'.")
+    message = f"Unsupported OCR provider '{spec.provider}'."
+    raise _configuration_error(message)
 
 
 __all__ = ["build_ocr_backend"]

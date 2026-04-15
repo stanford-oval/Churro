@@ -3,8 +3,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 import pytest
 import typer
@@ -25,24 +25,103 @@ from churro_ocr.templates import (
     DEFAULT_OCR_TEMPLATE,
     DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    FIRERED_OCR_MODEL_ID,
+    FIRERED_OCR_OCR_TEMPLATE,
+    GLM_OCR_MODEL_ID,
+    GLM_OCR_OCR_TEMPLATE,
+    INFINITY_PARSER_7B_MODEL_ID,
+    INFINITY_PARSER_7B_OCR_TEMPLATE,
+    MINERU2_5_2509_1_2B_MODEL_ID,
+    MINERU2_5_2509_1_2B_OCR_TEMPLATE,
+    NANONETS_OCR2_3B_MODEL_ID,
+    NANONETS_OCR2_3B_OCR_TEMPLATE,
     OLMOCR_2_7B_1025_MODEL_ID,
     OLMOCR_2_7B_1025_OCR_TEMPLATE,
     PADDLEOCR_VL_1_5_MODEL_ID,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
+    QIANFAN_OCR_MODEL_ID,
+    QIANFAN_OCR_OCR_TEMPLATE,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from typer.testing import CliRunner
+
+    from churro_ocr.page_detection import PageDetectionRequest
+    from churro_ocr.providers.hf import HuggingFaceVisionOCRBackend
+    from churro_ocr.providers.ocr import LiteLLMVisionOCRBackend, MistralOCRBackend
+    from churro_ocr.templates.hf import HFChatTemplate
+    from tests._types import WriteImageFile
+
+
+def _build_litellm_backend(model: str) -> LiteLLMVisionOCRBackend:
+    return cast(
+        "LiteLLMVisionOCRBackend",
+        cli_module._build_ocr_backend(
+            backend="litellm",
+            model=model,
+            endpoint=None,
+            api_key=None,
+            base_url=None,
+            api_version=None,
+        ),
+    )
+
+
+def _build_hf_backend(model: str) -> HuggingFaceVisionOCRBackend:
+    return cast(
+        "HuggingFaceVisionOCRBackend",
+        cli_module._build_ocr_backend(
+            backend="hf",
+            model=model,
+            endpoint=None,
+            api_key=None,
+            base_url=None,
+            api_version=None,
+        ),
+    )
+
+
+def _build_openai_compatible_backend(model: str) -> LiteLLMVisionOCRBackend:
+    return cast(
+        "LiteLLMVisionOCRBackend",
+        cli_module._build_ocr_backend(
+            backend="openai-compatible",
+            model=model,
+            endpoint=None,
+            api_key=None,
+            base_url="http://127.0.0.1:8000/v1",
+            api_version=None,
+        ),
+    )
+
+
+def _build_mistral_backend(model: str) -> MistralOCRBackend:
+    return cast(
+        "MistralOCRBackend",
+        cli_module._build_ocr_backend(
+            backend="mistral",
+            model=model,
+            endpoint=None,
+            api_key="secret",
+            base_url=None,
+            api_version=None,
+        ),
+    )
 
 
 def test_transcribe_cli_writes_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    cli_runner,
-    write_image_file,
+    cli_runner: CliRunner,
+    write_image_file: WriteImageFile,
 ) -> None:
     image_path = write_image_file(size=(10, 10))
     output_path = tmp_path / "out.txt"
 
     class _FakeBackend:
-        async def ocr(self, page):  # noqa: ANN001
+        async def ocr(self, page: DocumentPage) -> OCRResult:
             image = page.image
             return OCRResult(
                 text=f"ocr:{image.width}x{image.height}",
@@ -70,8 +149,8 @@ def test_transcribe_cli_writes_output(
 def test_extract_pages_cli_writes_page_images(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    cli_runner,
-    write_image_file,
+    cli_runner: CliRunner,
+    write_image_file: WriteImageFile,
 ) -> None:
     image_path = write_image_file(size=(10, 10))
     output_dir = tmp_path / "pages"
@@ -80,7 +159,7 @@ def test_extract_pages_cli_writes_page_images(
         def __init__(self, **_: object) -> None:
             pass
 
-        def detect_image_sync(self, request):  # noqa: ANN001
+        def detect_image_sync(self, request: PageDetectionRequest) -> PageDetectionResult:
             _ = request.require_image()
             return PageDetectionResult(
                 pages=[
@@ -111,40 +190,22 @@ def test_extract_pages_cli_writes_page_images(
 
 
 def test_build_ocr_backend_aligns_templates_for_generic_models() -> None:
-    litellm_backend = cli_module._build_ocr_backend(
-        backend="litellm",
-        model="example/model",
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    hf_backend = cli_module._build_ocr_backend(
-        backend="hf",
-        model="example/model",
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    openai_backend = cli_module._build_ocr_backend(
-        backend="openai-compatible",
-        model="example/model",
-        endpoint=None,
-        api_key=None,
-        base_url="http://127.0.0.1:8000/v1",
-        api_version=None,
-    )
+    litellm_backend = _build_litellm_backend("example/model")
+    hf_backend = _build_hf_backend("example/model")
+    openai_backend = _build_openai_compatible_backend("example/model")
 
     assert litellm_backend.template == DEFAULT_OCR_TEMPLATE
     assert litellm_backend.template == hf_backend.template == openai_backend.template
     assert litellm_backend.model_name == "example/model"
     assert hf_backend.model_name == "example/model"
     assert openai_backend.model_name == "example/model"
-    assert f"<{DEFAULT_OCR_OUTPUT_TAG}>" in litellm_backend.template.system_message
-    assert f"</{DEFAULT_OCR_OUTPUT_TAG}>" in litellm_backend.template.system_message
-    assert f"<{DEFAULT_OCR_OUTPUT_TAG}>" in litellm_backend.template.user_prompt
-    assert f"</{DEFAULT_OCR_OUTPUT_TAG}>" in litellm_backend.template.user_prompt
+    template = cast("HFChatTemplate", litellm_backend.template)
+    assert template.system_message is not None
+    assert template.user_prompt is not None
+    assert f"<{DEFAULT_OCR_OUTPUT_TAG}>" in template.system_message
+    assert f"</{DEFAULT_OCR_OUTPUT_TAG}>" in template.system_message
+    assert f"<{DEFAULT_OCR_OUTPUT_TAG}>" in template.user_prompt
+    assert f"</{DEFAULT_OCR_OUTPUT_TAG}>" in template.user_prompt
 
 
 def test_build_ocr_backend_requires_pinned_mistral_model() -> None:
@@ -160,43 +221,15 @@ def test_build_ocr_backend_requires_pinned_mistral_model() -> None:
 
 
 def test_build_ocr_backend_accepts_pinned_mistral_model() -> None:
-    mistral_backend = cli_module._build_ocr_backend(
-        backend="mistral",
-        model="mistral-ocr-2512",
-        endpoint=None,
-        api_key="secret",
-        base_url=None,
-        api_version=None,
-    )
+    mistral_backend = _build_mistral_backend("mistral-ocr-2512")
 
     assert mistral_backend.model == "mistral-ocr-2512"
 
 
 def test_build_ocr_backend_aligns_templates_for_dots() -> None:
-    litellm_backend = cli_module._build_ocr_backend(
-        backend="litellm",
-        model="kristaller486/dots.ocr-1.5",
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    hf_backend = cli_module._build_ocr_backend(
-        backend="hf",
-        model="kristaller486/dots.ocr-1.5",
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    openai_backend = cli_module._build_ocr_backend(
-        backend="openai-compatible",
-        model="kristaller486/dots.ocr-1.5",
-        endpoint=None,
-        api_key=None,
-        base_url="http://127.0.0.1:8000/v1",
-        api_version=None,
-    )
+    litellm_backend = _build_litellm_backend("kristaller486/dots.ocr-1.5")
+    hf_backend = _build_hf_backend("kristaller486/dots.ocr-1.5")
+    openai_backend = _build_openai_compatible_backend("kristaller486/dots.ocr-1.5")
 
     assert litellm_backend.template == DOTS_OCR_1_5_OCR_TEMPLATE
     assert litellm_backend.template == hf_backend.template == openai_backend.template
@@ -214,30 +247,9 @@ def test_build_ocr_backend_aligns_templates_for_dots() -> None:
 
 
 def test_build_ocr_backend_aligns_templates_for_dots_mocr() -> None:
-    litellm_backend = cli_module._build_ocr_backend(
-        backend="litellm",
-        model="rednote-hilab/dots.mocr",
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    hf_backend = cli_module._build_ocr_backend(
-        backend="hf",
-        model="rednote-hilab/dots.mocr",
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    openai_backend = cli_module._build_ocr_backend(
-        backend="openai-compatible",
-        model="rednote-hilab/dots.mocr",
-        endpoint=None,
-        api_key=None,
-        base_url="http://127.0.0.1:8000/v1",
-        api_version=None,
-    )
+    litellm_backend = _build_litellm_backend("rednote-hilab/dots.mocr")
+    hf_backend = _build_hf_backend("rednote-hilab/dots.mocr")
+    openai_backend = _build_openai_compatible_backend("rednote-hilab/dots.mocr")
 
     assert litellm_backend.template == DOTS_MOCR_OCR_TEMPLATE
     assert litellm_backend.template == hf_backend.template == openai_backend.template
@@ -255,30 +267,9 @@ def test_build_ocr_backend_aligns_templates_for_dots_mocr() -> None:
 
 
 def test_build_ocr_backend_aligns_templates_for_deepseek_ocr_2() -> None:
-    litellm_backend = cli_module._build_ocr_backend(
-        backend="litellm",
-        model=DEEPSEEK_OCR_2_MODEL_ID,
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    hf_backend = cli_module._build_ocr_backend(
-        backend="hf",
-        model=DEEPSEEK_OCR_2_MODEL_ID,
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    openai_backend = cli_module._build_ocr_backend(
-        backend="openai-compatible",
-        model=DEEPSEEK_OCR_2_MODEL_ID,
-        endpoint=None,
-        api_key=None,
-        base_url="http://127.0.0.1:8000/v1",
-        api_version=None,
-    )
+    litellm_backend = _build_litellm_backend(DEEPSEEK_OCR_2_MODEL_ID)
+    hf_backend = _build_hf_backend(DEEPSEEK_OCR_2_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(DEEPSEEK_OCR_2_MODEL_ID)
 
     assert litellm_backend.template == DEEPSEEK_OCR_2_OCR_TEMPLATE
     assert litellm_backend.template == hf_backend.template == openai_backend.template
@@ -295,31 +286,92 @@ def test_build_ocr_backend_aligns_templates_for_deepseek_ocr_2() -> None:
     }
 
 
+def test_build_ocr_backend_aligns_templates_for_firered_ocr() -> None:
+    litellm_backend = _build_litellm_backend(FIRERED_OCR_MODEL_ID)
+    hf_backend = _build_hf_backend(FIRERED_OCR_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(FIRERED_OCR_MODEL_ID)
+
+    assert litellm_backend.template == FIRERED_OCR_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "FireRed-OCR"
+    assert hf_backend.model_name == "FireRed-OCR"
+    assert openai_backend.model_name == "FireRed-OCR"
+    assert litellm_backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+        "top_p": 1.0,
+    }
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+        "top_p": 1.0,
+    }
+
+
+def test_build_ocr_backend_aligns_templates_for_nanonets_ocr2_3b() -> None:
+    litellm_backend = _build_litellm_backend(NANONETS_OCR2_3B_MODEL_ID)
+    hf_backend = _build_hf_backend(NANONETS_OCR2_3B_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(NANONETS_OCR2_3B_MODEL_ID)
+
+    assert litellm_backend.template == NANONETS_OCR2_3B_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "Nanonets-OCR2-3B"
+    assert hf_backend.model_name == "Nanonets-OCR2-3B"
+    assert openai_backend.model_name == "Nanonets-OCR2-3B"
+    assert litellm_backend.transport.config.completion_kwargs == {
+        "max_tokens": 15_000,
+        "temperature": 0.0,
+    }
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": 15_000,
+        "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_aligns_templates_for_qianfan_ocr() -> None:
+    litellm_backend = _build_litellm_backend(QIANFAN_OCR_MODEL_ID)
+    hf_backend = _build_hf_backend(QIANFAN_OCR_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(QIANFAN_OCR_MODEL_ID)
+
+    assert litellm_backend.template == QIANFAN_OCR_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "Qianfan-OCR"
+    assert hf_backend.model_name == "Qianfan-OCR"
+    assert openai_backend.model_name == "Qianfan-OCR"
+    assert litellm_backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+    }
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_aligns_templates_for_glm_ocr() -> None:
+    litellm_backend = _build_litellm_backend(GLM_OCR_MODEL_ID)
+    hf_backend = _build_hf_backend(GLM_OCR_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(GLM_OCR_MODEL_ID)
+
+    assert litellm_backend.template == GLM_OCR_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "GLM-OCR"
+    assert hf_backend.model_name == "GLM-OCR"
+    assert openai_backend.model_name == "GLM-OCR"
+    assert litellm_backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_192,
+        "temperature": 0.0,
+    }
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_192,
+        "temperature": 0.0,
+    }
+
+
 def test_build_ocr_backend_aligns_templates_for_paddleocr_vl() -> None:
-    litellm_backend = cli_module._build_ocr_backend(
-        backend="litellm",
-        model=PADDLEOCR_VL_1_5_MODEL_ID,
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    hf_backend = cli_module._build_ocr_backend(
-        backend="hf",
-        model=PADDLEOCR_VL_1_5_MODEL_ID,
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    openai_backend = cli_module._build_ocr_backend(
-        backend="openai-compatible",
-        model=PADDLEOCR_VL_1_5_MODEL_ID,
-        endpoint=None,
-        api_key=None,
-        base_url="http://127.0.0.1:8000/v1",
-        api_version=None,
-    )
+    litellm_backend = _build_litellm_backend(PADDLEOCR_VL_1_5_MODEL_ID)
+    hf_backend = _build_hf_backend(PADDLEOCR_VL_1_5_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(PADDLEOCR_VL_1_5_MODEL_ID)
 
     assert litellm_backend.template == PADDLEOCR_VL_1_5_OCR_TEMPLATE
     assert litellm_backend.template == hf_backend.template == openai_backend.template
@@ -336,31 +388,55 @@ def test_build_ocr_backend_aligns_templates_for_paddleocr_vl() -> None:
     }
 
 
+def test_build_ocr_backend_aligns_templates_for_mineru2_5() -> None:
+    hf_backend = _build_hf_backend(MINERU2_5_2509_1_2B_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(MINERU2_5_2509_1_2B_MODEL_ID)
+
+    assert hf_backend.template == MINERU2_5_2509_1_2B_OCR_TEMPLATE
+    assert hf_backend.template == openai_backend.template
+    assert hf_backend.model_name == "MinerU2.5-2509-1.2B"
+    assert openai_backend.model_name == "MinerU2.5-2509-1.2B"
+    assert openai_backend.transport.config.completion_kwargs == {}
+
+
+def test_build_ocr_backend_aligns_templates_for_infinity_parser() -> None:
+    litellm_backend = _build_litellm_backend(INFINITY_PARSER_7B_MODEL_ID)
+    hf_backend = _build_hf_backend(INFINITY_PARSER_7B_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(INFINITY_PARSER_7B_MODEL_ID)
+
+    assert litellm_backend.template == INFINITY_PARSER_7B_OCR_TEMPLATE
+    assert litellm_backend.template == hf_backend.template == openai_backend.template
+    assert litellm_backend.model_name == "Infinity-Parser-7B"
+    assert hf_backend.model_name == "Infinity-Parser-7B"
+    assert openai_backend.model_name == "Infinity-Parser-7B"
+    assert litellm_backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_192,
+        "temperature": 0.0,
+        "top_p": 0.95,
+    }
+    assert openai_backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_192,
+        "temperature": 0.0,
+        "top_p": 0.95,
+    }
+
+
+def test_build_ocr_backend_rejects_mineru2_5_for_litellm() -> None:
+    with pytest.raises(ConfigurationError, match=r"MinerU2\.5 requires the built-in two-step pipeline"):
+        cli_module._build_ocr_backend(
+            backend="litellm",
+            model=MINERU2_5_2509_1_2B_MODEL_ID,
+            endpoint=None,
+            api_key=None,
+            base_url=None,
+            api_version=None,
+        )
+
+
 def test_build_ocr_backend_uses_generic_defaults_for_qwen_3_5_0_8b() -> None:
-    litellm_backend = cli_module._build_ocr_backend(
-        backend="litellm",
-        model="Qwen/Qwen3.5-0.8B",
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    hf_backend = cli_module._build_ocr_backend(
-        backend="hf",
-        model="Qwen/Qwen3.5-0.8B",
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    openai_backend = cli_module._build_ocr_backend(
-        backend="openai-compatible",
-        model="Qwen/Qwen3.5-0.8B",
-        endpoint=None,
-        api_key=None,
-        base_url="http://127.0.0.1:8000/v1",
-        api_version=None,
-    )
+    litellm_backend = _build_litellm_backend("Qwen/Qwen3.5-0.8B")
+    hf_backend = _build_hf_backend("Qwen/Qwen3.5-0.8B")
+    openai_backend = _build_openai_compatible_backend("Qwen/Qwen3.5-0.8B")
 
     assert litellm_backend.template == DEFAULT_OCR_TEMPLATE
     assert litellm_backend.template == hf_backend.template == openai_backend.template
@@ -370,30 +446,9 @@ def test_build_ocr_backend_uses_generic_defaults_for_qwen_3_5_0_8b() -> None:
 
 
 def test_build_ocr_backend_aligns_templates_for_olmocr() -> None:
-    litellm_backend = cli_module._build_ocr_backend(
-        backend="litellm",
-        model=OLMOCR_2_7B_1025_MODEL_ID,
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    hf_backend = cli_module._build_ocr_backend(
-        backend="hf",
-        model=OLMOCR_2_7B_1025_MODEL_ID,
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    openai_backend = cli_module._build_ocr_backend(
-        backend="openai-compatible",
-        model=OLMOCR_2_7B_1025_MODEL_ID,
-        endpoint=None,
-        api_key=None,
-        base_url="http://127.0.0.1:8000/v1",
-        api_version=None,
-    )
+    litellm_backend = _build_litellm_backend(OLMOCR_2_7B_1025_MODEL_ID)
+    hf_backend = _build_hf_backend(OLMOCR_2_7B_1025_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(OLMOCR_2_7B_1025_MODEL_ID)
 
     assert litellm_backend.template == OLMOCR_2_7B_1025_OCR_TEMPLATE
     assert litellm_backend.template == hf_backend.template == openai_backend.template
@@ -407,30 +462,9 @@ def test_build_ocr_backend_aligns_templates_for_olmocr() -> None:
 
 
 def test_build_ocr_backend_aligns_templates_for_chandra() -> None:
-    litellm_backend = cli_module._build_ocr_backend(
-        backend="litellm",
-        model=CHANDRA_OCR_2_MODEL_ID,
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    hf_backend = cli_module._build_ocr_backend(
-        backend="hf",
-        model=CHANDRA_OCR_2_MODEL_ID,
-        endpoint=None,
-        api_key=None,
-        base_url=None,
-        api_version=None,
-    )
-    openai_backend = cli_module._build_ocr_backend(
-        backend="openai-compatible",
-        model=CHANDRA_OCR_2_MODEL_ID,
-        endpoint=None,
-        api_key=None,
-        base_url="http://127.0.0.1:8000/v1",
-        api_version=None,
-    )
+    litellm_backend = _build_litellm_backend(CHANDRA_OCR_2_MODEL_ID)
+    hf_backend = _build_hf_backend(CHANDRA_OCR_2_MODEL_ID)
+    openai_backend = _build_openai_compatible_backend(CHANDRA_OCR_2_MODEL_ID)
 
     assert litellm_backend.template == CHANDRA_OCR_2_OCR_TEMPLATE
     assert litellm_backend.template == hf_backend.template == openai_backend.template
@@ -446,7 +480,7 @@ def test_build_ocr_backend_aligns_templates_for_chandra() -> None:
 
 def test_install_command_invokes_runtime_installer(
     monkeypatch: pytest.MonkeyPatch,
-    cli_runner,
+    cli_runner: CliRunner,
 ) -> None:
     captured: dict[str, object] = {}
 
@@ -483,10 +517,11 @@ def test_install_command_invokes_runtime_installer(
 
 def test_install_command_surfaces_configuration_errors(
     monkeypatch: pytest.MonkeyPatch,
-    cli_runner,
+    cli_runner: CliRunner,
 ) -> None:
     def _raise_configuration_error(**_: object) -> SimpleNamespace:
-        raise ConfigurationError("missing uv")
+        message = "missing uv"
+        raise ConfigurationError(message)
 
     monkeypatch.setattr(
         "churro_ocr.cli.install_runtime_dependencies",

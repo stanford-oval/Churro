@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from tooling.evaluation import metrics
-from tooling.evaluation.types import BenchmarkPrediction, EvaluationExample, PageEvaluationResult
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
+
+    from tooling.evaluation.types import BenchmarkPrediction, EvaluationExample, PageEvaluationResult
 
 
 def test_calculate_language_and_type_metrics_handles_missing_categories() -> None:
@@ -43,7 +48,7 @@ def test_to_rounded_percentage_preserves_non_numeric_values() -> None:
 
 def test_compute_metrics_writes_expected_outputs(
     tmp_path: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     dataset: list[EvaluationExample] = [
         {
@@ -57,7 +62,10 @@ def test_compute_metrics_writes_expected_outputs(
     ]
     predictions: list[BenchmarkPrediction] = [{"text": "", "metadata": {"raw_html": "<p></p>"}}]
 
-    def fake_batch_evaluate(ds, preds):  # noqa: ANN001
+    def fake_batch_evaluate(
+        ds: list[EvaluationExample],
+        preds: list[str],
+    ) -> tuple[dict[str, float], list[PageEvaluationResult]]:
         assert ds == dataset
         assert preds == [""]
         return (

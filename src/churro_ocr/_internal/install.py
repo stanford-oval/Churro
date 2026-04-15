@@ -34,6 +34,10 @@ _PYTORCH_TARGETS: Final[frozenset[str]] = frozenset({"hf", "all"})
 _PYTORCH_PACKAGES: Final[tuple[str, ...]] = ("torch", "torchvision")
 
 
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeInstallResult:
     """Summary of a completed runtime installation."""
@@ -57,7 +61,8 @@ def install_runtime_dependencies(
     normalized_target = target.strip().lower()
     if normalized_target not in INSTALL_TARGETS:
         supported = ", ".join(INSTALL_TARGETS)
-        raise ConfigurationError(f"Unknown install target '{target}'. Choose one of: {supported}.")
+        message = f"Unknown install target '{target}'. Choose one of: {supported}."
+        raise _configuration_error(message)
 
     uv_executable = _require_uv_executable()
     executed_commands: list[tuple[str, ...]] = []
@@ -106,9 +111,8 @@ def install_runtime_dependencies(
 def _require_uv_executable() -> str:
     uv_executable = shutil.which("uv")
     if uv_executable is None:
-        raise ConfigurationError(
-            "`churro-ocr install` requires `uv` on PATH. Install uv and rerun the command."
-        )
+        message = "`churro-ocr install` requires `uv` on PATH. Install uv and rerun the command."
+        raise _configuration_error(message)
     return uv_executable
 
 
@@ -116,9 +120,8 @@ def _distribution_requirements() -> list[str]:
     try:
         distribution = metadata.distribution(PROJECT_DISTRIBUTION_NAME)
     except metadata.PackageNotFoundError as exc:  # pragma: no cover - depends on install mode
-        raise ConfigurationError(
-            "The Churro installer must run from an installed `churro-ocr` environment."
-        ) from exc
+        message = "The Churro installer must run from an installed `churro-ocr` environment."
+        raise _configuration_error(message) from exc
     return list(distribution.requires or [])
 
 
@@ -141,5 +144,6 @@ def _run_command(command: list[str]) -> tuple[str, ...]:
         subprocess.run(command, check=True)
     except (OSError, subprocess.CalledProcessError) as exc:
         rendered_command = " ".join(command)
-        raise ConfigurationError(f"Command failed: {rendered_command}") from exc
+        message = f"Command failed: {rendered_command}"
+        raise _configuration_error(message) from exc
     return tuple(command)

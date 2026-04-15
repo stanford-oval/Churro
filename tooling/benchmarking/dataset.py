@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from itertools import islice
-from typing import Any
+from typing import TYPE_CHECKING, Protocol, cast
 
-from tooling.evaluation.types import BenchmarkDatasetExample, EvaluationExample
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
+    from tooling.evaluation.types import BenchmarkDatasetExample, EvaluationExample
+
+
+class _FilterableDataset(Protocol):
+    def filter(self, function: object, *, input_columns: list[str]) -> object: ...
+
+
+class _SelectableDataset(Protocol):
+    def select(self, indices: range) -> object: ...
 
 
 def _normalize_filter_value(value: str | None) -> str | None:
@@ -23,7 +33,7 @@ def load_dataset_split(
     split: str,
     *,
     columns: Sequence[str] | None = None,
-) -> Any:
+) -> object:
     """Load one dataset split directly from its parquet shards."""
     from datasets import Features, load_dataset, load_dataset_builder
 
@@ -67,12 +77,10 @@ class DatasetSubset:
         """Return whether an example belongs to this subset."""
         if self.language is not None and _normalize_filter_value(example["main_language"]) != self.language:
             return False
-        if (
-            self.document_type is not None
-            and _normalize_filter_value(example["document_type"]) != self.document_type
-        ):
-            return False
-        return True
+        return (
+            self.document_type is None
+            or _normalize_filter_value(example["document_type"]) == self.document_type
+        )
 
     def output_suffixes(self) -> list[str]:
         """Build stable directory suffixes for filtered benchmark runs."""
@@ -95,17 +103,20 @@ class DatasetSelection:
     def select(self, dataset_stream: Iterable[BenchmarkDatasetExample]) -> Iterable[BenchmarkDatasetExample]:
         """Yield the requested dataset subset without materializing it upfront."""
         if hasattr(dataset_stream, "filter") and hasattr(dataset_stream, "select"):
-            return self._select_materialized_dataset(dataset_stream)
+            return cast(
+                "Iterable[BenchmarkDatasetExample]",
+                self._select_materialized_dataset(dataset_stream),
+            )
 
         filtered_stream = (example for example in dataset_stream if self.subset.matches(example))
         end_index = self.offset + self.limit if self.limit > 0 else None
         return islice(filtered_stream, self.offset, end_index)
 
-    def _select_materialized_dataset(self, dataset: Any) -> Any:
+    def _select_materialized_dataset(self, dataset: object) -> object:
         """Apply subset filters and slicing to a materialized HF dataset."""
         selected = dataset
         if self.subset.is_active():
-            selected = selected.filter(
+            selected = cast("_FilterableDataset", selected).filter(
                 self._matches_materialized_row,
                 input_columns=["main_language", "document_type"],
             )
@@ -119,15 +130,16 @@ class DatasetSelection:
 
         start_index = min(self.offset, total_rows)
         end_index = total_rows if self.limit <= 0 else min(start_index + self.limit, total_rows)
-        return selected.select(range(start_index, end_index))
+        return cast("_SelectableDataset", selected).select(range(start_index, end_index))
 
     def _matches_materialized_row(self, main_language: str, document_type: str) -> bool:
         """Return whether one materialized row matches the active subset filters."""
-        if self.subset.language is not None and _normalize_filter_value(main_language) != self.subset.language:
-            return False
         if (
-            self.subset.document_type is not None
-            and _normalize_filter_value(document_type) != self.subset.document_type
+            self.subset.language is not None
+            and _normalize_filter_value(main_language) != self.subset.language
         ):
             return False
-        return True
+        return (
+            self.subset.document_type is None
+            or _normalize_filter_value(document_type) == self.subset.document_type
+        )

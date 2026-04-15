@@ -1,14 +1,25 @@
 # Page Detection
 
 Use `DocumentPageDetector` when you want page crops without OCR.
+For the shell-first path, use [`extract-pages`](../cli.md).
+For a combined detection-and-OCR pipeline, use [OCR Workflows](ocr-workflows.md).
+
+## Requirements
+
+Start with [Getting Started](../getting-started.md), then install the runtime that matches the detector or input type you want:
+
+- no extra runtime for the default detector
+- `churro-ocr install llm` for `LLMPageDetector`
+- `churro-ocr install azure` for `AzurePageDetector`
+- `churro-ocr install pdf` when you want to detect pages from PDFs
 
 ## Which Detector Should You Use?
 
 | Detector | Good default when |
 | --- | --- |
-| none | you want the whole image or rasterized PDF page treated as a single page |
-| Azure | you want Azure Document Intelligence to find pages for you |
-| LLM | you want a multimodal model to infer page boundaries from an image |
+| `none` | you want the whole image or rasterized PDF page treated as a single page |
+| `azure` | you want Azure Document Intelligence to find pages for you |
+| `llm` | you want a multimodal model to infer page boundaries from an image |
 
 ## Default Detector
 
@@ -71,4 +82,8 @@ result = detector.detect_image_sync(
 - `trim_margin` expands the detected crop by that many pixels and clips the result to the image bounds.
 - `detect_pdf(...)` rasterizes each PDF page before detection, so `dpi` only affects PDF workflows.
 
-Pair page detection with OCR through [DocumentOCRPipeline](ocr-workflows.md). Use the [API Reference](../api/page_detection.md) when you need exact type definitions.
+## Next Steps
+
+- Use [`extract-pages`](../cli.md) when you want PNG page crops from the shell.
+- Pair page detection with OCR through [DocumentOCRPipeline](ocr-workflows.md).
+- Use the [API Reference](../api/page_detection.md) when you need exact type definitions.

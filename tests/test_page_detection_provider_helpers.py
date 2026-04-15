@@ -68,8 +68,10 @@ def test_parse_text_block_box_json_supports_flat_nested_and_not_found_payloads()
     nested = _parse_text_block_box_json('{"block": {"left": 100, "top": 200, "right": 300, "bottom": 400}}')
     missing = _parse_text_block_box_json('{"block_found": false}')
 
-    assert flat is not None and flat.page_index == 1
-    assert nested is not None and nested.page_index == 1
+    assert flat is not None
+    assert flat.page_index == 1
+    assert nested is not None
+    assert nested.page_index == 1
     assert missing is None
 
 
@@ -222,7 +224,8 @@ async def test_review_single_edge_from_strip_logs_mismatches_and_scales_amount(
         ) -> list[dict[str, object]]:
             assert system_prompt is None
             assert user_prompt is not None
-            assert images and images[0].size == (20, 60)
+            assert images
+            assert images[0].size == (20, 60)
             return [{"role": "user", "content": [{"type": "text", "text": user_prompt}]}]
 
         async def complete_text(
@@ -248,7 +251,7 @@ async def test_review_single_edge_from_strip_logs_mismatches_and_scales_amount(
         page_index=1,
         history_steps=2,
         round_index=3,
-        transport=cast(Any, FakeTransport()),
+        transport=cast("Any", FakeTransport()),
     )
 
     assert decision == _EdgeReviewDecision(action="expand", amount=50)
@@ -276,7 +279,8 @@ async def test_review_single_text_block_edge_from_strip_logs_mismatch_and_scales
         ) -> list[dict[str, object]]:
             assert system_prompt is None
             assert user_prompt is not None
-            assert images and images[0].size == (60, 20)
+            assert images
+            assert images[0].size == (60, 20)
             return [{"role": "user", "content": [{"type": "text", "text": user_prompt}]}]
 
         async def complete_text(
@@ -303,7 +307,7 @@ async def test_review_single_text_block_edge_from_strip_logs_mismatch_and_scales
         block_text="Et fuit lux",
         history_steps=1,
         round_index=1,
-        transport=cast(Any, FakeTransport()),
+        transport=cast("Any", FakeTransport()),
     )
 
     assert decision == _EdgeReviewDecision(action="shrink", amount=100)
@@ -332,7 +336,7 @@ async def test_review_page_box_falls_back_to_no_change_when_an_edge_review_fails
         history_steps=1,
         round_index=1,
         model="example/model",
-        transport=cast(Any, object()),
+        transport=cast("Any", object()),
     )
 
     assert reviewed == current_box
@@ -362,7 +366,7 @@ async def test_review_text_block_box_falls_back_to_no_change_when_an_edge_review
         history_steps=1,
         round_index=1,
         model="example/model",
-        transport=cast(Any, object()),
+        transport=cast("Any", object()),
     )
 
     assert reviewed == current_box
@@ -391,7 +395,8 @@ async def test_run_review_pipeline_stops_immediately_when_all_pages_are_frozen(
     async def _review_box(box: _PageBox, history_steps: int, round_index: int) -> _PageBox:
         del box, history_steps, round_index
         review_called["value"] = True
-        raise AssertionError("review_box should not be called for frozen pages")
+        message = "review_box should not be called for frozen pages"
+        raise AssertionError(message)
 
     result = await _run_review_pipeline(
         initial_boxes=[initial_box],
@@ -414,7 +419,7 @@ async def test_run_review_pipeline_preserves_prior_boxes_on_exception_and_none_r
         del history_steps, round_index
         if box.page_index == 1:
             raise RuntimeError("boom")
-        return cast(Any, None)
+        return cast("Any", None)
 
     result = await _run_review_pipeline(
         initial_boxes=[first_box, second_box],

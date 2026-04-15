@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import Coroutine
 
 T = TypeVar("T")
+
+
+def _runtime_error(message: str) -> RuntimeError:
+    return RuntimeError(message)
 
 
 def run_sync[T](awaitable: Coroutine[Any, Any, T]) -> T:
@@ -19,6 +25,7 @@ def run_sync[T](awaitable: Coroutine[Any, Any, T]) -> T:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(awaitable)
-    raise RuntimeError(
+    message = (
         "Synchronous churro-ocr APIs cannot be used from an active event loop. Use the async API instead."
     )
+    raise _runtime_error(message)

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import builtins
 import sys
-from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from PIL import Image
 from typer.testing import CliRunner
+
+if TYPE_CHECKING:
+    from tests._types import ImageColor, ImportFailurePatcher, WriteImageFile
 
 _TESTS_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _TESTS_DIR.parent
@@ -35,13 +38,13 @@ def test_artifact_dir_path() -> Path:
 
 
 @pytest.fixture
-def write_image_file(tmp_path: Path) -> Callable[..., Path]:
+def write_image_file(tmp_path: Path) -> WriteImageFile:
     def _write_image_file(
         *,
         size: tuple[int, int] = (10, 10),
         filename: str = "sample.png",
         mode: str = "RGB",
-        color: str | tuple[int, int, int] | tuple[int, int, int, int] = "white",
+        color: ImageColor = "white",
     ) -> Path:
         image_path = tmp_path / filename
         Image.new(mode, size, color=color).save(image_path)
@@ -51,7 +54,7 @@ def write_image_file(tmp_path: Path) -> Callable[..., Path]:
 
 
 @pytest.fixture
-def patch_import_failure(monkeypatch: pytest.MonkeyPatch) -> Callable[..., None]:
+def patch_import_failure(monkeypatch: pytest.MonkeyPatch) -> ImportFailurePatcher:
     real_import = builtins.__import__
 
     def _patch_import_failure(
@@ -67,7 +70,8 @@ def patch_import_failure(monkeypatch: pytest.MonkeyPatch) -> Callable[..., None]
             level: int = 0,
         ) -> object:
             if name == failing_name:
-                raise exception_type(f"missing {failing_name}")
+                message = f"missing {failing_name}"
+                raise exception_type(message)
             return real_import(name, globals, locals, fromlist, level)
 
         monkeypatch.setattr(builtins, "__import__", _fake_import)

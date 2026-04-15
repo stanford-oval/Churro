@@ -4,15 +4,27 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
-from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
-
-from PIL import Image
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from churro_ocr._internal.image import prepare_ocr_image
 from churro_ocr._internal.runtime import run_sync
 from churro_ocr.errors import ConfigurationError
 from churro_ocr.page_detection import DocumentPage
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from PIL import Image
+
+    from churro_ocr.types import MetadataDict
+
+
+def _assertion_error(message: str) -> AssertionError:
+    return AssertionError(message)
+
+
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
 
 
 @dataclass(slots=True)
@@ -28,7 +40,7 @@ class OCRResult:
     text: str
     provider_name: str
     model_name: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: MetadataDict = field(default_factory=dict)
 
 
 @runtime_checkable
@@ -113,7 +125,7 @@ class OCRClient:
         image_path: str | Path | None = None,
         page_index: int = 0,
         source_index: int = 0,
-        metadata: dict[str, Any] | None = None,
+        metadata: MetadataDict | None = None,
     ) -> DocumentPage:
         """Create a single page from an image input and OCR it.
 
@@ -142,7 +154,7 @@ class OCRClient:
         image_path: str | Path | None = None,
         page_index: int = 0,
         source_index: int = 0,
-        metadata: dict[str, Any] | None = None,
+        metadata: MetadataDict | None = None,
     ) -> DocumentPage:
         """Create a single page from an image input and OCR it synchronously.
 
@@ -172,10 +184,11 @@ def _page_from_image_input(
     image_path: str | Path | None,
     page_index: int,
     source_index: int,
-    metadata: dict[str, Any] | None,
+    metadata: MetadataDict | None,
 ) -> DocumentPage:
     if (image is None) == (image_path is None):
-        raise ConfigurationError("OCR image helpers require exactly one of `image` or `image_path`.")
+        message = "OCR image helpers require exactly one of `image` or `image_path`."
+        raise _configuration_error(message)
     if image is not None:
         return DocumentPage.from_image(
             image,
@@ -190,4 +203,5 @@ def _page_from_image_input(
             source_index=source_index,
             metadata=metadata,
         )
-    raise AssertionError("Unreachable exact-one image input guard.")
+    message = "Unreachable exact-one image input guard."
+    raise _assertion_error(message)

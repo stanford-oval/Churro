@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
-from PIL import Image
+if TYPE_CHECKING:
+    from PIL import Image
+
+from churro_ocr.types import MetadataDict
 
 EVALUATION_EXAMPLE_FIELDS = (
     "cleaned_transcription",
@@ -65,13 +68,13 @@ class BenchmarkPrediction(TypedDict):
     """OCR output retained during benchmarking before metrics are computed."""
 
     text: str
-    metadata: dict[str, Any]
+    metadata: MetadataDict
 
 
 class BenchmarkOutputRow(PageEvaluationResult):
     """Serialized benchmark output row written to ``outputs.json``."""
 
-    metadata: dict[str, Any]
+    metadata: MetadataDict
 
 
 def to_evaluation_example(example: BenchmarkDatasetExample) -> EvaluationExample:

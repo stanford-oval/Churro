@@ -10,12 +10,14 @@ import tarfile
 import tempfile
 import zipfile
 from email import message_from_string
-from email.message import Message
 from importlib import metadata
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from packaging.requirements import InvalidRequirement
-from packaging.requirements import Requirement
+from packaging.requirements import InvalidRequirement, Requirement
+
+if TYPE_CHECKING:
+    from email.message import Message
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST_DIR = ROOT / "dist"
@@ -69,6 +71,10 @@ def _run(*args: str, cwd: Path | None = None) -> str:
     return completed.stdout
 
 
+def _package_check_error(message: str) -> RuntimeError:
+    return RuntimeError(message)
+
+
 def _remove_if_exists(path: Path) -> None:
     if path.is_dir():
         shutil.rmtree(path)
@@ -87,7 +93,8 @@ def _build_distributions() -> tuple[Path, Path]:
     wheel = next(DIST_DIR.glob("*.whl"), None)
     sdist = next(DIST_DIR.glob("*.tar.gz"), None)
     if wheel is None or sdist is None:
-        raise RuntimeError("Expected both wheel and sdist artifacts in dist/.")
+        message = "Expected both wheel and sdist artifacts in dist/."
+        raise _package_check_error(message)
     return wheel, sdist
 
 
@@ -109,20 +116,24 @@ def _twine_check(wheel: Path, sdist: Path) -> None:
 def _assert_metadata(metadata_message: Message, entry_points_text: str) -> None:
     name = metadata_message["Name"]
     if name != "churro-ocr":
-        raise RuntimeError(f"Unexpected package name {name!r}.")
+        message = f"Unexpected package name {name!r}."
+        raise _package_check_error(message)
     if metadata_message["Requires-Python"] != ">=3.12":
-        raise RuntimeError("Requires-Python metadata no longer matches the documented support policy.")
+        message = "Requires-Python metadata no longer matches the documented support policy."
+        raise _package_check_error(message)
 
     project_urls: dict[str, str] = {}
     for raw_value in metadata_message.get_all("Project-URL", []):
         label, value = raw_value.split(", ", maxsplit=1)
         project_urls[label] = value
     if project_urls != EXPECTED_PROJECT_URLS:
-        raise RuntimeError(f"Project URLs do not match the expected package repository: {project_urls!r}.")
+        message = f"Project URLs do not match the expected package repository: {project_urls!r}."
+        raise _package_check_error(message)
 
     provides_extra = set(metadata_message.get_all("Provides-Extra", []))
     if provides_extra != EXPECTED_EXTRAS:
-        raise RuntimeError(f"Unexpected extras set: {sorted(provides_extra)!r}.")
+        message = f"Unexpected extras set: {sorted(provides_extra)!r}."
+        raise _package_check_error(message)
 
     _assert_local_runtime_packaging_policy(metadata_message)
 
@@ -130,7 +141,8 @@ def _assert_metadata(metadata_message: Message, entry_points_text: str) -> None:
         "[console_scripts]" not in entry_points_text
         or "churro-ocr = churro_ocr.cli:main" not in entry_points_text
     ):
-        raise RuntimeError("Console script entry point is missing or incorrect.")
+        message = "Console script entry point is missing or incorrect."
+        raise _package_check_error(message)
 
 
 def _iter_requirements_for_extra(metadata_message: Message, extra: str) -> list[Requirement]:
@@ -155,10 +167,11 @@ def _assert_local_runtime_packaging_policy(metadata_message: Message) -> None:
                 disallowed_runtime_reqs.append(f"{extra}:{requirement}")
     if disallowed_runtime_reqs:
         formatted = ", ".join(sorted(disallowed_runtime_reqs))
-        raise RuntimeError(
+        message = (
             "PyPI extras for active-environment runtimes must not pin local PyTorch or vLLM runtimes. "
             f"Found disallowed requirements: {formatted}."
         )
+        raise _package_check_error(message)
 
 
 def _assert_runtime_only_artifacts(wheel: Path, sdist: Path) -> None:
@@ -167,18 +180,22 @@ def _assert_runtime_only_artifacts(wheel: Path, sdist: Path) -> None:
     for name in wheel_names:
         normalized = f"/{name}"
         if any(segment in normalized for segment in FORBIDDEN_ARTIFACT_SEGMENTS):
-            raise RuntimeError(f"Wheel unexpectedly includes repo-only content: {name}")
+            message = f"Wheel unexpectedly includes repo-only content: {name}"
+            raise _package_check_error(message)
         if any(normalized.endswith(suffix) for suffix in FORBIDDEN_ARTIFACT_SUFFIXES):
-            raise RuntimeError(f"Wheel unexpectedly includes repo-only documentation: {name}")
+            message = f"Wheel unexpectedly includes repo-only documentation: {name}"
+            raise _package_check_error(message)
 
     with tarfile.open(sdist) as tar_file:
         sdist_names = tar_file.getnames()
     for name in sdist_names:
         normalized = f"/{name}"
         if any(segment in normalized for segment in FORBIDDEN_ARTIFACT_SEGMENTS):
-            raise RuntimeError(f"sdist unexpectedly includes repo-only content: {name}")
+            message = f"sdist unexpectedly includes repo-only content: {name}"
+            raise _package_check_error(message)
         if any(normalized.endswith(suffix) for suffix in FORBIDDEN_ARTIFACT_SUFFIXES):
-            raise RuntimeError(f"sdist unexpectedly includes repo-only documentation: {name}")
+            message = f"sdist unexpectedly includes repo-only documentation: {name}"
+            raise _package_check_error(message)
 
 
 def _venv_python(venv_dir: Path) -> Path:
@@ -198,10 +215,12 @@ def _smoke_install(requirement: str, *, label: str, import_check: str) -> None:
         _run(str(python), "-m", "pip", "install", requirement, cwd=workspace_dir)
         _run(str(python), "-c", import_check, cwd=workspace_dir)
         if (workspace_dir / "debug.log").exists():
-            raise RuntimeError(f"{label} created an unexpected debug.log file.")
+            message = f"{label} created an unexpected debug.log file."
+            raise _package_check_error(message)
         _run(str(python), "-m", "churro_ocr", "--help", cwd=workspace_dir)
         if (workspace_dir / "debug.log").exists():
-            raise RuntimeError(f"{label} CLI help created an unexpected debug.log file.")
+            message = f"{label} CLI help created an unexpected debug.log file."
+            raise _package_check_error(message)
 
 
 def _requirement_name(requirement: str) -> str | None:
@@ -294,14 +313,15 @@ def _audit_dependency_licenses(metadata_message: Message) -> None:
         unknown.append(f"{dependency_name}=={distribution.version}")
 
     if incompatible:
-        raise RuntimeError(
-            "Incompatible direct dependency licenses detected: " + ", ".join(incompatible) + "."
-        )
+        message = "Incompatible direct dependency licenses detected: " + ", ".join(incompatible) + "."
+        raise _package_check_error(message)
     if unknown:
-        raise RuntimeError("Unknown direct dependency licenses detected: " + ", ".join(unknown) + ".")
+        message = "Unknown direct dependency licenses detected: " + ", ".join(unknown) + "."
+        raise _package_check_error(message)
 
 
 def main() -> int:
+    """Build artifacts, validate metadata, and smoke-test package installs."""
     print("==> Cleaning build artifacts")
     _clean_build_artifacts()
 

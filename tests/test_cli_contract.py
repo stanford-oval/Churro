@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import runpy
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from PIL import Image
@@ -11,9 +12,14 @@ from churro_ocr.cli import app
 from churro_ocr.ocr import OCRResult
 from churro_ocr.page_detection import DocumentPage, PageDetectionResult
 
+if TYPE_CHECKING:
+    from typer.testing import CliRunner
+
+    from tests._types import WriteImageFile
+
 
 @pytest.fixture
-def sample_image_path(write_image_file) -> Path:
+def sample_image_path(write_image_file: WriteImageFile) -> Path:
     return write_image_file(size=(12, 12))
 
 
@@ -42,7 +48,7 @@ def test_transcribe_cli_validates_backend_requirements(
     sample_image_path: Path,
     args: list[str],
     expected_parts: tuple[str, ...],
-    cli_runner,
+    cli_runner: CliRunner,
 ) -> None:
     result = cli_runner.invoke(
         app,
@@ -58,7 +64,7 @@ def test_transcribe_cli_validates_backend_requirements(
 def test_transcribe_cli_allows_openai_compatible_backend_without_api_key(
     monkeypatch: pytest.MonkeyPatch,
     sample_image_path: Path,
-    cli_runner,
+    cli_runner: CliRunner,
 ) -> None:
     captured: dict[str, object] = {}
 
@@ -104,7 +110,7 @@ def test_transcribe_cli_allows_openai_compatible_backend_without_api_key(
 def test_transcribe_cli_rejects_unsupported_backend(
     sample_image_path: Path,
     backend: str,
-    cli_runner,
+    cli_runner: CliRunner,
 ) -> None:
     result = cli_runner.invoke(
         app,
@@ -126,7 +132,7 @@ def test_transcribe_cli_rejects_unsupported_backend(
 def test_transcribe_cli_echoes_text_without_output(
     monkeypatch: pytest.MonkeyPatch,
     sample_image_path: Path,
-    cli_runner,
+    cli_runner: CliRunner,
 ) -> None:
     class _FakeBackend:
         async def ocr(self, page: DocumentPage) -> OCRResult:
@@ -171,7 +177,7 @@ def test_extract_pages_cli_requires_exactly_one_image_or_pdf(
     tmp_path: Path,
     command_args: list[str],
     minimal_pdf_path: Path,
-    cli_runner,
+    cli_runner: CliRunner,
 ) -> None:
     output_dir = tmp_path / "pages"
     args = [
@@ -208,7 +214,7 @@ def test_extract_pages_cli_validates_page_detector_requirements(
     tmp_path: Path,
     args: list[str],
     expected_parts: tuple[str, ...],
-    cli_runner,
+    cli_runner: CliRunner,
 ) -> None:
     output_dir = tmp_path / "pages"
     result = cli_runner.invoke(
@@ -233,7 +239,7 @@ def test_extract_pages_cli_writes_pdf_page_images(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     minimal_pdf_path: Path,
-    cli_runner,
+    cli_runner: CliRunner,
 ) -> None:
     calls: dict[str, object] = {}
 
@@ -242,7 +248,8 @@ def test_extract_pages_cli_writes_pdf_page_images(
             calls["backend"] = backend
 
         def detect_image_sync(self, request: object) -> PageDetectionResult:
-            raise AssertionError(f"Unexpected image request: {request!r}")
+            message = f"Unexpected image request: {request!r}"
+            raise AssertionError(message)
 
         def detect_pdf_sync(self, path: Path, *, dpi: int, trim_margin: int) -> PageDetectionResult:
             calls["path"] = Path(path)

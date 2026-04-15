@@ -19,6 +19,11 @@ def test_install_runtime_dependencies_installs_hf_and_torch_with_uv(
 ) -> None:
     commands: list[list[str]] = []
 
+    def _run(command: list[str], *, check: bool = True) -> SimpleNamespace:
+        _ = check
+        commands.append(list(command))
+        return SimpleNamespace(returncode=0)
+
     monkeypatch.setattr(
         install_module.metadata,
         "distribution",
@@ -30,11 +35,7 @@ def test_install_runtime_dependencies_installs_hf_and_torch_with_uv(
         ),
     )
     monkeypatch.setattr(install_module.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None)
-    monkeypatch.setattr(
-        install_module.subprocess,
-        "run",
-        lambda command, check=True: commands.append(list(command)) or SimpleNamespace(returncode=0),
-    )
+    monkeypatch.setattr(install_module.subprocess, "run", _run)
 
     result = install_module.install_runtime_dependencies(
         target="hf",
@@ -72,17 +73,18 @@ def test_install_runtime_dependencies_installs_local_client_with_uv(
 ) -> None:
     commands: list[list[str]] = []
 
+    def _run(command: list[str], *, check: bool = True) -> SimpleNamespace:
+        _ = check
+        commands.append(list(command))
+        return SimpleNamespace(returncode=0)
+
     monkeypatch.setattr(
         install_module.metadata,
         "distribution",
         lambda _: _FakeDistribution(requires=['litellm[caching]==1.82.3; extra == "local"']),
     )
     monkeypatch.setattr(install_module.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None)
-    monkeypatch.setattr(
-        install_module.subprocess,
-        "run",
-        lambda command, check=True: commands.append(list(command)) or SimpleNamespace(returncode=0),
-    )
+    monkeypatch.setattr(install_module.subprocess, "run", _run)
 
     result = install_module.install_runtime_dependencies(target="local")
 

@@ -1,5 +1,21 @@
 [src]
 include = ["src", "tests"]
 
+[rules]
+unused-ignore-comment = "error"
+unused-type-ignore-comment = "error"
+redundant-cast = "error"
+possibly-unresolved-reference = "warn"
+
+[environment]
+python-version = "3.12"
+
 [terminal]
+error-on-warning = true
 output-format = "concise"
+
+[[overrides]]
+include = ["tests/**"]
+
+[overrides.rules]
+possibly-unresolved-reference = "ignore"

@@ -1,15 +1,66 @@
 line-length = 110
-required-version = "==0.15.9"
+required-version = "==0.15.10"
 
 [lint]
-select = ["E", "F", "I", "B", "UP", "ASYNC", "SIM", "D"]
+select = [
+    "E",       # pycodestyle errors
+    "F",       # Pyflakes (unused imports, undefined names, etc.)
+    "I",       # isort (import sorting/organization)
+    "N",       # pep8-naming
+    "B",       # flake8-bugbear (likely bugs and design issues)
+    "UP",      # pyupgrade (modernize syntax for newer Python)
+    "ASYNC",   # flake8-async (async/await correctness checks)
+    "BLE",     # flake8-blind-except
+    "SIM",     # flake8-simplify (suggest simpler code patterns)
+    "C4",      # flake8-comprehensions
+    "D",       # pydocstyle (docstring style and completeness)
+    "PIE",     # flake8-pie
+    "PERF",    # Perflint
+    "PTH",     # flake8-use-pathlib
+    "PT",      # flake8-pytest-style
+    "RET504",  # flake8-return: unnecessary variable assignment before return
+    "ARG",     # flake8-unused-arguments
+    "ANN",     # flake8-annotations
+    "TRY",     # tryceratops
+    "RUF100",  # Ruff-specific: unused noqa directives
+    "RUF022",  # Ruff-specific: __all__ sorting/format consistency
+    "RUF023",  # Ruff-specific: __slots__ should be a tuple/string literal
+    "RUF043",  # Ruff-specific: detect potentially invalid regex patterns/usages
+    "RUF046",  # Ruff-specific: detect unnecessary cast/collection conversion patterns
+    "TC",      # flake8-type-checking
+]
+extend-select = [
+    "C901",    # mccabe: cyclomatic complexity
+    "PLR0911", # pylint: too many return statements
+    "PLR0912", # pylint: too many branches
+    "PLR0913", # pylint: too many arguments
+    "PLR0915", # pylint: too many statements
+]
 
 [format]
 docstring-code-format = true
+
+[lint.mccabe]
+max-complexity = 13
+
+[lint.pylint]
+max-returns = 8     # maximum return statements allowed in one function/method
+max-branches = 15   # maximum branches allowed in one function/method
+max-args = 11       # maximum parameters allowed in one function/method definition
+max-statements = 60 # maximum statements allowed in one function/method body
 
 [lint.pydocstyle]
 convention = "google"
 
 [lint.per-file-ignores]
 "src/churro_ocr/cli.py" = ["B008"]
-"tests/**/*.py" = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
+"tests/**/*.py" = [
+    "D100", # undocumented public module
+    "D101", # undocumented public class
+    "D102", # undocumented public method
+    "D103", # undocumented public function
+    "D104", # undocumented public package
+    "D105", # undocumented magic method
+    "D106", # undocumented public nested class
+    "D107", # undocumented public __init__
+]

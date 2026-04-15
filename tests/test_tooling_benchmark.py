@@ -1,26 +1,44 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from datasets import Dataset
 from PIL import Image
 
 from churro_ocr.ocr import OCRResult
-from churro_ocr.providers.hf import HuggingFaceVisionOCRBackend
-from churro_ocr.providers.ocr import LiteLLMVisionOCRBackend
+from churro_ocr.providers.hf import (
+    GlmOCROCRBackend,
+    HuggingFaceVisionOCRBackend,
+    QianfanOCROCRBackend,
+)
 from churro_ocr.providers.specs import DEFAULT_OCR_MAX_TOKENS
 from churro_ocr.templates import (
     CHURRO_3B_XML_TEMPLATE,
     DEEPSEEK_OCR_2_OCR_TEMPLATE,
     DOTS_MOCR_OCR_TEMPLATE,
     DOTS_OCR_1_5_OCR_TEMPLATE,
+    FIRERED_OCR_OCR_TEMPLATE,
+    GLM_OCR_OCR_TEMPLATE,
+    INFINITY_PARSER_7B_OCR_TEMPLATE,
+    MINERU2_5_2509_1_2B_OCR_TEMPLATE,
+    NANONETS_OCR2_3B_OCR_TEMPLATE,
     PADDLEOCR_VL_1_5_OCR_TEMPLATE,
+    QIANFAN_OCR_OCR_TEMPLATE,
 )
 from tooling.benchmarking import benchmark
-from tooling.evaluation.types import BenchmarkDatasetExample
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from pathlib import Path
+
+    from churro_ocr.providers.ocr import LiteLLMVisionOCRBackend
+    from tooling.evaluation.types import BenchmarkDatasetExample
+
+
+def _benchmark_runtime_error(message: str) -> RuntimeError:
+    return RuntimeError(message)
 
 
 def _benchmark_example(
@@ -177,6 +195,23 @@ def test_parse_args_accepts_subset_filters() -> None:
     assert options.document_type == "print"
 
 
+def test_parse_args_accepts_reasoning_effort() -> None:
+    options = benchmark.parse_args(
+        [
+            "--backend",
+            "litellm",
+            "--dataset-split",
+            "dev",
+            "--model",
+            "gpt-5.4",
+            "--reasoning-effort",
+            "low",
+        ]
+    )
+
+    assert options.reasoning_effort == "low"
+
+
 def test_parse_args_rejects_unsupported_backend() -> None:
     with pytest.raises(SystemExit):
         benchmark.parse_args(
@@ -214,6 +249,44 @@ def test_build_ocr_backend_enables_disk_cache_for_litellm(
     assert backend.transport.config.completion_kwargs == {"max_tokens": DEFAULT_OCR_MAX_TOKENS}
 
 
+def test_validate_options_rejects_reasoning_effort_for_hf() -> None:
+    options = benchmark.BenchmarkOptions(
+        backend="hf",
+        dataset_split="dev",
+        model="example/model",
+        reasoning_effort="high",
+    )
+
+    assert benchmark._validate_options(options) == 1
+
+
+def test_build_ocr_backend_passes_reasoning_effort_for_litellm(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cache_dir = tmp_path / "litellm-cache"
+
+    monkeypatch.setattr(benchmark, "_default_litellm_cache_dir", lambda: cache_dir)
+
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="litellm",
+                dataset_split="dev",
+                model="gpt-5.4",
+                reasoning_effort="low",
+            )
+        ),
+    )
+
+    assert backend.transport.config.cache_dir == cache_dir
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": DEFAULT_OCR_MAX_TOKENS,
+        "reasoning_effort": "low",
+    }
+
+
 def test_build_ocr_backend_allows_openai_compatible_without_api_key() -> None:
     backend = cast(
         "LiteLLMVisionOCRBackend",
@@ -230,6 +303,27 @@ def test_build_ocr_backend_allows_openai_compatible_without_api_key() -> None:
     assert backend.provider_name == "openai-compatible"
     assert backend.transport.config.api_base == "http://127.0.0.1:8000/v1"
     assert backend.transport.config.api_key is None
+
+
+def test_build_ocr_backend_passes_reasoning_effort_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="gpt-5.4",
+                base_url="http://127.0.0.1:8000/v1",
+                reasoning_effort="medium",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": DEFAULT_OCR_MAX_TOKENS,
+        "reasoning_effort": "medium",
+    }
 
 
 def test_build_ocr_backend_uses_dots_preset_for_hf() -> None:
@@ -367,6 +461,203 @@ def test_build_ocr_backend_uses_deepseek_ocr_2_preset_for_openai_compatible() ->
     }
 
 
+def test_build_ocr_backend_uses_firered_ocr_preset_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="hf",
+                dataset_split="dev",
+                model="FireRedTeam/FireRed-OCR",
+            )
+        ),
+    )
+
+    assert type(backend) is HuggingFaceVisionOCRBackend
+    assert backend.model_name == "FireRed-OCR"
+    assert backend.template == FIRERED_OCR_OCR_TEMPLATE
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {
+        "device_map": "auto",
+        "torch_dtype": "auto",
+    }
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+
+
+def test_build_ocr_backend_uses_firered_ocr_preset_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="FireRedTeam/FireRed-OCR",
+                base_url="http://127.0.0.1:8000/v1",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.model_name == "FireRed-OCR"
+    assert backend.template == FIRERED_OCR_OCR_TEMPLATE
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+        "top_p": 1.0,
+    }
+
+
+def test_build_ocr_backend_uses_nanonets_ocr2_3b_preset_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="hf",
+                dataset_split="dev",
+                model="nanonets/Nanonets-OCR2-3B",
+            )
+        ),
+    )
+
+    assert type(backend) is HuggingFaceVisionOCRBackend
+    assert backend.model_name == "Nanonets-OCR2-3B"
+    assert backend.template == NANONETS_OCR2_3B_OCR_TEMPLATE
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {
+        "device_map": "auto",
+        "torch_dtype": "auto",
+    }
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 15_000,
+        "do_sample": False,
+    }
+
+
+def test_build_ocr_backend_uses_nanonets_ocr2_3b_preset_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="nanonets/Nanonets-OCR2-3B",
+                base_url="http://127.0.0.1:8000/v1",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.model_name == "Nanonets-OCR2-3B"
+    assert backend.template == NANONETS_OCR2_3B_OCR_TEMPLATE
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 15_000,
+        "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_uses_qianfan_ocr_preset_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="hf",
+                dataset_split="dev",
+                model="baidu/Qianfan-OCR",
+            )
+        ),
+    )
+
+    assert isinstance(backend, QianfanOCROCRBackend)
+    assert backend.model_name == "Qianfan-OCR"
+    assert backend.template == QIANFAN_OCR_OCR_TEMPLATE
+    assert backend.trust_remote_code is True
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {
+        "device_map": "auto",
+        "torch_dtype": "auto",
+    }
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+        "do_sample": False,
+    }
+
+
+def test_build_ocr_backend_uses_qianfan_ocr_preset_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="baidu/Qianfan-OCR",
+                base_url="http://127.0.0.1:8000/v1",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.model_name == "Qianfan-OCR"
+    assert backend.template == QIANFAN_OCR_OCR_TEMPLATE
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 4_096,
+        "temperature": 0.0,
+    }
+
+
+def test_build_ocr_backend_uses_glm_ocr_preset_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="hf",
+                dataset_split="dev",
+                model="zai-org/GLM-OCR",
+            )
+        ),
+    )
+
+    assert isinstance(backend, GlmOCROCRBackend)
+    assert backend.model_name == "GLM-OCR"
+    assert backend.trust_remote_code is False
+    assert backend.processor_kwargs == {}
+    assert backend.model_kwargs == {"device_map": "auto", "torch_dtype": "auto"}
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 8_192,
+        "do_sample": False,
+    }
+
+
+def test_build_ocr_backend_uses_glm_ocr_preset_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="zai-org/GLM-OCR",
+                base_url="http://127.0.0.1:8000/v1",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.model_name == "GLM-OCR"
+    assert backend.template == GLM_OCR_OCR_TEMPLATE
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_192,
+        "temperature": 0.0,
+    }
+    assert backend.image_preprocessor(Image.new("RGB", (3_508, 2_720), color="white")).size == (
+        2_464,
+        1_904,
+    )
+
+
 def test_build_ocr_backend_uses_paddleocr_vl_preset_for_hf() -> None:
     backend = cast(
         "HuggingFaceVisionOCRBackend",
@@ -409,6 +700,96 @@ def test_build_ocr_backend_uses_paddleocr_vl_preset_for_openai_compatible() -> N
         "max_tokens": 4_096,
         "temperature": 0.0,
     }
+
+
+def test_build_ocr_backend_uses_infinity_parser_preset_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="hf",
+                dataset_split="dev",
+                model="infly/Infinity-Parser-7B",
+            )
+        ),
+    )
+
+    assert type(backend) is HuggingFaceVisionOCRBackend
+    assert backend.template == INFINITY_PARSER_7B_OCR_TEMPLATE
+    assert backend.model_name == "Infinity-Parser-7B"
+    assert backend.processor_kwargs == {
+        "min_pixels": 200_704,
+        "max_pixels": 1_806_336,
+    }
+    assert backend.trust_remote_code is False
+    assert backend.model_kwargs == {"device_map": "auto", "torch_dtype": "auto"}
+    assert backend.generation_kwargs == {
+        "max_new_tokens": 4_096,
+    }
+
+
+def test_build_ocr_backend_uses_infinity_parser_preset_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="infly/Infinity-Parser-7B",
+                base_url="http://127.0.0.1:8000/v1",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.model_name == "Infinity-Parser-7B"
+    assert backend.template == INFINITY_PARSER_7B_OCR_TEMPLATE
+    assert backend.transport.config.completion_kwargs == {
+        "max_tokens": 8_192,
+        "temperature": 0.0,
+        "top_p": 0.95,
+    }
+
+
+def test_build_ocr_backend_uses_mineru2_5_preset_for_hf() -> None:
+    backend = cast(
+        "HuggingFaceVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="hf",
+                dataset_split="dev",
+                model="opendatalab/MinerU2.5-2509-1.2B",
+            )
+        ),
+    )
+
+    assert backend.model_name == "MinerU2.5-2509-1.2B"
+    assert backend.processor_kwargs == {"use_fast": True}
+    assert backend.trust_remote_code is False
+    assert backend.model_kwargs == {
+        "device_map": "auto",
+        "torch_dtype": "auto",
+    }
+    assert backend.generation_kwargs == {}
+
+
+def test_build_ocr_backend_uses_mineru2_5_preset_for_openai_compatible() -> None:
+    backend = cast(
+        "LiteLLMVisionOCRBackend",
+        benchmark._build_ocr_backend(
+            benchmark.BenchmarkOptions(
+                backend="openai-compatible",
+                dataset_split="dev",
+                model="opendatalab/MinerU2.5-2509-1.2B",
+                base_url="http://127.0.0.1:8000/v1",
+            )
+        ),
+    )
+
+    assert backend.provider_name == "openai-compatible"
+    assert backend.model_name == "MinerU2.5-2509-1.2B"
+    assert backend.template == MINERU2_5_2509_1_2B_OCR_TEMPLATE
+    assert backend.transport.config.completion_kwargs == {}
 
 
 def test_build_ocr_backend_uses_churro_preset_template_for_openai_compatible() -> None:
@@ -472,7 +853,7 @@ def test_build_ocr_backend_aligns_hf_and_openai_compatible_templates_for_generic
 
 
 @pytest.mark.asyncio
-async def test_run_executes_pipeline(monkeypatch, tmp_path: Path) -> None:
+async def test_run_executes_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     dataset: list[BenchmarkDatasetExample] = [
         _benchmark_example("0", transcription="first"),
         _benchmark_example(
@@ -491,28 +872,51 @@ async def test_run_executes_pipeline(monkeypatch, tmp_path: Path) -> None:
         ),
     ]
 
-    def fake_load_dataset(dataset_id: str, *, split: str):  # noqa: ANN001
+    def fake_load_dataset(dataset_id: str, *, split: str) -> list[BenchmarkDatasetExample]:
         assert dataset_id == benchmark.CHURRO_DATASET_ID
         assert split == "dev"
         return dataset
 
     monkeypatch.setattr(benchmark, "_load_dataset", fake_load_dataset)
 
-    async def fake_predict(ds, options, *, total_pages):  # noqa: ANN001
+    async def fake_predict(
+        ds: Iterable[BenchmarkDatasetExample],
+        options: benchmark.BenchmarkOptions,
+        *,
+        total_pages: int | None,
+    ) -> tuple[list[object], list[dict[str, object]]]:
         selected = list(ds)
         assert len(selected) == 1
         assert selected[0]["example_id"] == "1"
         assert options.max_concurrency == 2
         assert total_pages is None
-        return [
-            benchmark._build_evaluation_example(selected[0])
-        ], [{"text": "prediction", "metadata": {"raw_html": "<p>prediction</p>"}}]
+        return [benchmark._build_evaluation_example(selected[0])], [
+            {"text": "prediction", "metadata": {"raw_html": "<p>prediction</p>"}}
+        ]
 
     monkeypatch.setattr(benchmark, "_predict_texts", fake_predict)
+    cleanup_calls: list[str] = []
+    call_order: list[str] = []
+
+    async def fake_cleanup() -> None:
+        cleanup_calls.append("closed")
+        call_order.append("cleanup")
+
+    monkeypatch.setattr(
+        benchmark,
+        "close_litellm_async_clients",
+        fake_cleanup,
+    )
 
     captured: dict[str, object] = {}
 
-    def fake_compute_metrics(ds, predictions, output_prefix, elapsed_time):  # noqa: ANN001
+    def fake_compute_metrics(
+        ds: list[object],
+        predictions: list[dict[str, object]],
+        output_prefix: str,
+        elapsed_time: float,
+    ) -> dict[str, str]:
+        call_order.append("compute_metrics")
         captured["dataset"] = ds
         captured["predictions"] = predictions
         captured["output_prefix"] = output_prefix
@@ -541,6 +945,8 @@ async def test_run_executes_pipeline(monkeypatch, tmp_path: Path) -> None:
     assert captured["predictions"] == [{"text": "prediction", "metadata": {"raw_html": "<p>prediction</p>"}}]
     assert captured["output_prefix"] == str(tmp_path / "outputs")
     assert captured["elapsed_time"] == pytest.approx(3.5)
+    assert call_order == ["cleanup", "compute_metrics"]
+    assert cleanup_calls == ["closed"]
 
 
 def test_create_output_prefix_includes_subset_filters(
@@ -657,7 +1063,9 @@ def test_selected_dataset_examples_filters_materialized_dataset() -> None:
 
 
 @pytest.mark.asyncio
-async def test_predict_texts_updates_progress_and_preserves_order(monkeypatch) -> None:
+async def test_predict_texts_updates_progress_and_preserves_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     dataset: list[BenchmarkDatasetExample] = [
         _benchmark_example("0", size=(3, 3), transcription="alpha"),
         _benchmark_example(
@@ -739,7 +1147,7 @@ async def test_predict_texts_updates_progress_and_preserves_order(monkeypatch) -
         return progress_bar
 
     class FakeOCRBackend:
-        async def ocr(self, page):  # noqa: ANN001
+        async def ocr(self, page: benchmark.DocumentPage) -> OCRResult:
             await asyncio.sleep(page.width / 1000)
             return OCRResult(
                 text=f"page-{page.width}",
@@ -787,7 +1195,9 @@ async def test_predict_texts_updates_progress_and_preserves_order(monkeypatch) -
 
 
 @pytest.mark.asyncio
-async def test_predict_texts_uses_batch_backend_with_max_concurrency_as_batch_size(monkeypatch) -> None:
+async def test_predict_texts_uses_batch_backend_with_max_concurrency_as_batch_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     dataset: list[BenchmarkDatasetExample] = [
         _benchmark_example("0", size=(3, 3), transcription="alpha"),
         _benchmark_example(
@@ -810,7 +1220,7 @@ async def test_predict_texts_uses_batch_backend_with_max_concurrency_as_batch_si
     captured_batch_sizes: list[int] = []
 
     class FakeBatchBackend:
-        async def ocr_batch(self, pages):  # noqa: ANN001
+        async def ocr_batch(self, pages: list[benchmark.DocumentPage]) -> list[OCRResult]:
             captured_batch_sizes.append(len(pages))
             return [
                 OCRResult(
@@ -847,7 +1257,7 @@ async def test_predict_texts_uses_batch_backend_with_max_concurrency_as_batch_si
 
 
 @pytest.mark.asyncio
-async def test_predict_texts_logs_first_batch_output_once(monkeypatch) -> None:
+async def test_predict_texts_logs_first_batch_output_once(monkeypatch: pytest.MonkeyPatch) -> None:
     dataset = [
         _benchmark_example("0", size=(3, 3), transcription="alpha"),
         _benchmark_example("1", size=(1, 1), transcription="beta"),
@@ -859,7 +1269,7 @@ async def test_predict_texts_logs_first_batch_output_once(monkeypatch) -> None:
             logged_messages.append(message % args if args else message)
 
     class FakeBatchBackend:
-        async def ocr_batch(self, pages):  # noqa: ANN001
+        async def ocr_batch(self, pages: list[benchmark.DocumentPage]) -> list[OCRResult]:
             return [
                 OCRResult(
                     text=f"page-{page.width}",
@@ -896,7 +1306,9 @@ async def test_predict_texts_logs_first_batch_output_once(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_predict_texts_logs_first_submitted_output_once_for_non_batch_backend(monkeypatch) -> None:
+async def test_predict_texts_logs_first_submitted_output_once_for_non_batch_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     dataset: list[BenchmarkDatasetExample] = [
         _benchmark_example("0", size=(3, 3), transcription="alpha"),
         _benchmark_example("1", size=(1, 1), transcription="beta"),
@@ -909,7 +1321,7 @@ async def test_predict_texts_logs_first_submitted_output_once_for_non_batch_back
             logged_messages.append(message % args if args else message)
 
     class FakeOCRBackend:
-        async def ocr(self, page):  # noqa: ANN001
+        async def ocr(self, page: benchmark.DocumentPage) -> OCRResult:
             await asyncio.sleep(page.width / 1000)
             return OCRResult(
                 text=f"page-{page.width}",
@@ -941,3 +1353,136 @@ async def test_predict_texts_logs_first_submitted_output_once_for_non_batch_back
         {"text": "page-2", "metadata": {"page_width": 2}},
     ]
     assert logged_messages == ["First benchmark OCR output for backend=azure model=<default>:\npage-3"]
+
+
+@pytest.mark.asyncio
+async def test_predict_texts_continues_after_non_batch_page_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset: list[BenchmarkDatasetExample] = [
+        _benchmark_example("0", size=(3, 3), transcription="alpha"),
+        _benchmark_example("1", size=(1, 1), transcription="beta"),
+        _benchmark_example("2", size=(2, 2), transcription="gamma"),
+    ]
+    logged_messages: list[str] = []
+
+    class FakeLogger:
+        def info(self, _message: str, *_args: object) -> None:
+            return None
+
+        def exception(self, message: str, *args: object) -> None:
+            logged_messages.append(message % args if args else message)
+
+    class FakeOCRBackend:
+        async def ocr(self, page: benchmark.DocumentPage) -> OCRResult:
+            if page.width == 1:
+                message = "timed out"
+                raise _benchmark_runtime_error(message)
+            return OCRResult(
+                text=f"page-{page.width}",
+                provider_name="fake",
+                model_name="fake-model",
+                metadata={"page_width": page.width},
+            )
+
+    monkeypatch.setattr(benchmark, "logger", FakeLogger())
+    monkeypatch.setattr(benchmark, "_build_ocr_backend", lambda _: FakeOCRBackend())
+
+    options = benchmark.BenchmarkOptions(
+        backend="azure",
+        dataset_split="dev",
+        endpoint="https://example.invalid",
+        api_key="secret",
+        max_concurrency=2,
+    )
+
+    evaluation_examples, predictions = await benchmark._predict_texts(
+        dataset,
+        options,
+        total_pages=3,
+    )
+
+    assert evaluation_examples == [benchmark._build_evaluation_example(example) for example in dataset]
+    assert predictions == [
+        {"text": "page-3", "metadata": {"page_width": 3}},
+        {
+            "text": "",
+            "metadata": {"benchmark_error": {"type": "RuntimeError", "message": "timed out"}},
+        },
+        {"text": "page-2", "metadata": {"page_width": 2}},
+    ]
+    assert logged_messages == [
+        "Benchmark OCR failed for example_id=1 dataset_id=dataset-1 backend=azure model=<default>; "
+        "treating prediction as empty."
+    ]
+
+
+@pytest.mark.asyncio
+async def test_predict_texts_continues_after_batch_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset: list[BenchmarkDatasetExample] = [
+        _benchmark_example("0", size=(3, 3), transcription="alpha"),
+        _benchmark_example("1", size=(1, 1), transcription="beta"),
+        _benchmark_example("2", size=(2, 2), transcription="gamma"),
+    ]
+    logged_messages: list[str] = []
+    call_count = {"ocr_batch": 0}
+
+    class FakeLogger:
+        def info(self, _message: str, *_args: object) -> None:
+            return None
+
+        def exception(self, message: str, *args: object) -> None:
+            logged_messages.append(message % args if args else message)
+
+    class FakeBatchBackend:
+        async def ocr_batch(self, pages: list[benchmark.DocumentPage]) -> list[OCRResult]:
+            call_count["ocr_batch"] += 1
+            if call_count["ocr_batch"] == 1:
+                message = "batch timed out"
+                raise _benchmark_runtime_error(message)
+            return [
+                OCRResult(
+                    text=f"page-{page.width}",
+                    provider_name="fake",
+                    model_name="fake-model",
+                    metadata={"page_width": page.width},
+                )
+                for page in pages
+            ]
+
+    monkeypatch.setattr(benchmark, "logger", FakeLogger())
+    monkeypatch.setattr(benchmark, "_build_ocr_backend", lambda _: FakeBatchBackend())
+
+    options = benchmark.BenchmarkOptions(
+        backend="hf",
+        dataset_split="dev",
+        model="kristaller486/dots.ocr-1.5",
+        max_concurrency=2,
+    )
+
+    evaluation_examples, predictions = await benchmark._predict_texts(
+        dataset,
+        options,
+        total_pages=3,
+    )
+
+    assert evaluation_examples == [benchmark._build_evaluation_example(example) for example in dataset]
+    assert predictions == [
+        {
+            "text": "",
+            "metadata": {"benchmark_error": {"type": "RuntimeError", "message": "batch timed out"}},
+        },
+        {
+            "text": "",
+            "metadata": {"benchmark_error": {"type": "RuntimeError", "message": "batch timed out"}},
+        },
+        {"text": "page-2", "metadata": {"page_width": 2}},
+    ]
+    assert logged_messages == [
+        "Benchmark OCR failed for example_id=0 dataset_id=dataset-0 backend=hf "
+        "model=kristaller486/dots.ocr-1.5; treating prediction as empty.",
+        "Benchmark OCR failed for example_id=1 dataset_id=dataset-1 backend=hf "
+        "model=kristaller486/dots.ocr-1.5; treating prediction as empty.",
+    ]

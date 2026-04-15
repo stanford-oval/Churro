@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from PIL import Image
 
@@ -10,6 +12,11 @@ from churro_ocr.page_detection import (
     PageDetectionRequest,
     PageDetector,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from tests._types import WriteImageFile
 
 
 async def _two_pages(_: Image.Image) -> list[PageCandidate]:
@@ -42,7 +49,7 @@ def test_page_detector_returns_page_list() -> None:
     assert pages[1].page_index == 1
 
 
-def test_document_page_detector_detect_pdf_sync_uses_real_pdf(minimal_pdf_path) -> None:
+def test_document_page_detector_detect_pdf_sync_uses_real_pdf(minimal_pdf_path: Path) -> None:
     result = DocumentPageDetector().detect_pdf_sync(minimal_pdf_path, dpi=150, trim_margin=0)
 
     assert result.source_type == "pdf"
@@ -50,7 +57,7 @@ def test_document_page_detector_detect_pdf_sync_uses_real_pdf(minimal_pdf_path) 
     assert result.pages[0].image.width > 0
 
 
-def test_page_detection_request_requires_exactly_one_image_input(write_image_file) -> None:
+def test_page_detection_request_requires_exactly_one_image_input(write_image_file: WriteImageFile) -> None:
     image_path = write_image_file(size=(12, 12))
     with pytest.raises(ConfigurationError, match="exactly one"):
         PageDetectionRequest().require_image()

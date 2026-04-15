@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import html
 import re
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from churro_ocr.types import MetadataDict
 
 DEFAULT_OCR_OUTPUT_TAG = "output"
 
@@ -119,7 +122,7 @@ def strip_ocr_output_tag(text: str, *, output_tag: str = DEFAULT_OCR_OUTPUT_TAG)
     return stray_tag_pattern.sub("", text).strip()
 
 
-def _extract_yaml_front_matter(text: str) -> tuple[dict[str, object], str]:
+def _extract_yaml_front_matter(text: str) -> tuple[MetadataDict, str]:
     """Return YAML front matter fields and the remaining markdown body."""
     stripped = text.strip()
     if not stripped.startswith("---\n"):
@@ -131,7 +134,7 @@ def _extract_yaml_front_matter(text: str) -> tuple[dict[str, object], str]:
 
     front_matter_block = stripped[4:end_index]
     body = stripped[end_index + 4 :].strip()
-    front_matter: dict[str, object] = {}
+    front_matter: MetadataDict = {}
     for line in front_matter_block.splitlines():
         if ":" not in line:
             continue
@@ -153,7 +156,7 @@ def _extract_yaml_front_matter(text: str) -> tuple[dict[str, object], str]:
     return front_matter, body
 
 
-def _strip_rich_ocr_markup_to_plain_text(text: str) -> str:
+def strip_rich_ocr_markup_to_plain_text(text: str) -> str:
     """Best-effort plain-text conversion for OCR markdown/HTML output."""
     cleaned = text.strip()
     if not cleaned:
@@ -207,18 +210,18 @@ def _strip_rich_ocr_markup_to_plain_text(text: str) -> str:
     return "\n".join(normalized_lines).strip()
 
 
-def parse_olmocr_response(text: str) -> tuple[str, dict[str, Any]]:
+def parse_olmocr_response(text: str) -> tuple[str, MetadataDict]:
     """Extract plain text and metadata from an olmOCR YAML-front-matter response."""
     front_matter, markdown_body = _extract_yaml_front_matter(text)
-    return _strip_rich_ocr_markup_to_plain_text(markdown_body), {
+    return strip_rich_ocr_markup_to_plain_text(markdown_body), {
         "front_matter": front_matter,
         "raw_markdown": markdown_body,
     }
 
 
-def parse_chandra_response(text: str) -> tuple[str, dict[str, Any]]:
+def parse_chandra_response(text: str) -> tuple[str, MetadataDict]:
     """Extract plain text and metadata from a Chandra HTML-layout response."""
     raw_html = text.strip()
-    return _strip_rich_ocr_markup_to_plain_text(raw_html), {
+    return strip_rich_ocr_markup_to_plain_text(raw_html), {
         "raw_html": raw_html,
     }

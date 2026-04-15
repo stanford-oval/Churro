@@ -13,11 +13,16 @@ from churro_ocr.errors import ConfigurationError
 MAX_INLINE_IMAGE_DIM = 2_500
 
 
+def _configuration_error(message: str) -> ConfigurationError:
+    return ConfigurationError(message)
+
+
 def load_image(path: str | Path) -> Image.Image:
     """Load an image from disk and normalize EXIF orientation."""
     resolved = Path(path)
     if not resolved.exists():
-        raise ConfigurationError(f"Image path does not exist: {resolved}")
+        message = f"Image path does not exist: {resolved}"
+        raise _configuration_error(message)
     with Image.open(resolved) as image:
         normalized = ImageOps.exif_transpose(image)
         assert normalized is not None

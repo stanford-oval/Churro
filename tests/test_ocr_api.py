@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from PIL import Image
 
@@ -7,6 +9,9 @@ from churro_ocr.errors import ConfigurationError
 from churro_ocr.ocr import OCRBackend, OCRClient, OCRResult, prepare_ocr_page
 from churro_ocr.page_detection import DocumentPage
 from churro_ocr.prompts import strip_ocr_output_tag
+
+if TYPE_CHECKING:
+    from tests._types import WriteImageFile
 
 
 class _FakeOCRBackend(OCRBackend):
@@ -19,7 +24,7 @@ class _FakeOCRBackend(OCRBackend):
         )
 
 
-def test_document_page_loads_image_from_path(write_image_file) -> None:
+def test_document_page_loads_image_from_path(write_image_file: WriteImageFile) -> None:
     image_path = write_image_file(size=(12, 34))
     page = DocumentPage.from_image_path(image_path)
     image = page.image
@@ -27,7 +32,7 @@ def test_document_page_loads_image_from_path(write_image_file) -> None:
     assert image.size == (12, 34)
 
 
-def test_ocr_client_sync(write_image_file) -> None:
+def test_ocr_client_sync(write_image_file: WriteImageFile) -> None:
     image_path = write_image_file(size=(20, 10))
     result = OCRClient(_FakeOCRBackend()).ocr(DocumentPage.from_image_path(image_path))
 
@@ -64,7 +69,7 @@ def test_prepare_ocr_page_resizes_and_normalizes_image() -> None:
     assert prepared_page.image.mode == "RGB"
 
 
-def test_ocr_client_image_helpers_require_exactly_one_input(write_image_file) -> None:
+def test_ocr_client_image_helpers_require_exactly_one_input(write_image_file: WriteImageFile) -> None:
     image_path = write_image_file(size=(20, 10))
     client = OCRClient(_FakeOCRBackend())
 
