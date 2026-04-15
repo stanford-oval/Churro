@@ -3292,5 +3292,59 @@
         "Khmer": 0.5
       }
     }
+  },
+  {
+    "modelName": "Gemma 4 (E4B)",
+    "modelId": "google/gemma-4-E4B-it",
+    "modelUrl": "https://huggingface.co/google/gemma-4-E4B-it",
+    "iconPath": "_static/img/gemma-icon.svg",
+    "printed": 56.9,
+    "handwritten": 32.2,
+    "total": 43.6,
+    "main_language_and_type_metrics": {
+      "print": {
+        "Czech": 82.7,
+        "German": 49.9,
+        "Latin": 77.4,
+        "French": 71.7,
+        "English": 76.5,
+        "Hindi": 69.3,
+        "Sanskrit": 58.6,
+        "Swedish": 49.6,
+        "Chinese": 2.5,
+        "Dutch": 49.6,
+        "Finnish": 19.0,
+        "Polish": 59.4,
+        "Spanish": 75.7,
+        "Slovenian": 94.5,
+        "Bulgarian": 67.6,
+        "Japanese": 11.5,
+        "Bangla": 58.2,
+        "Romanian": 49.9
+      },
+      "handwriting": {
+        "Spanish": 38.0,
+        "Dutch": 42.6,
+        "French": 37.2,
+        "Latin": 29.2,
+        "Hebrew": 7.4,
+        "Japanese": 4.1,
+        "Italian": 50.2,
+        "German": 31.5,
+        "Greek": 26.1,
+        "Swedish": 16.5,
+        "Arabic": 42.7,
+        "Chinese": 35.4,
+        "English": 62.3,
+        "Catalan": 55.2,
+        "Portuguese": 16.4,
+        "Sanskrit": 1.5,
+        "Turkish": 31.3,
+        "Persian": 38.0,
+        "Vietnamese": 38.8,
+        "Norwegian": 66.1,
+        "Khmer": 4.8
+      }
+    }
   }
 ]
