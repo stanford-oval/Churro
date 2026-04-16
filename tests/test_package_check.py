@@ -1,3 +1,5 @@
+import importlib
+import sys
 from email.message import Message
 from importlib import metadata as importlib_metadata
 from importlib.util import module_from_spec, spec_from_file_location
@@ -55,3 +57,23 @@ def test_local_runtime_packaging_policy_rejects_direct_torch_runtime_pin() -> No
 
     with pytest.raises(RuntimeError, match="must not pin local PyTorch"):
         package_check._assert_local_runtime_packaging_policy(metadata_message)
+
+
+def test_cli_import_does_not_eagerly_import_hf_backend_module() -> None:
+    module_names = (
+        "churro_ocr.cli",
+        "churro_ocr.providers.builder",
+        "churro_ocr.providers.hf",
+    )
+    saved_modules = {name: sys.modules.pop(name, None) for name in module_names}
+
+    try:
+        cli_module = importlib.import_module("churro_ocr.cli")
+        assert cli_module.app is not None
+        assert "churro_ocr.providers.hf" not in sys.modules
+    finally:
+        for name in module_names:
+            sys.modules.pop(name, None)
+        for name, module in saved_modules.items():
+            if module is not None:
+                sys.modules[name] = module
