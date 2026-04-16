@@ -2,23 +2,11 @@
 
 from __future__ import annotations
 
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 from churro_ocr._internal.litellm import LiteLLMTransport
 from churro_ocr.errors import ConfigurationError
-from churro_ocr.providers.hf import (
-    ChandraOCR2OCRBackend,
-    DeepSeekOCR2OCRBackend,
-    DotsMOCROCRBackend,
-    DotsOCR15OCRBackend,
-    GlmOCROCRBackend,
-    HuggingFaceVisionOCRBackend,
-    LFM25VLOCRBackend,
-    MinerU25OCRBackend,
-    PaddleOCRVL15OCRBackend,
-    QianfanOCROCRBackend,
-    _default_dots_ocr_1_5_model_kwargs,
-)
 from churro_ocr.providers.ocr import (
     AzureDocumentIntelligenceOCRBackend,
     LiteLLMVisionOCRBackend,
@@ -40,6 +28,8 @@ from churro_ocr.providers.specs import (
 from churro_ocr.templates import MINERU2_5_2509_1_2B_MODEL_ID
 
 if TYPE_CHECKING:
+    from types import ModuleType
+
     from churro_ocr.ocr import OCRBackend
 
 
@@ -137,6 +127,10 @@ def _resolve_model_name(profile: OCRModelProfile, model: str | None, *, fallback
     return fallback
 
 
+def _load_huggingface_backends() -> ModuleType:
+    return import_module("churro_ocr.providers.hf")
+
+
 def _build_litellm_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -> OCRBackend:
     if spec.model is None:
         message = "OCR provider 'litellm' requires `model`."
@@ -191,27 +185,28 @@ def _build_huggingface_backend(spec: OCRBackendSpec, profile: OCRModelProfile) -
         profile.huggingface,
         _ensure_options_type(spec.options, HuggingFaceOptions, provider=spec.provider),
     )
-    backend_cls: type[HuggingFaceVisionOCRBackend] = HuggingFaceVisionOCRBackend
+    hf_backends = _load_huggingface_backends()
+    backend_cls = hf_backends.HuggingFaceVisionOCRBackend
     model_kwargs = dict(options.model_kwargs)
     if options.backend_variant in {"dots-ocr-1.5", "dots-mocr"}:
-        backend_cls = DotsOCR15OCRBackend
+        backend_cls = hf_backends.DotsOCR15OCRBackend
         if options.backend_variant == "dots-mocr":
-            backend_cls = DotsMOCROCRBackend
-        model_kwargs = _merge_mapping(_default_dots_ocr_1_5_model_kwargs(), model_kwargs)
+            backend_cls = hf_backends.DotsMOCROCRBackend
+        model_kwargs = _merge_mapping(hf_backends._default_dots_ocr_1_5_model_kwargs(), model_kwargs)
     elif options.backend_variant == "glm-ocr":
-        backend_cls = GlmOCROCRBackend
+        backend_cls = hf_backends.GlmOCROCRBackend
     elif options.backend_variant == "deepseek-ocr-2":
-        backend_cls = DeepSeekOCR2OCRBackend
+        backend_cls = hf_backends.DeepSeekOCR2OCRBackend
     elif options.backend_variant == "chandra-ocr-2":
-        backend_cls = ChandraOCR2OCRBackend
+        backend_cls = hf_backends.ChandraOCR2OCRBackend
     elif options.backend_variant == "mineru2.5":
-        backend_cls = MinerU25OCRBackend
+        backend_cls = hf_backends.MinerU25OCRBackend
     elif options.backend_variant == "paddleocr-vl-1.5":
-        backend_cls = PaddleOCRVL15OCRBackend
+        backend_cls = hf_backends.PaddleOCRVL15OCRBackend
     elif options.backend_variant == "lfm2.5-vl":
-        backend_cls = LFM25VLOCRBackend
+        backend_cls = hf_backends.LFM25VLOCRBackend
     elif options.backend_variant == "qianfan-ocr":
-        backend_cls = QianfanOCROCRBackend
+        backend_cls = hf_backends.QianfanOCROCRBackend
     return backend_cls(
         model_id=spec.model,
         template=profile.template,
