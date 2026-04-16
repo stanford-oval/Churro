@@ -20,7 +20,9 @@ Churro is the fastest way to turn hard-to-read historical scans into reliable te
 
 ## Supported OCR Models and Backends
 
-Churro includes built-in profiles, templates, and post-processing for many OCR models and integrations, including:
+**We provide first-party support for Churro VLM, the best OCR model for historical documents.**
+
+Churro also includes built-in profiles, templates, and post-processing for many other models and integrations, including:
 
 - Hosted vision-language models, including Gemini, GPT, Claude, and more, through LiteLLM integration
 - OpenAI-compatible servers, including vLLM, Ollama, TGI, and more
@@ -33,8 +35,6 @@ Churro includes built-in profiles, templates, and post-processing for many OCR m
 - `Infinity Parser`
 - `PaddleOCR VL`
 - `LFM VL`
-
-**We also provide first-party support for Churro VLM, a purpose-trained model for historical OCR.**
 
 
 ## Quick Start
