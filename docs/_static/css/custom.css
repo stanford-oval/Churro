@@ -9,6 +9,10 @@
   --pst-font-family-monospace: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
   --bs-body-font-size: 1.0625rem;
   --bs-body-line-height: 1.65;
+  --benchmark-table-border-color: rgba(139, 69, 31, 0.1);
+  --benchmark-table-header-overlay: rgba(139, 69, 31, 0.035);
+  --benchmark-table-even-row-overlay: rgba(139, 69, 31, 0.03);
+  --benchmark-sticky-divider-color: rgba(139, 69, 31, 0.14);
 }
 
 html[data-theme="dark"] {
@@ -17,6 +21,10 @@ html[data-theme="dark"] {
   --pst-color-accent: #f4b25e;
   --pst-color-link: #f4b25e;
   --pst-color-link-hover: #f8cf92;
+  --benchmark-table-border-color: rgba(244, 178, 94, 0.18);
+  --benchmark-table-header-overlay: rgba(244, 178, 94, 0.06);
+  --benchmark-table-even-row-overlay: rgba(244, 178, 94, 0.05);
+  --benchmark-sticky-divider-color: rgba(244, 178, 94, 0.2);
 }
 
 .bd-article-container h1,
@@ -88,23 +96,31 @@ html[data-theme="dark"] {
 
 .benchmark-table-wrapper {
   overflow-x: auto;
+  position: relative;
 }
 
 .benchmark-table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   min-width: 100%;
   width: 100%;
 }
 
 .benchmark-table th,
 .benchmark-table td {
-  border-bottom: 1px solid rgba(139, 69, 31, 0.1);
+  background-clip: padding-box;
+  border-bottom: 1px solid var(--benchmark-table-border-color);
   padding: 0.9rem 0.85rem;
   vertical-align: top;
 }
 
 .benchmark-table th {
-  background: rgba(139, 69, 31, 0.035);
+  background:
+    linear-gradient(
+      var(--benchmark-table-header-overlay),
+      var(--benchmark-table-header-overlay)
+    ),
+    var(--pst-color-table-heading-bg);
   font-size: 0.9rem;
   font-weight: 600;
   position: sticky;
@@ -121,8 +137,36 @@ html[data-theme="dark"] {
   z-index: 2;
 }
 
-.benchmark-table tbody tr:nth-child(even) {
-  background: rgba(139, 69, 31, 0.03);
+.benchmark-table tbody td {
+  background: var(--pst-color-table-row-zebra-low-bg);
+}
+
+.benchmark-table tbody tr:nth-child(even) td {
+  background:
+    linear-gradient(
+      var(--benchmark-table-even-row-overlay),
+      var(--benchmark-table-even-row-overlay)
+    ),
+    var(--pst-color-table-row-zebra-high-bg);
+}
+
+.benchmark-sticky-column {
+  background-clip: padding-box;
+  position: sticky;
+}
+
+.benchmark-sticky-column--model {
+  left: 0;
+}
+
+.benchmark-table thead .benchmark-sticky-column--model {
+  box-shadow: 1px 0 0 var(--benchmark-sticky-divider-color);
+  z-index: 6;
+}
+
+.benchmark-table tbody .benchmark-sticky-column--model {
+  box-shadow: 1px 0 0 var(--benchmark-sticky-divider-color);
+  z-index: 1;
 }
 
 .benchmark-sort-button {
@@ -257,10 +301,17 @@ html[data-theme="dark"] {
 .benchmark-model-name {
   color: inherit;
   font-weight: 600;
-  text-decoration: none;
 }
 
-.benchmark-model-name:hover {
+.benchmark-model-name-link,
+.benchmark-model-id-link {
+  color: inherit;
+  text-decoration: none;
+  width: fit-content;
+}
+
+.benchmark-model-name-link:hover,
+.benchmark-model-id-link:hover .benchmark-model-id {
   color: var(--pst-color-link-hover);
 }
 
@@ -274,34 +325,18 @@ html[data-theme="dark"] {
   color: var(--pst-color-danger);
 }
 
-html[data-theme="dark"] .benchmark-table th {
-  border-color: rgba(244, 178, 94, 0.18);
-}
-
-html[data-theme="dark"] .benchmark-table th {
-  background: rgba(244, 178, 94, 0.06);
-}
-
-html[data-theme="dark"] .benchmark-table tbody tr:nth-child(even) {
-  background: rgba(244, 178, 94, 0.05);
-}
-
-html[data-theme="dark"] .benchmark-group-toggle,
-[data-bs-theme="dark"] .benchmark-group-toggle {
+html[data-theme="dark"] .benchmark-group-toggle {
   background: rgba(244, 178, 94, 0.1);
   border-color: rgba(244, 178, 94, 0.2);
 }
 
-html[data-theme="dark"] .benchmark-model-icon-placeholder,
-[data-bs-theme="dark"] .benchmark-model-icon-placeholder {
+html[data-theme="dark"] .benchmark-model-icon-placeholder {
   background: rgba(244, 178, 94, 0.08);
   border-color: rgba(244, 178, 94, 0.24);
 }
 
 html[data-theme="dark"] .bd-content .benchmark-model-icon,
-html[data-theme="dark"] .bd-content .benchmark-model-icon-frame,
-[data-bs-theme="dark"] .bd-content .benchmark-model-icon,
-[data-bs-theme="dark"] .bd-content .benchmark-model-icon-frame {
+html[data-theme="dark"] .bd-content .benchmark-model-icon-frame {
   background: transparent;
   box-shadow: none;
   border-radius: 0;
