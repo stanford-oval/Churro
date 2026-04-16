@@ -778,8 +778,8 @@ packages:
   requires_python: '>=3.7'
 - pypi: ./
   name: churro-ocr
-  version: 0.2.0
-  sha256: 4aee805c55ac9eadaec8248affc3a728150ad248721bcfa301928bf5c2fd44e3
+  version: 0.3.0
+  sha256: 61e09ecb31ad134c61047136f8538a746d3c8e4ab961787f13346bc08bb9063f
   requires_dist:
   - loguru>=0.7.2,<1
   - pillow>=10.4.0,<12
